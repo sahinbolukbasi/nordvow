@@ -2,7 +2,9 @@ import { prisma } from "../db";
 import { getLlm } from "../llm";
 import { envStr } from "../env";
 import { handoff } from "../assistant/runtime";
+import { isRevocationError, metaClient, MetaApiError } from "../channels/meta-client";
 import { SendBlockedError, sendMessage } from "../messaging/send";
+import { botLog } from "./trace";
 import { handleGuest } from "./guest";
 import { activeLink, autoLinkSender, consumeLinkCode, magicLinkUrl } from "./link";
 import { detectBotLang, matchMenu, menuText } from "./menu";
@@ -104,6 +106,7 @@ export async function handlePlatformBot(input: {
   }
 
   const user = await ensureLinked(input.channel, input.externalId, input.phone ?? null);
+  botLog("info", user ? "linked" : "guest", { channel: input.channel });
   if (!user) {
     if (menu === "events") return deliver(input, await toolPublic(lang));
     const guest = await handleGuest({ channel: input.channel, externalId: input.externalId, phone: input.phone, text: input.text, now });
@@ -179,10 +182,61 @@ async function deliver(input: { tenantId: string; conversationId: string; channe
       return { sent: true };
     }
     await sendMessage({ tenantId: input.tenantId, conversationId: input.conversationId, byUserId: null, text: plan.body, now: input.now });
+    botLog("info", "reply_sent", { channel: input.channel, via: "connection" });
     return { sent: true };
   } catch (e) {
-    if (e instanceof SendBlockedError) return { sent: false };
+    if (e instanceof SendBlockedError) {
+      botLog("warn", "reply_blocked", { code: e.code });
+      if (e.code === "CONNECTION" && plan.mode === "text") return { sent: await sendViaEnv(input, plan.body) };
+      return { sent: false };
+    }
+    if (e instanceof MetaApiError) {
+      botLog("warn", "graph_error", { code: e.code });
+      return { sent: false };
+    }
     throw e;
+  }
+}
+
+async function sendViaEnv(input: { tenantId: string; conversationId: string; channel: BotChannel; now?: Date }, body: string): Promise<boolean> {
+  const settings = await getBotSettings();
+  const conv = await prisma.conversation.findFirst({ where: { id: input.conversationId }, include: { contact: true } });
+  const to = conv?.contact.phoneE164?.replace(/^\+/, "") || conv?.contact.externalId || "";
+  if (!to) {
+    botLog("warn", "reply_skipped", { reason: "no_recipient" });
+    return false;
+  }
+  try {
+    let externalId = "";
+    if (input.channel === "WHATSAPP") {
+      const token = envStr("WHATSAPP_ACCESS_TOKEN", "").trim() || envStr("META_WABA_TOKEN", "").trim() || envStr("META_SYSTEM_USER_TOKEN", "").trim();
+      const phoneNumberId = settings.whatsappPhoneNumberId || envStr("WHATSAPP_PHONE_NUMBER_ID", "").trim() || envStr("NORDVOW_WA_PHONE_NUMBER_ID", "").trim();
+      if (!token || !phoneNumberId) {
+        botLog("warn", "reply_skipped", { reason: "no_env_token" });
+        return false;
+      }
+      externalId = (await metaClient().sendWhatsApp(phoneNumberId, token, { kind: "text", to, body })).messageId;
+    } else {
+      const token = envStr("INSTAGRAM_ACCESS_TOKEN", "").trim() || envStr("META_IG_TOKEN", "").trim() || envStr("META_SYSTEM_USER_TOKEN", "").trim();
+      const id = input.channel === "INSTAGRAM" ? settings.igUserId || envStr("INSTAGRAM_IG_USER_ID", "").trim() || envStr("NORDVOW_IG_USER_ID", "").trim() : settings.pageId || envStr("NORDVOW_PAGE_ID", "").trim();
+      if (!token || !id) {
+        botLog("warn", "reply_skipped", { reason: "no_env_token" });
+        return false;
+      }
+      externalId = (await metaClient().sendInstagram(id, token, to, body)).messageId;
+    }
+    await prisma.message.create({
+      data: { tenantId: input.tenantId, conversationId: input.conversationId, externalId, direction: "OUTBOUND", body, category: "service", status: "sent", statusAt: input.now ?? new Date(), fromAi: true },
+    });
+    botLog("info", "reply_sent", { channel: input.channel, via: "env" });
+    return true;
+  } catch (e) {
+    if (isRevocationError(e) || e instanceof MetaApiError) {
+      botLog("warn", "graph_error", { code: e instanceof MetaApiError ? e.code : 0 });
+      return false;
+    }
+    botLog("warn", "graph_error", { code: 0 });
+    return false;
   }
 }
 

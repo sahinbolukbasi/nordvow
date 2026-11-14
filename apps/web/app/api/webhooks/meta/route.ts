@@ -21,7 +21,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.text();
-  const result = await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"));
+  const result = await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"), { awaitProcessing: true });
+  console.info("[meta-bot]", { step: "received", accepted: result.accepted, reason: result.reason ?? "ok" });
   warnMetaSignature(result.reason);
   return new Response(null, { status: 200 });
 }
