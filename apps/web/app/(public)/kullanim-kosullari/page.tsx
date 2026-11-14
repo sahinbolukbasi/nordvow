@@ -6,16 +6,16 @@ import { getLegalEntity } from "@/lib/legal";
 export const metadata: Metadata = { title: "Kullanım Koşulları" };
 export const dynamic = "force-dynamic";
 
-export default async function TermsPage() {
+export async function TermsView({ title, current }: { title: string; current: string }) {
   const tt = await getTT();
   const e = await getLegalEntity();
   return (
     <LegalDoc
-      current="/kullanim-kosullari"
+      current={current}
       entity={e}
-      title={tt("Kullanım Koşulları")}
+      title={tt(title)}
       intro={
-        <p>{tt("Bu koşullar,")}{" "}{e.title}{" "}{tt("(\"")}{e.shortName}{tt("\") tarafından sunulan platformun ajanslar, markalar ve içerik üreticileri tarafından kullanımını düzenler. Platformu kullanarak bu koşulları kabul etmiş olursunuz.")}</p>
+        <p><strong>{tt("Taslak:")}</strong>{" "}{tt("bu metin hukuk incelemesi bekler. ")}{tt("Bu koşullar,")}{" "}{e.title}{" "}{tt("(\"")}{e.shortName}{tt("\") tarafından sunulan platformun ajanslar, markalar ve içerik üreticileri tarafından kullanımını düzenler. Platformu kullanarak bu koşulları kabul etmiş olursunuz.")}</p>
       }
       sections={[
         {
@@ -118,4 +118,8 @@ export default async function TermsPage() {
       ]}
     />
   );
+}
+
+export default function TermsPage() {
+  return <TermsView title="Kullanım Koşulları" current="/kullanim-kosullari" />;
 }

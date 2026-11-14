@@ -1830,9 +1830,21 @@ model ShortLink {
   label      String?
   clicks     Int       @default(0)
   createdByUserId String? @map("created_by_user_id")
+  /// Marka veya influencer hesabı. Platform (admin) linklerinde boş.
+  tenantId   String?   @map("tenant_id")
   lastClickAt DateTime? @map("last_click_at")
   createdAt  DateTime  @default(now()) @map("created_at")
+  @@index([tenantId, createdAt])
   @@map("short_links")
+}
+
+/// Meta veri silme callback kaydı (onay kodu + durum sayfası).
+model DataDeletionRequest {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  metaUserId String?  @map("meta_user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@map("data_deletion_requests")
 }
 
 /// Kullanıcı destek talebi (hata bildirimi, soru, istek). Admin gelen kutusunda yönetilir.

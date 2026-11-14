@@ -6,7 +6,7 @@ import { resetDb } from "./helpers";
 describe("K27 entegrasyon durumu", () => {
   beforeAll(async () => { await resetDb(); });
   const saved: Record<string, string | undefined> = {};
-  const keys = ["FAL_KEY", "FAL_API_KEY", "LLM_PROVIDER", "META_ADS_ACCESS_TOKEN", "META_SYSTEM_USER_TOKEN", "TIKTOK_ACCESS_TOKEN", "WHATSAPP_ACCESS_TOKEN", "META_WABA_TOKEN"];
+  const keys = ["FAL_KEY", "FAL_API_KEY", "FAL_MODE", "LLM_PROVIDER", "META_ADS_ACCESS_TOKEN", "META_SYSTEM_USER_TOKEN", "TIKTOK_ACCESS_TOKEN", "WHATSAPP_ACCESS_TOKEN", "META_WABA_TOKEN", "META_API_MODE"];
   beforeEach(() => {
     for (const k of keys) {
       saved[k] = process.env[k];
@@ -33,14 +33,22 @@ describe("K27 entegrasyon durumu", () => {
     expect(meta.nextStep).toBeTruthy();
   });
 
-  it("anahtar varken canlı raporlar", async () => {
+  it("anahtar varken ve mod http ise canlı raporlar", async () => {
     process.env.FAL_KEY = "x";
+    process.env.FAL_MODE = "http";
     process.env.META_ADS_ACCESS_TOKEN = "y";
     process.env.TIKTOK_ACCESS_TOKEN = "z";
     const list = await integrationStatuses();
     expect(list.find((x) => x.key === "fal")!.mode).toBe("canli");
     expect(list.find((x) => x.key === "meta-ads")!.mode).toBe("canli");
     expect(list.find((x) => x.key === "tiktok-ads")!.mode).toBe("canli");
+  });
+
+  it("FAL_KEY var ama FAL_MODE=mock ise fal mock kalır", async () => {
+    process.env.FAL_KEY = "x";
+    process.env.FAL_MODE = "mock";
+    const list = await integrationStatuses();
+    expect(list.find((x) => x.key === "fal")!.mode).toBe("mock");
   });
 
   it("LLM_PROVIDER=bedrock asistanı canlı yapar", async () => {

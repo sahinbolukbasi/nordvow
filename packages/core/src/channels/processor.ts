@@ -8,6 +8,7 @@ import { purgeMessage } from "../messaging/purge";
 import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
+import { metaEventDate } from "../messaging/meta-time";
 import { onInbound } from "../messaging/windows";
 import { firstSeen, rawBodies } from "./webhook";
 
@@ -88,11 +89,11 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any) {
         phoneE164: `+${m.from}`,
         name: contacts.get(m.from) ?? null,
         text,
-        at: new Date(Number(m.timestamp) * 1000),
+        at: metaEventDate(m.timestamp),
         fromAd: m.referral?.source_type === "ad" || !!m.referral?.ctwa_clid,
       });
     }
-    for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, new Date(Number(s.timestamp) * 1000));
+    for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, metaEventDate(s.timestamp));
     return;
   }
   if (field === "message_template_status_update" || field === "template_category_update") {
@@ -152,7 +153,7 @@ async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, 
     phoneE164: null,
     name: null,
     text: msg.text ?? null,
-    at: new Date(Number(m.timestamp ?? Date.now())),
+    at: metaEventDate(m.timestamp),
     fromAd: !!m.referral?.ad_id || m.referral?.source === "ADS",
     mediaUrl: msg.attachments?.[0]?.payload?.url ?? null,
   });

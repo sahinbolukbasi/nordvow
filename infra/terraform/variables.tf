@@ -75,6 +75,17 @@ variable "enable_agent_schedules" {
   default     = true
 }
 
+variable "fal_mode" {
+  description = "mock | http. http için FAL_KEY (integrations sırrı) tanımlı olmalı. Varsayılan mock; canlı üretim için http yapın."
+  type        = string
+  default     = "mock"
+
+  validation {
+    condition     = contains(["mock", "http"], var.fal_mode)
+    error_message = "fal_mode mock veya http olmalı."
+  }
+}
+
 variable "meta_api_mode" {
   description = "mock | http. http için META_APP_ID/META_APP_SECRET Secrets Manager'a eklenmeli ve App Review tamamlanmış olmalı."
   type        = string
@@ -104,6 +115,21 @@ variable "integration_secret_keys" {
     "APPLE_WALLET_WWDR",
     "APPLE_WALLET_TEAM_ID",
     "APPLE_WALLET_PASS_TYPE_ID",
+    # Aşağıdaki adlar sırda TANIMLI olmalı (değer boş string olabilir). Yoksa görev başlamaz.
+    # Terraform sır değerlerini yazmaz; konsoldan ekleyin.
+    "FAL_KEY",
+    "META_APP_ID",
+    "META_APP_SECRET",
+    "META_ADS_ACCESS_TOKEN",
+    "META_SYSTEM_USER_TOKEN",
+    "META_WABA_TOKEN",
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "META_IG_TOKEN",
+    "INSTAGRAM_ACCESS_TOKEN",
+    "INSTAGRAM_IG_USER_ID",
+    "EMAIL_PROVIDER",
+    "EMAIL_FROM",
   ]
 }
 

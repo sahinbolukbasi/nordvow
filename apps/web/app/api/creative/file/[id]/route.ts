@@ -1,5 +1,6 @@
 import { prisma } from "@infulancer/core/db";
 import { presignCreativeGet } from "@infulancer/core/creative/uploads";
+import { readObject } from "@infulancer/core/storage/s3";
 import { requireApiActor } from "@/lib/auth-guard";
 import { ownTenantOrNull } from "@/lib/creative-tenant";
 import { jsonError } from "@/lib/uploads";
@@ -22,6 +23,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     ? await prisma.generatedAsset.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } })
     : await prisma.creativeUpload.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } });
   if (!row || (own !== null && row.tenantId !== own)) return jsonError(404, "Bulunamadı.");
+  // Tuval same-origin ister; imzalı S3 adresine 307, CORS olmadan onload'u hiç ateşlemez.
+  if (new URL(req.url).searchParams.get("cors") === "1") {
+    const obj = await readObject(row.s3Key);
+    if (!obj) return jsonError(404, "Bulunamadı.");
+    return new Response(Buffer.from(obj.bytes), {
+      headers: {
+        "Content-Type": obj.mime,
+        "Content-Length": String(obj.bytes.byteLength),
+        "Cache-Control": "private, max-age=60",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
   const url = await presignCreativeGet(row.s3Key, 900);
   return new Response(null, { status: 307, headers: { Location: url, "Cache-Control": "private, max-age=600" } });
 }

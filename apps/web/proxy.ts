@@ -3,16 +3,17 @@ import { NextResponse } from "next/server";
 import { authConfig } from "./auth.config";
 import { detectRegion } from "@infulancer/core/i18n/regions";
 import { isAdminOnlyPath, requiredRoleForPath, roleHome } from "./lib/roles";
+import { clearAuthCookies } from "./lib/auth-cookies";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek"]);
+const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kullanim-sartlari", "/kvkk", "/cerez-politikasi", "/veri-silme", "/destek"]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";
 
 /**
  * Oturum ve rol öneki kontrolü. Herkese açık: /giris, /api/auth/*, yasal sayfalar (/gizlilik,
- * /kullanim-kosullari — App Review için girişsiz erişilebilir olmalı), /kvkk, /cerez-politikasi ve imzayla
- * doğrulanan webhook uçları (/api/webhooks/*).
+ * /kullanim-kosullari, /kullanim-sartlari, /veri-silme — App Review için girişsiz erişilebilir olmalı), /kvkk,
+ * /cerez-politikasi, /api/meta/data-deletion ve imzayla doğrulanan webhook uçları (/api/webhooks/*).
  * Her sayfa/aksiyon ayrıca lib/auth-guard ile rolü yeniden doğrular (derinlemesine savunma).
  */
 function withPath(res: NextResponse, pathname: string): NextResponse {
@@ -38,7 +39,7 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
   const { pathname, search } = req.nextUrl;
   const user = req.auth?.user;
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/")) return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/") || pathname === "/api/meta/data-deletion") return NextResponse.next();
   // Herkese açık bilet/kupon kartları ve görsel uçları (davetlilere gönderilen bağlantılar).
   if (pathname.startsWith("/bilet/") || pathname.startsWith("/kupon/") || pathname.startsWith("/etkinlik/") || pathname.startsWith("/api/media/") || pathname.startsWith("/api/bilet/") || pathname.startsWith("/api/kupon/") || pathname.startsWith("/api/etkinlik/") || pathname.startsWith("/api/wallet/") || pathname.startsWith("/l/") || pathname.startsWith("/brand/") || pathname === "/opengraph-image" || pathname === "/icon.svg" || pathname === "/apple-icon") return NextResponse.next();
   if (pathname === LANDING && !user?.role) return NextResponse.next();
@@ -46,6 +47,8 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
   if (pathname === "/onay-bekliyor") return user?.role ? NextResponse.next() : NextResponse.redirect(new URL("/giris", req.nextUrl));
   if (pathname === "/kayit") return user?.role ? NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl)) : NextResponse.next();
   if (pathname === "/giris") {
+    const signingOut = req.nextUrl.searchParams.get("cikis") === "1" || req.cookies.get("nv_logout")?.value === "1";
+    if (signingOut) return clearAuthCookies(NextResponse.next());
     if (user?.role) return NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl));
     return NextResponse.next();
   }

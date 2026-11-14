@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
-import { couponValueLabel } from "@infulancer/core/coupons/service";
+import { couponDisplayStatus, couponValueLabel } from "@infulancer/core/coupons/service";
 import { CouponStatusButton, GrantForm } from "@/components/coupons/coupon-forms";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
@@ -9,7 +9,7 @@ import { CopyCode } from "@/components/wallet/copy-code";
 import { dateLong, pctOf } from "@/lib/event-format";
 import { mediaSrc } from "@/lib/media";
 import { fmtDate } from "@/lib/time";
-import { CouponTile, couponStatusView } from "./list-items";
+import { CouponTile } from "./list-items";
 import { CouponCard } from "./pass-cards";
 import { ListToolbar, type ToolbarSelect } from "./list-toolbar";
 import { BackLink, FilterTabs, Pill, SectionHead, StatStrip, TagIcon, type PillTone } from "./primitives";
@@ -63,17 +63,18 @@ export async function CouponsIndex({
     return true;
   });
   const searching = !!q || (canFilterBrand && !!brandFilter) || !!kindFilter;
+  const shown = (c: (typeof filtered)[number]) => couponDisplayStatus(c.status, c.validUntil, new Date(now));
   const buckets = {
     tumu: filtered,
-    yayinda: filtered.filter((c) => c.status === "YAYINDA"),
-    taslak: filtered.filter((c) => c.status === "TASLAK"),
-    pasif: filtered.filter((c) => c.status === "PASIF"),
+    yayinda: filtered.filter((c) => shown(c).key === "yayinda"),
+    taslak: filtered.filter((c) => shown(c).key === "taslak"),
+    pasif: filtered.filter((c) => shown(c).key === "pasif" || shown(c).key === "suresi_doldu"),
   };
   const active = (FILTERS.some((f) => f.id === filter) ? filter : "tumu") as keyof typeof buckets;
   const list = buckets[active];
   const grants = coupons.flatMap((c) => c.grants);
   const used = grants.filter((g) => g.status === "KULLANILDI").length;
-  const expiringSoon = coupons.filter((c) => c.status === "YAYINDA" && c.validUntil && c.validUntil.getTime() > now && c.validUntil.getTime() - now < 7 * DAY).length;
+  const expiringSoon = coupons.filter((c) => shown(c).key === "yayinda" && c.validUntil && c.validUntil.getTime() - now < 7 * DAY).length;
   const keep = (id: string) => `${basePath}?filtre=${id}${q ? `&ara=${encodeURIComponent(q)}` : ""}${canFilterBrand && brandFilter ? `&marka=${brandFilter}` : ""}${kindFilter ? `&tur=${kindFilter}` : ""}`;
   const brandOptions = canFilterBrand
     ? [...brands.entries()].map(([id, name]) => ({ value: id, label: name })).sort((a, b) => a.label.localeCompare(b.label, "tr"))
@@ -128,7 +129,8 @@ export async function CouponsIndex({
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {list.map((c) => {
-            const expired = !!c.validUntil && c.validUntil.getTime() < now;
+            const st = shown(c);
+            const expired = st.key === "suresi_doldu";
             return (
               <CouponTile
                 key={c.id}
@@ -139,7 +141,7 @@ export async function CouponsIndex({
                   brandName: brandName(c),
                   kindLabel: kindLabel(c.kind),
                   valueLabel: couponValueLabel(c.valueType, c.value),
-                  status: c.status,
+                  statusOverride: { label: st.label, tone: st.tone },
                   accent: c.brandColor ?? "#ff2bd6",
                   logoSrc: mediaSrc(c.logoKey),
                   sent: c.grants.length,
@@ -178,9 +180,9 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
 
   const now = new Date().getTime();
   const used = c.grants.filter((g) => g.status === "KULLANILDI").length;
-  const expired = !!c.validUntil && c.validUntil.getTime() < now;
+  const st = couponDisplayStatus(c.status, c.validUntil, new Date(now));
+  const expired = st.key === "suresi_doldu";
   const daysLeft = c.validUntil ? Math.max(0, Math.ceil((c.validUntil.getTime() - now) / DAY)) : null;
-  const st = couponStatusView[c.status] ?? { label: c.status, tone: "gray" as PillTone };
   const shared = !!c.sharedCode;
   const brandName = brand?.name ?? "Marka";
 
@@ -252,7 +254,6 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
           <div className="flex flex-wrap gap-2">
             <Pill tone={st.tone}>{st.label}</Pill>
             <Pill>{kindLabel(c.kind)}</Pill>
-            {expired ? <Pill tone="red">Süresi doldu</Pill> : null}
           </div>
           <h1 className="text-title text-fg">{c.title}</h1>
           <p className="text-[14px] text-fg-muted">{brandName} · {couponValueLabel(c.valueType, c.value)}</p>

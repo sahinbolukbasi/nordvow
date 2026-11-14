@@ -39,8 +39,15 @@ export const mockFal: FalClient = {
   },
 };
 
+/** Canlı fal: FAL_MODE=http ve FAL_KEY (veya FAL_API_KEY). Aksi halde mock. */
+export function falRuntimeMode(): "http" | "mock" {
+  if (envStr("FAL_MODE", "mock") !== "http") return "mock";
+  const key = envStr("FAL_KEY", "").trim() || envStr("FAL_API_KEY", "").trim();
+  return key ? "http" : "mock";
+}
+
 export function httpFal(): FalClient {
-  const key = envStr("FAL_KEY", "");
+  const key = envStr("FAL_KEY", "").trim() || envStr("FAL_API_KEY", "").trim();
   return {
     async submit(appPath, input, webhookUrl) {
       const res = await fetch(`https://queue.fal.run/${appPath}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
@@ -79,7 +86,7 @@ export function queueApp(modelId: string): string {
 }
 let override: FalClient | undefined;
 export function fal(): FalClient {
-  return override ?? (envStr("FAL_MODE", "mock") === "http" ? httpFal() : mockFal);
+  return override ?? (falRuntimeMode() === "http" ? httpFal() : mockFal);
 }
 export function setFalClient(c: FalClient | undefined) {
   override = c;

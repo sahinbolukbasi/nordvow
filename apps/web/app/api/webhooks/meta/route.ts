@@ -1,3 +1,4 @@
+import { metaSubscriptionChallenge } from "@infulancer/core/channels/meta-hub";
 import { receiveWebhook } from "@infulancer/core/channels/webhook";
 
 export const runtime = "nodejs";
@@ -10,10 +11,11 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   const u = new URL(req.url);
-  const token = process.env.META_VERIFY_TOKEN;
-  if (token && u.searchParams.get("hub.mode") === "subscribe" && u.searchParams.get("hub.verify_token") === token) {
-    return new Response(u.searchParams.get("hub.challenge") ?? "", { status: 200 });
-  }
+  const challenge = metaSubscriptionChallenge(
+    { mode: u.searchParams.get("hub.mode"), verifyToken: u.searchParams.get("hub.verify_token"), challenge: u.searchParams.get("hub.challenge") },
+    process.env.META_VERIFY_TOKEN,
+  );
+  if (challenge !== null) return new Response(challenge, { status: 200 });
   return new Response("forbidden", { status: 403 });
 }
 

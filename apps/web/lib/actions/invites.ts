@@ -42,7 +42,8 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
 }
 
 export async function signOutAction() {
-  await signOut({ redirectTo: "/giris" });
+  const { completeSignOut } = await import("@/lib/complete-sign-out");
+  await completeSignOut();
 }
 
 export async function createInviteAction(_p: ActionState, fd: FormData): Promise<ActionState> {

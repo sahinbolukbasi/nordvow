@@ -1,7 +1,7 @@
 "use server";
 
-import { signOut } from "@/auth";
+import { completeSignOut } from "@/lib/complete-sign-out";
 
 export async function signOutAction(): Promise<void> {
-  await signOut({ redirectTo: "/giris" });
+  await completeSignOut();
 }

@@ -17,6 +17,7 @@ export default async function PrivacyPage() {
       title={tt("Gizlilik Politikası")}
       intro={
         <p>
+          <strong>{tt("Taslak:")}</strong>{" "}{tt("bu metin hukuk incelemesi bekler. ")}
           {e.shortName}{tt(", influencer marketing kampanyalarını yöneten ajanslar, markalar ve içerik üreticileri için bir yazılım platformudur. Bu politika hangi verileri neden topladığımızı, nasıl koruduğumuzu ve haklarınızı açıklar. KVKK kapsamındaki ayrıntılı bilgi için")}{" "}
           <Link href="/kvkk" className="underline underline-offset-4">{tt("KVKK Aydınlatma Metni")}</Link>{tt("'ni inceleyin.")}</p>
       }
@@ -47,7 +48,8 @@ export default async function PrivacyPage() {
           title: "Meta, Instagram, TikTok ve YouTube verileri",
           body: (
             <>
-              <p>{tt("Platform API'lerinden alınan veriler yalnız kampanya eşleştirme, performans ölçümü ve raporlama amacıyla kullanılır; satılmaz, reklam profili oluşturmak için kullanılmaz ve üçüncü taraf veri aracılarıyla paylaşılmaz.")}</p>
+              <p>{tt("Meta (Facebook, Instagram, Messenger ve WhatsApp) üzerinden bağlanan hesaplarda; hesap kimliği, kullanıcı adı, profil bilgisi, mesaj içeriği, mesaj durumu ve reklam/iş birliği kapsamında ilettiğiniz içerikler işlenir. Bu veriler kampanya yürütmek, gelen kutusunu göstermek ve yasal ticari ileti kurallarına uymak için kullanılır. Meta'nın kendi gizlilik politikası, Meta sunucularındaki işlemeye uygulanır. Veriler satılmaz ve reklam profili oluşturmak için üçüncü taraflarla paylaşılmaz.")}</p>
+              <p>{tt("Platform API'lerinden alınan diğer veriler yalnız kampanya eşleştirme, performans ölçümü ve raporlama amacıyla kullanılır.")}</p>
               <p>{tt("YouTube verileri için")}{" "}<a href="https://www.youtube.com/t/terms" className="underline underline-offset-4" target="_blank" rel="noopener noreferrer">{tt("YouTube Hizmet Şartları")}</a>{" "}{tt("ve")}{" "}
                 <a href="https://policies.google.com/privacy" className="underline underline-offset-4" target="_blank" rel="noopener noreferrer">{tt("Google Gizlilik Politikası")}</a>{" "}{tt("geçerlidir. Bağlantıyı istediğiniz zaman ilgili platformun güvenlik ayarlarından kaldırabilirsiniz; kaldırıldığında yeni veri çekilmez.")}</p>
             </>
@@ -96,8 +98,10 @@ export default async function PrivacyPage() {
           id: "saklama",
           title: "Saklama ve silme",
           body: (
-            <p>{tt("Hesap ve finans kayıtları yasal saklama süreleri boyunca, mesaj içerikleri markanın belirlediği süre (varsayılan 90 gün) boyunca saklanır. Hesabınızın silinmesini")}{" "}
-              <strong>{e.kvkkEmail}</strong>{" "}{tt("adresinden talep edebilirsiniz; yasal saklama yükümlülüğü olmayan veriler 30 gün içinde silinir.")}</p>
+            <p>{tt("Hesap ve finans kayıtları yasal saklama süreleri boyunca, mesaj içerikleri markanın belirlediği süre (varsayılan 90 gün) boyunca saklanır. Silme talebinin nasıl iletileceği")}{" "}
+              <Link href="/veri-silme" className="underline underline-offset-4">{tt("veri silme")}</Link>{" "}{tt("sayfasında anlatılır. Talepler")}{" "}
+              <a href="mailto:root@nordvow.com" className="underline underline-offset-4">root@nordvow.com</a>{" "}{tt("veya")}{" "}
+              <strong>{e.kvkkEmail}</strong>{" "}{tt("adresine yazılır; yasal saklama yükümlülüğü olmayan veriler 30 gün içinde silinir.")}</p>
           ),
         },
         {

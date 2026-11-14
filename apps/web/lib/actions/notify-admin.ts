@@ -74,23 +74,28 @@ export async function sendAnnouncementAction(_p: ActionState, fd: FormData): Pro
   });
 }
 
-/** Kısa link oluşturur. */
+/** Kısa link oluşturur. Marka ve influencer yalnız kendi hesabına yazar. */
 export async function createShortLinkAction(_p: ActionState, fd: FormData): Promise<ActionState> {
-  const actor = await requireActor("ADMIN");
+  const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
   return attempt(async () => {
     const url = str(fd, "url");
     const label = str(fd, "label") || undefined;
-    const link = await createShortLink(url, { label, createdByUserId: actor.userId });
+    const tenantId = actor.role === "BRAND" ? actor.brandId : actor.role === "INFLUENCER" ? actor.influencerId : null;
+    const link = await createShortLink(url, { label, createdByUserId: actor.userId, tenantId });
     revalidateAll();
     return { ok: true, message: `Kısa link hazır: ${link.shortUrl}` };
   });
 }
 
-/** Kısa linki siler. */
+/** Kısa linki siler. Marka kendi kiracısını, influencer kendi kaydını silebilir. */
 export async function deleteShortLinkAction(_p: ActionState, fd: FormData): Promise<ActionState> {
-  await requireActor("ADMIN");
+  const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
   return attempt(async () => {
-    await deleteShortLink(str(fd, "id"));
+    await deleteShortLink(str(fd, "id"), {
+      admin: actor.role === "ADMIN",
+      tenantId: actor.role === "BRAND" ? actor.brandId : actor.role === "INFLUENCER" ? actor.influencerId : null,
+      userId: actor.userId,
+    });
     revalidateAll();
     return { ok: true, message: "Link silindi." };
   });

@@ -195,7 +195,7 @@ export function CreativeComposer({
               <span className="text-[13px] font-medium text-fg">{tt("Referans görsel ekle")}</span>
               <span className="text-[11px] text-fg-passive">{tt("İsteğe bağlı · en çok 4 ·")}{" "}{kind === "image" ? tt("ürününüzü/sahnenizi koruyarak yeni görsel") : tt("görseli hareketlendirerek video")}</span>
               <span className="ml-auto flex gap-2">
-                <button type="button" onClick={() => setShowLib((v) => !v)} aria-expanded={showLib} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-fg/40">{tt("Kitaplıktan seç (")}{lib.length})
+                <button type="button" onClick={() => setShowLib((v) => !v)} aria-expanded={showLib} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-fg/40">{tt("Yüklenenlerden seç (")}{lib.length})
                 </button>
                 <label className="cursor-pointer rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-fg/40">{tt("Bilgisayardan yükle")}<input type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="sr-only" aria-label={tt("Referans dosya yükle")} onChange={(e) => { if (e.target.files?.length) void addFiles(e.target.files); e.target.value = ""; }} />
                 </label>

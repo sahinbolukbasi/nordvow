@@ -33,7 +33,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     <div className="flex flex-col gap-6">
       <PageHeader
         title={conv.contact.name ?? conv.contact.phoneE164 ?? tt("Konuşma")}
-        description={`${conv.channel} · servis penceresi ${left && left > 0 ? `${left} dk sonra kapanıyor` : "kapalı"}`}
+        description={`${conv.channel} · ${conv.status === "closed" ? "konuşma kapalı" : left && left > 0 ? `yanıt penceresi ${left} dk` : "yanıt penceresi kapalı"}`}
         actions={<ConversationActions conversationId={conv.id} status={conv.status} />}
       />
       <Card interactive={false} className="flex flex-col gap-3">

@@ -18,6 +18,7 @@ import { warnClosingWindows } from "../messaging/inbox";
 import { syncStaleAccounts } from "../social/sync";
 import { runAllTrackers } from "./trackers";
 import { expireOffers } from "../domain/offers";
+import { expirePublishedCoupons } from "../coupons/service";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
 
 export type EventHandler<T extends AppEventType = AppEventType> = (
@@ -75,7 +76,7 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "webhook-dedupe-ttl", schedule: "cron(30 3 * * ? *)", intervalMs: 24 * HOUR, run: async () => ({ created: await purgeExpiredDedupe(), skipped: 0 }) },
   { name: "trackers", schedule: "rate(1 hour)", intervalMs: HOUR, run: () => runAllTrackers() },
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },
-  { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await expireOffers(), skipped: 0 }) },
+  { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: (await expireOffers()) + (await expirePublishedCoupons()), skipped: 0 }) },
   { name: "influencer-recommendation", schedule: "cron(0 6 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runInfluencerRecommendationAll()) },
 ];
 

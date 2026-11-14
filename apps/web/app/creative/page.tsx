@@ -127,7 +127,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const tabs = [
     { id: "uret", label: "Üret", href: "/creative" },
     { id: "studyo", label: "Stüdyo (yükle ve düzenle)", href: "/creative?sekme=studyo" },
-    { id: "galeri", label: "Galeri", href: "/creative?sekme=galeri", count: assets.length },
+    { id: "galeri", label: "Galeri · üretilen", href: "/creative?sekme=galeri", count: assets.length },
     { id: "metin", label: "Post ve brief", href: "/creative?sekme=metin" },
     ...(isAdmin ? [{ id: "yonetim", label: "Bakiye ve modeller", href: "/creative?sekme=yonetim" }] : []),
   ];
@@ -358,7 +358,7 @@ async function Gallery({
         <FilterTabs
           active={active}
           items={[
-            { id: "hepsi", label: "Tümü", href: "/creative?sekme=galeri", count: assets.length },
+            { id: "hepsi", label: "Üretilen", href: "/creative?sekme=galeri", count: assets.length },
             { id: "image", label: "Görsel", href: "/creative?sekme=galeri&tur=image", count: count("image") },
             { id: "video", label: "Video", href: "/creative?sekme=galeri&tur=video", count: count("video") },
             { id: "audio", label: "Ses", href: "/creative?sekme=galeri&tur=audio", count: count("audio") },

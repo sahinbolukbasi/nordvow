@@ -2,7 +2,7 @@ import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma, type AgentCheck, type AgentRunStatus, type Severity } from "@infulancer/core/db";
-import { agentGroupLabels, agentOverview, type AgentGroup } from "@infulancer/core/agents/catalog";
+import { agentGroupLabels, agentOverview, countOpenFindings, type AgentGroup } from "@infulancer/core/agents/catalog";
 import { agentCheckLabels, agentRunStatusLabels, severityLabels } from "@infulancer/core/domain/labels";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { AssistantForm, AuditAgentControls } from "@/components/agent/agent-forms";
@@ -34,13 +34,13 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
   await requireActor("ADMIN");
   const sp = await searchParams;
   const section = SECTIONS.find((s) => s.id === one(sp.bolum))?.id ?? "takip";
-  const openCount = await prisma.agentRun.count({ where: { status: "ACIK" } });
+  const openCount = await countOpenFindings();
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
         title={tt("Agent merkezi")}
-        description={tt("Şablondan takipçi kurun; kampanya, story, influencer ve markayı sizin yerinize izlesin.")}
+        description={openCount.total ? tt(`Açık bulgu ${openCount.total}: ${openCount.kritik} kritik, ${openCount.uyari} uyarı, ${openCount.bilgi} bilgi. Pano yalnız kritik ve uyarıyı (${openCount.uyarilar}) sayar.`) : tt("Şablondan takipçi kurun; kampanya, story, influencer ve markayı sizin yerinize izlesin.")}
       />
       <nav aria-label={tt("Agent merkezi bölümleri")} className="flex flex-wrap gap-2 border-b border-border">
         {SECTIONS.map((s) => (
@@ -51,7 +51,7 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
             className={cn("-mb-px border-b-2 px-3 py-2 text-sm", section === s.id ? "border-fg text-fg" : "border-transparent text-fg-muted hover:text-fg")}
           >
             {s.label}
-            {s.id === "bulgular" && openCount ? ` (${openCount} açık)` : ""}
+            {s.id === "bulgular" && openCount.total ? ` (${openCount.total} açık bulgu)` : ""}
           </Link>
         ))}
       </nav>
