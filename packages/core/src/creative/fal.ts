@@ -40,12 +40,16 @@ export const mockFal: FalClient = {
 };
 
 export function httpFal(): FalClient {
-  const key = envStr("FAL_KEY", "");
+  const key = envStr("FAL_KEY", "").trim().replace(/^Key\s+/i, "");
+  const authHeader = () => {
+    if (!key) throw new Error("FAL_KEY eksik: AWS Secrets Manager (infulancer-prod/integrations) içinde FAL_KEY tanımlanmalıdır.");
+    return `Key ${key}`;
+  };
   return {
     async submit(appPath, input, webhookUrl) {
       const res = await fetch(`https://queue.fal.run/${appPath}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
         method: "POST",
-        headers: { authorization: `Key ${key}`, "content-type": "application/json" },
+        headers: { authorization: authHeader(), "content-type": "application/json" },
         body: JSON.stringify(input),
         signal: AbortSignal.timeout(20_000),
       });
@@ -60,13 +64,13 @@ export function httpFal(): FalClient {
     },
     // Queue URL'leri yalnız sahip/uygulama (ilk iki segment) ile kurulur, uç yol eklenmez.
     async status(appPath, requestId) {
-      const res = await fetch(`https://queue.fal.run/${queueApp(appPath)}/requests/${requestId}/status`, { headers: { authorization: `Key ${key}` }, signal: AbortSignal.timeout(15_000) });
+      const res = await fetch(`https://queue.fal.run/${queueApp(appPath)}/requests/${requestId}/status`, { headers: { authorization: authHeader() }, signal: AbortSignal.timeout(15_000) });
       if (!res.ok) throw new Error(`fal status HTTP ${res.status}`);
       const j = (await res.json()) as { status: string; error?: string | null };
       return { status: j.status, error: j.error ?? null };
     },
     async result(appPath, requestId) {
-      const res = await fetch(`https://queue.fal.run/${queueApp(appPath)}/requests/${requestId}`, { headers: { authorization: `Key ${key}` }, signal: AbortSignal.timeout(20_000) });
+      const res = await fetch(`https://queue.fal.run/${queueApp(appPath)}/requests/${requestId}`, { headers: { authorization: authHeader() }, signal: AbortSignal.timeout(20_000) });
       if (!res.ok) throw new Error(`fal result HTTP ${res.status}`);
       return (await res.json()) as FalWebhook["payload"];
     },
