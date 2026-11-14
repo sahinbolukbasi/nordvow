@@ -68,11 +68,11 @@ Pazarlama kategorisi kullanılmaz. İYS kapısı promosyonlu şablonda durur. In
 
 ## Hesap bağlama
 
-- WhatsApp: gönderen `wa_id` profil telefonuyla E.164 üzerinden eşleşir. `00`, `90` ve baştaki `0` aynı numaradır. Tek aktif kullanıcı varsa otomatik bağlanır. İki profil aynı numarayı taşıyorsa bağlanmaz.
-- Instagram: `GET /{igsid}?fields=username,name` ile kullanıcı adı alınır (`META_API_MODE=mock` iken fixture). Profildeki Instagram kullanıcı adıyla büyük/küçük harf ve `@` yok sayılarak karşılaştırılır. Tam bir eşleşme varsa otomatik bağlanır. Aynı ad iki profildeyse bağlanmaz; 6 hane veya imzalı bağlantı gerekir ve `/admin/bot` çakışmayı listeler. OAuth veya senkronla doğrulanmış satır, aynı kullanıcının birden fazla kaydında öne alınır.
+- WhatsApp: gönderen `wa_id` profil telefonuyla E.164 üzerinden eşleşir. `00`, `90` ve baştaki `0` aynı numaradır. Tek aktif kullanıcı varsa otomatik bağlanır. İki profil aynı numarayı taşıyorsa bağlanmaz; kod istenir, tahmin edilmez.
+- Instagram: kullanıcı adı eşleşmesi bağlama yapmaz. Tek eşleşmede kod istenir. Kod 15 dakika, tek kullanımlık ve hash olarak durur. Beş yanlış denemeden sonra kısa kilit vardır.
 - Messenger: kullanıcı adı yok. Yalnız 6 hane veya `/hesap-bagla?token=...`.
-- Bağlı olmayan kişi yalnız Nordvow tanımı, herkese açık etkinlik ve `/kayit` görür.
-- Profilde bağlantı kaldırılır. Profil uyarısı: Instagram kullanıcı adı ve telefon girilirse bot otomatik tanır.
+- Bağlı olmayan kişi hesap verisi görmez. Nordvow’u anlatır, kayıt linkini verir ve talep toplar. Talep `/admin/bot` listesine düşer.
+- Profilde bağlantı kaldırılır. Instagram kullanıcı adı profil formundadır.
 
 ## İçerik üreticisi Instagram verisi
 

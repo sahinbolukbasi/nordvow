@@ -16,12 +16,30 @@ export const DEDUPE_TTL_DAYS = 7;
  * NOT: Güncel Meta dokümanı bu başlığı tarif etmiyor; canlıya almadan önce teyit edilecek.
  * Prod'da önerilen birincil kontrol API Gateway mTLS'tir.
  */
-export function verifySignature(rawBody: string, header: string | null, appSecret: string): boolean {
-  if (!header?.startsWith("sha256=") || !appSecret) return false;
+export type SignatureFailure = "missing_header" | "missing_secret" | "bad_prefix" | "length" | "mismatch";
+
+/** İmza neden reddedildi. Dönüş yalnız kısa koddur; gövde, imza ve sır içermez. */
+export function signatureFailureReason(rawBody: string, header: string | null, appSecret: string): SignatureFailure | null {
+  if (!header) return "missing_header";
+  if (!appSecret) return "missing_secret";
+  if (!header.startsWith("sha256=")) return "bad_prefix";
+  const given = header.slice("sha256=".length);
   const expected = createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
-  const given = header.slice(7);
-  if (given.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(given, "hex"), Buffer.from(expected, "hex"));
+  if (given.length !== expected.length || !/^[0-9a-f]+$/i.test(given)) return "length";
+  const ok = timingSafeEqual(Buffer.from(given, "hex"), Buffer.from(expected, "hex"));
+  return ok ? null : "mismatch";
+}
+
+export function verifySignature(rawBody: string, header: string | null, appSecret: string): boolean {
+  return signatureFailureReason(rawBody, header, appSecret) === null;
+}
+
+const SIGNATURE_REASONS = new Set<SignatureFailure>(["missing_header", "missing_secret", "bad_prefix", "length", "mismatch"]);
+
+/** POST /api/webhooks/meta imza reddini yalnız neden koduyla yazar. */
+export function warnMetaSignature(reason: string | undefined): void {
+  if (!reason || !SIGNATURE_REASONS.has(reason as SignatureFailure)) return;
+  console.warn("[meta-webhook] signature rejected", { reason });
 }
 
 export type ReceiveResult = { status: 200; rawId: string | null; accepted: boolean; reason?: string };
@@ -46,8 +64,9 @@ export async function receiveWebhook(provider: string, rawBody: string, signatur
     }
     const secret = envStr(provider === "fal" ? "FAL_WEBHOOK_SECRET" : "META_APP_SECRET", "");
     const requireSig = envStr("WEBHOOK_REQUIRE_SIGNATURE", "true") !== "false";
-    if (requireSig && !verifySignature(rawBody, signatureHeader, secret)) {
-      return { status: 200, rawId: null, accepted: false, reason: "bad_signature" };
+    if (requireSig) {
+      const why = signatureFailureReason(rawBody, signatureHeader, secret);
+      if (why) return { status: 200, rawId: null, accepted: false, reason: why };
     }
     const key = rawKey(provider);
     await objectStore().put(key, rawBody, "application/json");

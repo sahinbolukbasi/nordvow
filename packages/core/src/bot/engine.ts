@@ -3,15 +3,13 @@ import { getLlm } from "../llm";
 import { envStr } from "../env";
 import { handoff } from "../assistant/runtime";
 import { SendBlockedError, sendMessage } from "../messaging/send";
+import { handleGuest } from "./guest";
 import { activeLink, autoLinkSender, consumeLinkCode, magicLinkUrl } from "./link";
 import { detectBotLang, matchMenu, menuText } from "./menu";
 import { planOutbound, type BotTemplateKey } from "./window-plan";
 import { BOT_TOOLS, toolByMenu } from "./registry";
 import { canonicalPhone, rateAllows, SENSITIVE_TOOL_LIMIT } from "./tokens";
 import type { BotChannel, BotUser, ToolName } from "./types";
-
-const PUBLIC_TR = "Nordvow, marka ve içerik üreticilerini buluşturan bir platformdur. Herkese açık etkinlikler için “etkinlikler” yazın. Kayıt: /kayit. Hesabınızı bağlamak için profilinizdeki 6 haneli kodu gönderin. Ayrıntı: /gizlilik";
-const PUBLIC_EN = "Nordvow connects brands and creators. Reply “events” for public events. Sign up: /kayit. To link your account, send the 6-digit code from your profile. Details: /gizlilik";
 
 async function loadUser(userId: string): Promise<BotUser | null> {
   const u = await prisma.user.findUnique({
@@ -27,7 +25,7 @@ async function ensureLinked(channel: BotChannel, externalId: string, phone: stri
   const key = channel === "WHATSAPP" ? canonicalPhone(phone || externalId) : externalId;
   const link = await activeLink(channel, key);
   if (link?.user) return loadUser(link.userId);
-  if (channel === "MESSENGER") return null;
+  if (channel !== "WHATSAPP") return null;
   const linked = await autoLinkSender(channel, key, phone);
   if (linked.ok) return loadUser(linked.userId);
   return null;
@@ -99,7 +97,7 @@ export async function handlePlatformBot(input: {
   if (/^\d{6}$/.test(code)) {
     try {
       await consumeLinkCode(code, input.channel, input.externalId, now);
-      return deliver(input, windowText(input, lang === "en" ? "Account linked. Reply menu." : "Hesap bağlandı. menü yazın."), "account_link", [code]);
+      return deliver(input, windowText(input, lang === "en" ? "Account linked. Reply menu." : "Hesap bağlandı. menü yazın."), "account_link", ["ok"]);
     } catch {
       return deliver(input, lang === "en" ? "Code is invalid. See /gizlilik" : "Kod geçersiz. Ayrıntı: /gizlilik");
     }
@@ -108,13 +106,9 @@ export async function handlePlatformBot(input: {
   const user = await ensureLinked(input.channel, input.externalId, input.phone ?? null);
   if (!user) {
     if (menu === "events") return deliver(input, await toolPublic(lang));
-    const welcome = lang === "en" ? settings.welcomeEn : settings.welcomeTr;
-    let extra = "";
-    if (input.channel !== "WHATSAPP") {
-      const url = magicLinkUrl({ externalId: input.externalId, channel: input.channel }, envStr("APP_URL", "http://localhost:3000"));
-      extra = lang === "en" ? `\nOpen this link while logged in (15 min): ${url}\nOr send the 6-digit code from your profile.` : `\nGiriş yapmışken bu bağlantıyı açın (15 dk): ${url}\nYa da profildeki 6 haneli kodu yazın.`;
-    }
-    return deliver(input, `${welcome}\n${lang === "en" ? PUBLIC_EN : PUBLIC_TR}${extra}\n${menuText(lang)}`);
+    const guest = await handleGuest({ channel: input.channel, externalId: input.externalId, phone: input.phone, text: input.text, now });
+    const link = input.channel === "WHATSAPP" ? "" : `\n${magicLinkUrl({ externalId: input.externalId, channel: input.channel }, envStr("APP_URL", "http://localhost:3000"))}`;
+    return deliver(input, `${guest}${link}`);
   }
 
   const pending = await prisma.botPendingAction.findUnique({ where: { channel_externalId: { channel: input.channel, externalId: input.externalId } } });

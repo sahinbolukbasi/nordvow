@@ -202,6 +202,8 @@ model User {
   /// Davetle kayıt olanlar admin onayına kadar PENDING; mevcut kullanıcılar ACTIVE.
   status       UserStatus  @default(ACTIVE)
   phone        String?
+  /// Instagram kullanıcı adı, @ olmadan, küçük harf. Otomatik bağlama önerisi için.
+  instagramHandle String? @unique @map("instagram_handle")
   /// Kullanıcının yüklediği profil fotoğrafı (S3 anahtarı). Yoksa influencer sosyal hesabından türetilir.
   avatarKey    String?
   /// Arayüz dili (tr, en, de, fr) ve ülke (ISO2); ilk girişte otomatik algılanır, kullanıcı değiştirebilir.
@@ -1877,19 +1879,80 @@ model ChannelAccountLink {
   @@map("channel_account_links")
 }
 
-/// Profilde gösterilen 6 haneli bağlama kodu.
+/// Profilde üretilen 6 haneli bağlama kodu. Düz metin tutulmaz.
 model BotLinkCode {
   id        String    @id @default(cuid())
   userId    String    @map("user_id")
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  code      String
+  codeHash  String    @map("code_hash")
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  @@index([code])
-  @@index([userId])
+  @@index([userId, expiresAt])
   @@map("bot_link_codes")
+}
+
+/// Yanlış bağlama kodu denemesi. Pencere dolunca kilit.
+model BotLinkAttempt {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId, createdAt])
+  @@map("bot_link_attempts")
+}
+
+/// Bağlama, koparma ve başarısız deneme. Kod değeri yazılmaz.
+model BotLinkEvent {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String?         @map("user_id")
+  action     String
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("bot_link_events")
+}
+
+/// Bağlı olmayan göndericinin talep taslağı.
+model BotGuestDraft {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  step       String
+  name       String?
+  intent     String?
+  email      String?
+  phone      String?
+  org        String?
+  note       String?
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@unique([channel, externalId])
+  @@map("bot_guest_drafts")
+}
+
+/// Bağlı olmayan kişiden gelen yeni müşteri talebi.
+model BotLead {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  name       String
+  intent     String
+  email      String?
+  phone      String?
+  org        String?
+  note       String
+  status     String          @default("YENI")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@index([channel, externalId, createdAt])
+  @@index([status, createdAt])
+  @@map("bot_leads")
 }
 
 /// Onay bekleyen bot işlemi (EVET denmeden çalışmaz).
