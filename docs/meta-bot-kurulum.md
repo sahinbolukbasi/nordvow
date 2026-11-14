@@ -29,8 +29,8 @@ Doğrulama: `GET` `hub.mode=subscribe`, `hub.verify_token=META_VERIFY_TOKEN`, `h
 
 Ürün bazında abone olunacak alanlar (başka alan eklemeyin):
 
-- WhatsApp (`whatsapp_business_account`): `messages`
-- Instagram (`instagram`): `messages`, `messaging_postbacks`
+- WhatsApp (`whatsapp_business_account`): `messages`. İlk sohbet açılışı `request_welcome` bu alanın içinde gelir; ayrı alan gerekmez.
+- Instagram (`instagram`): `messages`, `messaging_postbacks` (Get Started ve buz kırıcı)
 - Messenger (`page`): `messages`, `messaging_postbacks`
 
 İmza: `X-Hub-Signature-256` ve `META_APP_SECRET`.

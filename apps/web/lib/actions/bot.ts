@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@infulancer/core/db";
+import { enablePageAndInstagramPrompts, enableWhatsAppWelcome } from "@infulancer/core/bot/automation";
 import { issueLinkCode, unlinkChannel } from "@infulancer/core/bot/link";
 import type { ChannelProvider } from "@infulancer/core/db";
 import { requireActor, requireAdmin } from "@/lib/auth-guard";
@@ -11,6 +12,18 @@ export async function issueBotCodeAction(prev: { code: string } | { error: strin
   const actor = await requireActor();
   const code = await issueLinkCode(actor.userId);
   return { code };
+}
+
+export async function enableWhatsAppWelcomeAction() {
+  await requireAdmin();
+  await enableWhatsAppWelcome();
+  revalidateAll();
+}
+
+export async function enablePagePromptsAction() {
+  await requireAdmin();
+  await enablePageAndInstagramPrompts();
+  revalidateAll();
 }
 
 export async function setBotLeadStatusAction(formData: FormData) {

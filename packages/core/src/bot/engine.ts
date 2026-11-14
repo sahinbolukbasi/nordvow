@@ -9,6 +9,7 @@ import { detectBotLang, matchMenu, menuText } from "./menu";
 import { planOutbound, type BotTemplateKey } from "./window-plan";
 import { BOT_TOOLS, toolByMenu } from "./registry";
 import { canonicalPhone, rateAllows, SENSITIVE_TOOL_LIMIT } from "./tokens";
+import { welcomeLang, welcomeText } from "./welcome";
 import type { BotChannel, BotUser, ToolName } from "./types";
 
 async function loadUser(userId: string): Promise<BotUser | null> {
@@ -80,6 +81,8 @@ export async function handlePlatformBot(input: {
   text: string;
   windowOpen: boolean;
   now?: Date;
+  opening?: boolean;
+  locale?: string;
 }): Promise<{ sent: boolean }> {
   const now = input.now ?? new Date();
   const lang = detectBotLang(input.text);
@@ -87,6 +90,18 @@ export async function handlePlatformBot(input: {
   const settings = await getBotSettings();
   const conv = await prisma.conversation.findFirst({ where: { id: input.conversationId, tenantId: input.tenantId }, select: { status: true } });
   if (conv?.status === "awaiting_human" || conv?.status === "assigned") return { sent: false };
+
+  if (input.opening) {
+    const lang = welcomeLang(input.locale);
+    const hello = welcomeText(lang, settings);
+    const linked = await ensureLinked(input.channel, input.externalId, input.phone ?? null);
+    const extra = !linked
+      ? lang === "en"
+        ? "\nReply request to leave your details. /gizlilik"
+        : "\nTalep bırakmak için talep yazın. Ayrıntı: /gizlilik"
+      : `\n${menuText(lang)}`;
+    return deliver(input, `${hello}${extra}`);
+  }
 
   if (menu === "handoff") {
     await handoff(input.tenantId, input.conversationId, "insan_istedi", now);
