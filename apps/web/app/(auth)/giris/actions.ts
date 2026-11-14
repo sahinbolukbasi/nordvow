@@ -3,7 +3,7 @@
 import { AuthError } from "next-auth";
 import { z } from "zod";
 import { prisma } from "@infulancer/core/db";
-import { recordLegalAcceptances, requiredAcceptanceDocs } from "@infulancer/core/legal/acceptance";
+import { loginAcceptanceDocs, recordLegalAcceptances } from "@infulancer/core/legal/acceptance";
 import { signIn } from "@/auth";
 import { safeNextPath } from "@/lib/roles";
 
@@ -20,6 +20,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const email = String(formData.get("email") ?? "");
   const parsed = schema.safeParse({ email, password: formData.get("password") });
   if (!parsed.success) return { error: GENERIC_ERROR, email };
+  // KVKK aydınlatması giriş şartı değildir; kayıtta alınan kabul yeniden istenmez ve yazılmaz.
   if (formData.get("acceptTerms") !== "on") return { error: "Güncel kullanım şartlarını kabul etmelisiniz.", email };
   try {
     // Başarılıysa NEXT_REDIRECT fırlatır; "/" rolün ana sayfasına yönlendirir.
@@ -33,7 +34,7 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
     const digest = typeof err === "object" && err && "digest" in err ? String((err as { digest?: string }).digest) : "";
     if (digest.startsWith("NEXT_REDIRECT")) {
       const user = await prisma.user.findUnique({ where: { email: parsed.data.email.trim().toLowerCase() }, select: { id: true, role: true } });
-      if (user) await recordLegalAcceptances({ userId: user.id, email: parsed.data.email, documents: requiredAcceptanceDocs(user.role) }).catch(() => undefined);
+      if (user) await recordLegalAcceptances({ userId: user.id, email: parsed.data.email, documents: loginAcceptanceDocs(user.role) }).catch(() => undefined);
     }
     throw err;
   }

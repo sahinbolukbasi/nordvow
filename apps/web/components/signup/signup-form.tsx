@@ -42,6 +42,7 @@ export function SignupForm({ code, kind, categories }: { code: string; kind: "IN
       <Field label={kind === "BRAND" ? tt("Markanızı kısaca anlatın") : tt("Kendinizi kısaca anlatın")}>
         {(p) => <Textarea {...p} name="about" rows={3} maxLength={1000} />}
       </Field>
+      {/* KVKK aydınlatması yalnız kayıtta gösterilir ve zorunludur; girişte tekrar sorulmaz. */}
       <label className="flex items-start gap-2 text-[13px] text-fg-muted">
         <input type="checkbox" name="acceptTerms" required className="mt-0.5 h-4 w-4 accent-[var(--color-fg)]" />
         <span>

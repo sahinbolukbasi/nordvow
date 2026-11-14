@@ -6,7 +6,7 @@ import { metaSubscriptionChallenge } from "../src/channels/meta-hub";
 import { couponDisplayStatus, createCoupon, expirePublishedCoupons, grantCoupon, setCouponStatus } from "../src/coupons/service";
 import { metaEventDate } from "../src/messaging/meta-time";
 import { assertAllowedTarget, createShortLink, resolveAndCount } from "../src/notify/shortlink";
-import { requiredAcceptanceDocs, LEGAL_VERSION } from "../src/legal/acceptance";
+import { loginAcceptanceDocs, requiredAcceptanceDocs, LEGAL_VERSION } from "../src/legal/acceptance";
 import { DomainError } from "../src/domain/errors";
 import { makeTenant, resetDb } from "./helpers";
 
@@ -43,9 +43,15 @@ describe("saf yardımcılar", () => {
   it("zorunlu kabul belgeleri rolden türer; sürüm sabittir", () => {
     expect(LEGAL_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\./);
     expect(requiredAcceptanceDocs("BRAND")).toContain("marka-sozlesmesi");
+    expect(requiredAcceptanceDocs("BRAND")).toContain("kvkk-aydinlatma");
     expect(requiredAcceptanceDocs("INFLUENCER")).toContain("influencer-sozlesmesi");
+    expect(requiredAcceptanceDocs("INFLUENCER")).toContain("kvkk-aydinlatma");
     expect(requiredAcceptanceDocs("BRAND")).not.toContain("acik-riza");
     expect(requiredAcceptanceDocs("ADMIN")).not.toContain("marka-sozlesmesi");
+    expect(loginAcceptanceDocs("BRAND")).not.toContain("kvkk-aydinlatma");
+    expect(loginAcceptanceDocs("BRAND")).toContain("marka-sozlesmesi");
+    expect(loginAcceptanceDocs("INFLUENCER")).not.toContain("kvkk-aydinlatma");
+    expect(loginAcceptanceDocs("ADMIN")).toEqual(["kullanim-sartlari", "gizlilik"]);
   });
 
   it("webhook GET challenge yalnız doğru token ile döner", () => {
