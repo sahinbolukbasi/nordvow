@@ -8,8 +8,9 @@ import { purgeMessage } from "../messaging/purge";
 import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
+import { handlePlatformBot, isPlatformBot } from "../bot/engine";
 import { metaEventDate } from "../messaging/meta-time";
-import { onInbound } from "../messaging/windows";
+import { isOpen, onInbound } from "../messaging/windows";
 import { firstSeen, rawBodies } from "./webhook";
 
 /**
@@ -58,7 +59,7 @@ async function dispatch(p: Any): Promise<string | null> {
         const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(v.metadata.phone_number_id) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
         tenant ??= t;
         if (!t) continue;
-        await handleWhatsAppChange(t, change.field, v);
+        await handleWhatsAppChange(t, change.field, v, await isPlatformBot("WHATSAPP", String(v.metadata?.phone_number_id ?? "")));
       }
     }
     return tenant;
@@ -70,14 +71,15 @@ async function dispatch(p: Any): Promise<string | null> {
       const t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
       tenant ??= t;
       if (!t) continue;
-      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m);
+      const platformBot = await isPlatformBot(provider, String(entry.id));
+      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m, platformBot);
     }
     return tenant;
   }
   return null;
 }
 
-async function handleWhatsAppChange(tenantId: string, field: string, v: Any) {
+async function handleWhatsAppChange(tenantId: string, field: string, v: Any, platformBot = false) {
   if (field === "messages") {
     const contacts = new Map<string, string>((v.contacts ?? []).map((c: Any) => [c.wa_id, c.profile?.name]));
     for (const m of v.messages ?? []) {
@@ -91,7 +93,7 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any) {
         text,
         at: metaEventDate(m.timestamp),
         fromAd: m.referral?.source_type === "ad" || !!m.referral?.ctwa_clid,
-      });
+      }, { platformBot });
     }
     for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, metaEventDate(s.timestamp));
     return;
@@ -138,7 +140,7 @@ export async function applyMessageStatus(tenantId: string, externalId: string, s
   });
 }
 
-async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any) {
+async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any, platformBot = false) {
   const msg = m.message ?? {};
   if (msg.is_deleted || m.message_deletes) {
     const mid = msg.mid ?? m.message_deletes?.mid;
@@ -156,7 +158,7 @@ async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, 
     at: metaEventDate(m.timestamp),
     fromAd: !!m.referral?.ad_id || m.referral?.source === "ADS",
     mediaUrl: msg.attachments?.[0]?.payload?.url ?? null,
-  });
+  }, { platformBot });
 }
 
 export type InboundInput = {
@@ -170,7 +172,7 @@ export type InboundInput = {
   mediaUrl?: string | null;
 };
 
-export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput) {
+export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput, opts: { platformBot?: boolean } = {}) {
   const cfg = {
     serviceWindowHours: await getConfig("whatsapp.serviceWindowHours"),
     fepWindowDays: await getConfig("whatsapp.fepWindowDays"),
@@ -194,6 +196,19 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
   if (input.text && OPT_OUT_RE.test(input.text) && contact.phoneE164) {
     await captureOptOut(tenantId, contact.phoneE164, "MESAJ", `${channel.toLowerCase()}_opt_out`, input.at).catch(() => undefined);
     return { conversationId: conv.id, optOut: true };
+  }
+  if (input.text && opts.platformBot && (channel === "WHATSAPP" || channel === "INSTAGRAM" || channel === "MESSENGER")) {
+    await handlePlatformBot({
+      tenantId,
+      conversationId: conv.id,
+      channel,
+      externalId: channel === "WHATSAPP" ? (input.phoneE164 ?? input.from).replace(/\D/g, "") : input.from,
+      phone: input.phoneE164,
+      text: input.text,
+      windowOpen: isOpen(conv.serviceWindowExpiresAt, input.at),
+      now: input.at,
+    }).catch((e) => console.error("[bot]", e));
+    return { conversationId: conv.id, optOut: false };
   }
   if (input.text) {
     const pre = await prescreenCreator(tenantId, conv.id, input.text);

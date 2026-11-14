@@ -226,6 +226,8 @@ model User {
   application          SignupApplication?        @relation("ApplicationUser")
   applicationsReviewed SignupApplication[]       @relation("ApplicationReviewer")
   legalAcceptances     LegalAcceptance[]
+  channelLinks         ChannelAccountLink[]
+  botLinkCodes         BotLinkCode[]
 
   @@index([brandId])
 }
@@ -1593,6 +1595,8 @@ model Event {
   visibility    EventVisibility @default(KAPALI)
   status        EventStatus     @default(TASLAK)
   capacity      Int?
+  /// Null veya 0: ücretsiz bilet. Pozitifse sohbette kart alınmaz, ödeme bağlantısı gönderilir.
+  priceKurus    Int?            @map("price_kurus")
   createdByUserId String?       @map("created_by_user_id")
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
@@ -1852,6 +1856,81 @@ model ShortLink {
   createdAt  DateTime  @default(now()) @map("created_at")
   @@index([tenantId, createdAt])
   @@map("short_links")
+}
+
+/// WhatsApp / Instagram / Messenger kimliğinin Nordvow hesabına bağlanması.
+model ChannelAccountLink {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String          @map("user_id")
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedAt DateTime        @default(now()) @map("verified_at")
+  revokedAt  DateTime?       @map("revoked_at")
+
+  @@unique([channel, externalId])
+  @@index([userId])
+  @@map("channel_account_links")
+}
+
+/// Profilde gösterilen 6 haneli bağlama kodu.
+model BotLinkCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([userId])
+  @@map("bot_link_codes")
+}
+
+/// Onay bekleyen bot işlemi (EVET denmeden çalışmaz).
+model BotPendingAction {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String          @map("user_id")
+  tool       String
+  args       Json
+  expiresAt  DateTime        @map("expires_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@unique([channel, externalId])
+  @@map("bot_pending_actions")
+}
+
+/// Bot araç çağrıları (yönetim ekranı ve hız sınırı).
+model BotToolCall {
+  id             String          @id @default(cuid())
+  channel        ChannelProvider
+  externalId     String          @map("external_id")
+  userId         String?         @map("user_id")
+  tool           String
+  ok             Boolean         @default(false)
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([userId, tool, createdAt])
+  @@map("bot_tool_calls")
+}
+
+/// Platform botunun kanal anahtarları ve karşılama metni.
+model BotSettings {
+  id                  String   @id @default("default")
+  whatsappEnabled     Boolean  @default(false) @map("whatsapp_enabled")
+  instagramEnabled    Boolean  @default(false) @map("instagram_enabled")
+  messengerEnabled    Boolean  @default(false) @map("messenger_enabled")
+  whatsappPhoneNumberId String? @map("whatsapp_phone_number_id")
+  igUserId            String?  @map("ig_user_id")
+  pageId              String?  @map("page_id")
+  welcomeTr           String   @default("Merhaba, ben Nordvow asistanıyım. Hesabınızı bağladıktan sonra kampanya, bakiye, kupon ve etkinliklerinizi sorabilirsiniz. Ayrıntı: /gizlilik") @map("welcome_tr")
+  welcomeEn           String   @default("Hi, I am the Nordvow assistant. Link your account to ask about campaigns, balance, coupons and events. Details: /gizlilik") @map("welcome_en")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("bot_settings")
 }
 
 /// Meta veri silme callback kaydı (onay kodu + durum sayfası).

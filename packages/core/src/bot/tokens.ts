@@ -1,0 +1,63 @@
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { envStr } from "../env";
+
+export type LinkToken = { externalId: string; channel: "INSTAGRAM" | "MESSENGER"; exp: number };
+
+function secret(): string {
+  return envStr("AUTH_SECRET", "local-dev-vault-key");
+}
+
+function b64url(buf: Buffer): string {
+  return buf.toString("base64url");
+}
+
+/** 15 dakikalık imzalı bağlama bağlantısı. Kart veya oturum taşımaz. */
+export function signAccountLink(payload: Omit<LinkToken, "exp">, ttlMs = 15 * 60_000, now = Date.now()): string {
+  const body = b64url(Buffer.from(JSON.stringify({ ...payload, exp: now + ttlMs })));
+  const sig = createHmac("sha256", secret()).update(body).digest();
+  return `${b64url(sig)}.${body}`;
+}
+
+export function verifyAccountLink(token: string, now = Date.now()): LinkToken | null {
+  const dot = token.indexOf(".");
+  if (dot < 1) return null;
+  const sigPart = token.slice(0, dot);
+  const body = token.slice(dot + 1);
+  const expected = createHmac("sha256", secret()).update(body).digest();
+  let given: Buffer;
+  try {
+    given = Buffer.from(sigPart, "base64url");
+  } catch {
+    return null;
+  }
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  try {
+    const json = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as LinkToken;
+    if (!json.externalId || !json.exp || json.exp < now) return null;
+    if (json.channel !== "INSTAGRAM" && json.channel !== "MESSENGER") return null;
+    return json;
+  } catch {
+    return null;
+  }
+}
+
+export function randomLinkCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+export function phoneDigits(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+/** Türkiye numaralarında 90 öneki ve baştaki 0 yok sayılarak eşleştirilir. */
+export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const da = phoneDigits(a).replace(/^90/, "").replace(/^0/, "");
+  const db = phoneDigits(b).replace(/^90/, "").replace(/^0/, "");
+  return da.length >= 10 && da === db;
+}
+
+export const SENSITIVE_TOOL_LIMIT = 5;
+
+export function rateAllows(callsInLastHour: number, limit = SENSITIVE_TOOL_LIMIT): boolean {
+  return callsInLastHour < limit;
+}
