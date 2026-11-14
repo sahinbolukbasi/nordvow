@@ -45,6 +45,21 @@ export function randomLinkCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+export const LINK_CODE_TTL_MS = 15 * 60_000;
+export const LINK_FAIL_LIMIT = 5;
+export const LINK_FAIL_WINDOW_MS = 15 * 60_000;
+
+export function hashLinkCode(code: string): string {
+  return createHmac("sha256", secret()).update(code).digest("hex");
+}
+
+export function hashEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
 export function phoneDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }

@@ -64,10 +64,12 @@ describe("otomatik bağlama", () => {
     expect(clash.ok).toBe(false);
   });
 
-  it("Instagram kullanıcı adını tek profile bağlar", async () => {
-    const a = await influencer("ig-a@ex.com", "@Ayse");
+  it("Instagram kullanıcı adını bağlamaz, yalnız kod önerir", async () => {
+    await influencer("ig-a@ex.com", "@Ayse");
     const ok = await autoLinkSender("INSTAGRAM", "111");
-    expect(ok.ok && ok.userId).toBe(a.user.id);
+    expect(ok.ok).toBe(false);
+    if (!ok.ok) expect(ok.suggest).toBe(true);
+    expect(await prisma.channelAccountLink.count({ where: { channel: "INSTAGRAM", externalId: "111" } })).toBe(0);
   });
 
   it("aynı Instagram adı iki profildeyse bağlamaz ve işaretler", async () => {
@@ -75,7 +77,7 @@ describe("otomatik bağlama", () => {
     await influencer("ig-c@ex.com", "Cift");
     const clash = await autoLinkSender("INSTAGRAM", "222");
     expect(clash.ok).toBe(false);
-    if (!clash.ok) expect(clash.reason).toBe("birden fazla hesap");
+    if (!clash.ok) expect(clash.suggest).toBe(false);
     const flag = await prisma.botLinkFlag.findFirst({ where: { externalId: "222" } });
     expect(flag?.handle).toBe("cift");
     expect(flag?.userIds.length).toBe(2);

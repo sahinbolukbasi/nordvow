@@ -62,7 +62,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const tt = await getTT();
   const actor = await requireActor();
   const { sekme } = await searchParams;
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, instagramHandle: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
   const activity = await audit.listByActor(actor.userId, 60).catch(() => []);
   const tabs: { id: string; label: string; content: React.ReactNode }[] = [];
   let avatar: string | null = user.avatarKey ? `/api/avatar/${user.avatarKey.replace(/^avatars\//, "")}` : null;
@@ -287,7 +287,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </Card>
         <Card interactive={false} className="flex flex-col gap-3">
           <CardTitle>{tt("Kişisel bilgiler")}</CardTitle>
-          <ProfileForm name={user.name} phone={user.phone} />
+          <ProfileForm name={user.name} phone={user.phone} instagram={user.instagramHandle} />
           <p className="text-[12px] text-fg-passive">{tt("E-posta (")}{user.email}{tt(") giriş adresinizdir; değiştirmek için ajansınıza yazın.")}</p>
         </Card>
         <Card interactive={false} className="flex flex-col gap-3">
