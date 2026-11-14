@@ -118,6 +118,12 @@ variable "integration_secret_keys" {
   ]
 }
 
+variable "agentcore_runtime_arn" {
+  description = "AWS Bedrock AgentCore Runtime ARN (boşsa Bedrock Converse fallback çalışır)."
+  type        = string
+  default     = ""
+}
+
 variable "domain_name" {
   description = "Özel alan adı (kök), örn. nordvow.com. Boşsa yalnız *.cloudfront.net kullanılır."
   type        = string

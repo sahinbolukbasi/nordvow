@@ -85,15 +85,15 @@ export const MODEL_SEEDS: Seed[] = [
   { key: "fashn-tryon-1-6", provider: "fal", modelId: "fal-ai/fashn/tryon/v1.6", kind: "tryon", unit: "image", unitPriceUsd: 0.075, licenseStatus: "pending", priceVerified: true },
   { key: "bria-tryon", provider: "fal", modelId: "bria/fibo-edit-1.5/virtual-try-on", kind: "tryon", unit: "image", unitPriceUsd: 0.04, licenseStatus: "pending" },
 
-  // --- Amazon Bedrock ---
-  { key: "stability-fast-upscale", provider: "bedrock", modelId: "stability.stable-fast-upscale-v1:0", kind: "edit", unit: "image", unitPriceUsd: 0.03, licenseStatus: "cleared" },
-  { key: "stability-outpaint", provider: "bedrock", modelId: "stability.stable-outpaint-v1:0", kind: "edit", unit: "image", unitPriceUsd: 0.06, licenseStatus: "cleared" },
-  { key: "stability-remove-bg", provider: "bedrock", modelId: "stability.stable-image-remove-background-v1:0", kind: "edit", unit: "image", unitPriceUsd: 0.07, licenseStatus: "cleared" },
-  { key: "stability-conservative-upscale", provider: "bedrock", modelId: "stability.stable-conservative-upscale-v1:0", kind: "edit", unit: "image", unitPriceUsd: 0.4, licenseStatus: "cleared" },
-  { key: "stability-creative-upscale", provider: "bedrock", modelId: "stability.stable-creative-upscale-v1:0", kind: "edit", unit: "image", unitPriceUsd: 0.6, licenseStatus: "cleared" },
-  { key: "nova-canvas", provider: "bedrock", modelId: "amazon.nova-canvas-v1:0", kind: "image", unit: "image", unitPriceUsd: 0.04, licenseStatus: "cleared", featureFlag: "creative.bedrockImage" },
-  { key: "titan-image-g1-v2", provider: "bedrock", modelId: "amazon.titan-image-generator-v2:0", kind: "image", unit: "image", unitPriceUsd: 0.01, licenseStatus: "cleared", featureFlag: "creative.bedrockImage" },
-  { key: "nova-reel", provider: "bedrock", modelId: "amazon.nova-reel-v1:1", kind: "video", unit: "second", unitPriceUsd: 0.08, licenseStatus: "cleared", maxUnits: 120, featureFlag: "creative.bedrockVideo" },
+  // --- Amazon Bedrock (tüm kreatif işler fal.ai'ye taşındı; eski anahtarlar fal karşılıklarına yönlenir) ---
+  { key: "stability-fast-upscale", provider: "fal", modelId: "fal-ai/esrgan", kind: "edit", unit: "image", unitPriceUsd: 0.005, status: "deprecated", replacementKey: "esrgan-upscale", licenseStatus: "cleared" },
+  { key: "stability-outpaint", provider: "fal", modelId: "fal-ai/nano-banana/edit", kind: "edit", unit: "image", unitPriceUsd: 0.0398, status: "deprecated", replacementKey: "nano-banana-edit", licenseStatus: "cleared" },
+  { key: "stability-remove-bg", provider: "fal", modelId: "fal-ai/bria/background/remove", kind: "edit", unit: "image", unitPriceUsd: 0.018, status: "deprecated", replacementKey: "bria-bg-remove", licenseStatus: "cleared" },
+  { key: "stability-conservative-upscale", provider: "fal", modelId: "fal-ai/esrgan", kind: "edit", unit: "image", unitPriceUsd: 0.005, status: "deprecated", replacementKey: "esrgan-upscale", licenseStatus: "cleared" },
+  { key: "stability-creative-upscale", provider: "fal", modelId: "fal-ai/esrgan", kind: "edit", unit: "image", unitPriceUsd: 0.005, status: "deprecated", replacementKey: "esrgan-upscale", licenseStatus: "cleared" },
+  { key: "nova-canvas", provider: "fal", modelId: "fal-ai/flux/schnell", kind: "image", unit: "image", unitPriceUsd: 0.003, status: "deprecated", replacementKey: "flux-schnell", licenseStatus: "cleared" },
+  { key: "titan-image-g1-v2", provider: "fal", modelId: "fal-ai/flux/schnell", kind: "image", unit: "image", unitPriceUsd: 0.003, status: "deprecated", replacementKey: "flux-schnell", licenseStatus: "cleared" },
+  { key: "nova-reel", provider: "fal", modelId: "fal-ai/minimax/hailuo-02/standard/text-to-video", kind: "video", unit: "second", unitPriceUsd: 0.045, status: "deprecated", replacementKey: "hailuo-02-standard", licenseStatus: "cleared", maxUnits: 10 },
 ];
 export async function seedModelRegistry() {
   // Kur güncel olsun; ağ yoksa son bilinen kur (pricing.creative) kullanılır.

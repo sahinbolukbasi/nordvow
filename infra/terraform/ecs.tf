@@ -89,6 +89,11 @@ resource "aws_iam_role_policy" "task" {
         Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse"]
         Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:${local.account_id}:inference-profile/*"]
       },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeAgentRuntimeForUser", "bedrock:InvokeAgent"]
+        Resource = ["*"]
+      },
     ]
   })
 }
@@ -108,6 +113,8 @@ locals {
     { name = "BEDROCK_REGION", value = var.region },
     { name = "BEDROCK_TEXT_MODEL_ID", value = var.bedrock_text_model_id },
     { name = "BEDROCK_VISION_MODEL_ID", value = var.bedrock_vision_model_id },
+    { name = "AGENTCORE_RUNTIME_ARN", value = var.agentcore_runtime_arn },
+    { name = "AGENTCORE_REGION", value = var.region },
     { name = "EVENT_MODE", value = "inline" },
     { name = "AGENT_QUEUE_URL", value = aws_sqs_queue.agent_events.url },
     { name = "LINK_CHECK_MODE", value = "http" },
