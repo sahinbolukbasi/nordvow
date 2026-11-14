@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { envStr } from "../env";
 import { BRAND_NAME } from "../brand";
-import { appleWalletConfigured, type PassData } from "./passes";
+import { appleWalletConfigured, logWallet, passInstant, type PassData } from "./passes";
 
 /**
  * Apple Wallet .pkpass üretimi (gerçek PKCS#7 imzalı).
@@ -41,13 +41,21 @@ export function applePassJson(data: PassData, serial: string): Record<string, un
     labelColor: "rgb(255,255,255)",
     barcodes: [{ format: "PKBarcodeFormatQR", message: data.code, messageEncoding: "iso-8859-1" }],
   };
+  const dated: Record<string, string> = {};
+  if (data.kind === "ticket") {
+    const relevantDate = passInstant(data.relevantDate);
+    if (relevantDate) dated.relevantDate = relevantDate;
+  } else {
+    const expirationDate = passInstant(data.expirationDate);
+    if (expirationDate) dated.expirationDate = expirationDate;
+  }
   const fields = {
     headerFields: [{ key: "kind", label: data.kind === "ticket" ? "BİLET" : "KUPON", value: "" }],
     primaryFields: [{ key: "title", label: "", value: data.title }],
     secondaryFields: [{ key: "subtitle", label: data.kind === "ticket" ? "Katılımcı" : "Marka", value: data.subtitle }],
     auxiliaryFields: data.fields.slice(0, 4).map((f, i) => ({ key: `f${i}`, label: f.label, value: f.value })),
   };
-  return data.kind === "ticket" ? { ...common, eventTicket: fields } : { ...common, coupon: fields };
+  return data.kind === "ticket" ? { ...common, ...dated, eventTicket: fields } : { ...common, ...dated, coupon: fields };
 }
 
 function hexToRgb(hex: string): string {
@@ -68,7 +76,10 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
   const p12b64 = envStr("APPLE_WALLET_CERT", "").trim();
   const wwdrb64 = envStr("APPLE_WALLET_WWDR", "").trim();
   const p12pass = envStr("APPLE_WALLET_CERT_PASSWORD", "");
-  if (!p12b64 || !wwdrb64) return null;
+  if (!p12b64 || !wwdrb64) {
+    logWallet("apple", "APPLE_WALLET_CERT veya APPLE_WALLET_WWDR boş");
+    return null;
+  }
 
   const dir = mkdtempSync(path.join(tmpdir(), "pkpass-"));
   try {
@@ -94,12 +105,24 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
     writeFileSync(wwdrPath, normalizeWwdr(Buffer.from(wwdrb64, "base64")));
 
     // .p12'den sertifika ve anahtarı çıkar (legacy bayrağı eski .p12'ler için).
-    const extractCert = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, "-legacy"]);
-    const extractKey = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, "-legacy"]);
-    if (!extractCert.ok || !extractKey.ok) {
-      // -legacy desteklemeyen openssl için tekrar dene
-      if (!openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`]).ok) return null;
-      if (!openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`]).ok) return null;
+    const legacyCert = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, "-legacy"]);
+    const legacyKey = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, "-legacy"]);
+    let certOk = legacyCert.ok;
+    let keyOk = legacyKey.ok;
+    let certErr = legacyCert.err;
+    let keyErr = legacyKey.err;
+    if (!certOk || !keyOk) {
+      // -legacy desteklemeyen veya modern .p12 okuyamayan openssl için tekrar dene.
+      const plainCert = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`]);
+      const plainKey = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`]);
+      certOk = plainCert.ok;
+      keyOk = plainKey.ok;
+      certErr = plainCert.err || certErr;
+      keyErr = plainKey.err || keyErr;
+    }
+    if (!certOk || !keyOk) {
+      logWallet("apple", "p12 ayrılamadı", certOk ? keyErr : certErr);
+      return null;
     }
 
     // 4) manifest.json'ı PKCS#7 detached imzala → signature
@@ -110,15 +133,23 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
       "-in", path.join(dir, "manifest.json"), "-out", sigPath,
       "-outform", "DER", "-noattr",
     ]);
-    if (!sign.ok) return null;
+    if (!sign.ok) {
+      logWallet("apple", "manifest imzalanamadı", sign.err);
+      return null;
+    }
 
     // 5) Hepsini zip'le (.pkpass). zip CLI container'da kurulu.
     const zipPath = path.join(dir, "pass.pkpass");
     const entries = ["pass.json", "icon.png", "icon@2x.png", "manifest.json", "signature"];
     const zipRes = spawnSync("zip", ["-q", "-X", zipPath, ...entries], { cwd: dir });
-    if (zipRes.status !== 0) return null;
+    if (zipRes.status !== 0) {
+      const stderr = Buffer.isBuffer(zipRes.stderr) ? zipRes.stderr.toString("utf8") : zipRes.stderr || "";
+      logWallet("apple", "pkpass arşivi oluşturulamadı", stderr || zipRes.error?.message || "zip başarısız");
+      return null;
+    }
     return readFileSync(zipPath);
-  } catch {
+  } catch (err) {
+    logWallet("apple", "pkpass üretilemedi", err);
     return null;
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -127,7 +158,8 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
 
 function openssl(args: string[]): { ok: boolean; err: string } {
   const r = spawnSync("openssl", args, { encoding: "utf8" });
-  return { ok: r.status === 0, err: r.stderr ?? "" };
+  const err = [r.stderr, r.error?.message].filter(Boolean).join(" ").trim();
+  return { ok: r.status === 0, err };
 }
 
 /** WWDR .cer (DER) ise PEM'e çevir; zaten PEM ise olduğu gibi bırak. */
