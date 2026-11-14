@@ -33,6 +33,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/influencerlar", label: "Influencerlar", icon: UsersIcon, section: "Taraflar" },
     { href: "/admin/markalar", label: "Markalar", icon: BuildingIcon, section: "Taraflar" },
     { href: "/admin/kanallar", label: "Mesajlar ve asistan", icon: LinkIcon, section: "Taraflar" },
+    { href: "/admin/bot", label: "Platform botu", icon: SparkleIcon, section: "Taraflar" },
     { href: "/admin/reklam", label: "Reklam", icon: MegaphoneIcon, section: "İçerik ve AI" },
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "İçerik ve AI" },
     { href: "/admin/bakiye-talepleri", label: "Bakiye talepleri", icon: WalletIcon, section: "İçerik ve AI" },
@@ -84,7 +85,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/destek", label: "Destek", icon: AlertIcon },
   ],
 };
-navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai"].includes(i.href));
+navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai", "/admin/bot"].includes(i.href));
 export function isActive(pathname: string, item: NavItem): boolean {
   if (item.exact) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
