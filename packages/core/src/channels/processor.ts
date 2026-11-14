@@ -4,6 +4,7 @@ import { getConfig, setConfig } from "../config/store";
 import { captureOptOut, OPT_OUT_RE } from "../compliance/iys";
 import type { ChannelProvider } from "../generated/prisma/enums";
 import { runAgentTurn } from "../assistant/runtime";
+import { handleChannelBotTurn } from "../assistant/channel-bot";
 import { prescreenCreator } from "../assistant/prescreen";
 import { purgeMessage } from "../messaging/purge";
 import { bumpDailyStat } from "../messaging/send";
@@ -221,7 +222,10 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
   }
   if (input.text) {
     const pre = await prescreenCreator(tenantId, conv.id, input.text);
-    if (!pre.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+    if (!pre.handled) {
+      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at);
+      if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+    }
   }
   return { conversationId: conv.id, optOut: false };
 }
