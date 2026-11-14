@@ -35,6 +35,44 @@ function imageFormat(mime: string): ImageFormat {
   return "jpeg";
 }
 
+export type ChatTurn = { role: "user" | "assistant"; text: string };
+
+/**
+ * Çok turlu, düşük maliyetli sohbet çağrısı (WhatsApp/Instagram botu).
+ * Varsayılan model Amazon Nova Lite (Haiku'dan ~15-20 kat ucuz); BOT_LLM_MODEL_ID ile değiştirilebilir.
+ * Model hata verirse BEDROCK_TEXT_MODEL_ID ile bir kez yeniden denenir.
+ */
+export async function converseChat(opts: { system: string; turns: ChatTurn[]; maxTokens?: number; temperature?: number }): Promise<{ text: string; model: string }> {
+  // Converse: ilk mesaj user olmalı, roller ardışık tekrar etmemeli.
+  const merged: ChatTurn[] = [];
+  for (const t of opts.turns) {
+    if (!t.text.trim()) continue;
+    const last = merged[merged.length - 1];
+    if (last && last.role === t.role) last.text += `\n${t.text}`;
+    else merged.push({ ...t });
+  }
+  while (merged.length && merged[0]!.role !== "user") merged.shift();
+  if (!merged.length) merged.push({ role: "user", text: "Merhaba" });
+  const models = [envStr("BOT_LLM_MODEL_ID", "eu.amazon.nova-lite-v1:0"), envStr("BEDROCK_TEXT_MODEL_ID", "")].filter((m, i, a) => m && a.indexOf(m) === i);
+  let lastErr: unknown;
+  for (const modelId of models) {
+    try {
+      const res = await bedrock().send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: opts.system }],
+          messages: merged.map((t) => ({ role: t.role, content: [{ text: t.text }] })),
+          inferenceConfig: { maxTokens: opts.maxTokens ?? 400, temperature: opts.temperature ?? 0.5 },
+        }),
+      );
+      return { text: textOf(res.output), model: modelId };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("LLM çağrısı başarısız");
+}
+
 export const bedrockProvider: LlmProvider = {
   name: "bedrock",
   async completeText(req: TextRequest) {

@@ -11,6 +11,7 @@ import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
 import { onInbound } from "../messaging/windows";
+import { fetchIgSenderProfile, showTyping } from "./meta-client";
 import { firstSeen, rawBodies } from "./webhook";
 
 /**
@@ -201,10 +202,26 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     fepWindowDays: await getConfig("whatsapp.fepWindowDays"),
     humanAgentWindowDays: await getConfig("whatsapp.humanAgentWindowDays"),
   };
+
+  let igUsername: string | null = null;
+  let resolvedName = input.name;
+  const globalWaToken = envStr("WHATSAPP_ACCESS_TOKEN", "") || envStr("META_WABA_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalWaPhoneId = envStr("WHATSAPP_PHONE_NUMBER_ID", "");
+  const globalIgToken = envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalIgUserId = envStr("INSTAGRAM_IG_USER_ID", "");
+
+  if (channel === "INSTAGRAM" && input.from && globalIgToken && globalIgUserId) {
+    const prof = await fetchIgSenderProfile(input.from, globalIgUserId, globalIgToken).catch(() => null);
+    if (prof) {
+      igUsername = prof.username;
+      resolvedName ??= prof.name ?? (prof.username ? `@${prof.username}` : null);
+    }
+  }
+
   const contact = await prisma.contact.upsert({
     where: { tenantId_channel_externalId: { tenantId, channel, externalId: input.from } },
-    create: { tenantId, channel, externalId: input.from, phoneE164: input.phoneE164, name: input.name },
-    update: input.name ? { name: input.name } : {},
+    create: { tenantId, channel, externalId: input.from, phoneE164: input.phoneE164, name: resolvedName },
+    update: resolvedName ? { name: resolvedName } : {},
   });
   let conv = await prisma.conversation.findFirst({ where: { tenantId, contactId: contact.id, status: { not: "closed" } }, orderBy: { createdAt: "desc" } });
   const isFirst = !conv;
@@ -221,9 +238,14 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     return { conversationId: conv.id, optOut: true };
   }
   if (input.text) {
+    if (channel === "WHATSAPP" && globalWaToken && globalWaPhoneId) {
+      void showTyping({ channel: "WHATSAPP", token: globalWaToken, phoneNumberId: globalWaPhoneId, inboundMessageId: input.externalMessageId });
+    } else if (channel === "INSTAGRAM" && globalIgToken && globalIgUserId) {
+      void showTyping({ channel: "INSTAGRAM", token: globalIgToken, igId: globalIgUserId, recipientId: input.from });
+    }
     const pre = await prescreenCreator(tenantId, conv.id, input.text);
     if (!pre.handled) {
-      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at);
+      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername });
       if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
     }
   }
