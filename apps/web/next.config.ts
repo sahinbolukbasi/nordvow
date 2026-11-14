@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   // PDF raporu fontları fs'den okunur; standalone çıktısına dahil edilmeli.
   outputFileTracingIncludes: { "/api/raporlar/kampanya/[id]/pdf": ["./assets/fonts/**"] },
   transpilePackages: ["@infulancer/core"],
-  serverExternalPackages: ["pg", "@prisma/client", "@prisma/adapter-pg"],
+  serverExternalPackages: ["pg", "@prisma/client", "@prisma/adapter-pg", "@aws-sdk/client-secrets-manager"],
 };
 
 export default nextConfig;

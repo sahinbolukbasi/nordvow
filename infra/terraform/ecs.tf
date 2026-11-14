@@ -83,6 +83,13 @@ resource "aws_iam_role_policy" "task" {
         Action   = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
         Resource = ["arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*"]
       },
+      {
+        # Uygulama açılışta bu sırrı okur (env doluysa ezmez). Görev tanımına her anahtarı
+        # tek tek yazmadan yeni entegrasyon anahtarları kullanılabilir.
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [aws_secretsmanager_secret.integrations.arn]
+      },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = ["*"] },
       {
         Effect   = "Allow"

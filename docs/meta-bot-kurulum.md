@@ -55,6 +55,8 @@ Doğrulama: `GET` `hub.mode=subscribe`, `hub.verify_token=META_VERIFY_TOKEN`, `h
 
 `/admin/bot` kanalı kapatır, kimlikleri ve karşılama metnini yazar. Kanal kapalıyken o hatta marka asistanı çalışmaya devam eder.
 
+Konteyner açılışında `VAULT_MODE=aws` ise `infulancer-prod/integrations` sırrı okunur. Dolu ortam değişkeni ezilmez. `META_API_MODE` ve `SOCIAL_SYNC_MODE` bu sırda doluysa ve görev tanımında boşsa oradan alınır. Görev rolünün `secretsmanager:GetSecretValue` izni yoksa okuma sessizce atlanır; uygulama mock kalır.
+
 ## Şablonlar (24 saat dışı, utility)
 
 Pencere kapalıyken serbest metin gönderilmez. WhatsApp’ta yalnız şu utility şablonlar:
