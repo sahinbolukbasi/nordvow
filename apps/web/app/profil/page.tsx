@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/ui/layout";
 import { StatusDot } from "@/components/ui/status";
 import { Tabs } from "@/components/ui/tabs";
 import { InfoNote } from "@/components/ui/unverified";
+import { BotLinkPanel } from "@/components/profile/bot-link-panel";
 import { requireActor } from "@/lib/auth-guard";
 import { compact, pct1 } from "@/lib/format";
 import { itemsSummary, statusLabel, statusTone } from "@/lib/offers-view";
@@ -317,6 +318,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <PageHeader title={user.name} description={`${headline} · ${user.email} · üye ${fmtDate(user.createdAt)}`} />
         </div>
       </div>
+      <BotLinkPanel userId={actor.userId} />
       <Tabs key={sekme ?? "bilgiler"} label={tt("Profil bölümleri")} defaultTab={sekme} tabs={tabs} />
     </div>
   );
