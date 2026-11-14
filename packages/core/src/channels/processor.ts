@@ -10,6 +10,7 @@ import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent }
 import { readLimitFromEvent } from "../messaging/tiers";
 import { handlePlatformBot, isPlatformBot } from "../bot/engine";
 import { canonicalPhone } from "../bot/tokens";
+import { logUnsupportedEvent, textForPayload } from "../bot/welcome";
 import { metaEventDate } from "../messaging/meta-time";
 import { isOpen, onInbound } from "../messaging/windows";
 import { firstSeen, rawBodies } from "./webhook";
@@ -77,6 +78,7 @@ async function dispatch(p: Any): Promise<string | null> {
     }
     return tenant;
   }
+  logUnsupportedEvent("unknown_object");
   return null;
 }
 
@@ -85,7 +87,9 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any, pla
     const contacts = new Map<string, string>((v.contacts ?? []).map((c: Any) => [c.wa_id, c.profile?.name]));
     for (const m of v.messages ?? []) {
       if (!(await firstSeen(m.id, "whatsapp"))) continue;
-      const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null;
+      const opening = m.type === "request_welcome";
+      const text = opening ? null : (m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null);
+      if (!opening && !text && m.type && m.type !== "text") logUnsupportedEvent("unsupported_message_type");
       await handleInbound(tenantId, "WHATSAPP", {
         externalMessageId: m.id,
         from: m.from,
@@ -94,7 +98,7 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any, pla
         text,
         at: metaEventDate(m.timestamp),
         fromAd: m.referral?.source_type === "ad" || !!m.referral?.ctwa_clid,
-      }, { platformBot });
+      }, { platformBot, opening, locale: typeof m.locale === "string" ? m.locale : undefined });
     }
     for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, metaEventDate(s.timestamp));
     return;
@@ -130,7 +134,9 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any, pla
     if (String(v.event ?? v.alert_type ?? "").includes("INCREASED_CAPABILITIES_ELIGIBILITY_NEED_MORE_INFO")) {
       await prisma.whatsAppNumber.updateMany({ where: { tenantId }, data: { onboardingStep: "identity_verification" } });
     }
+    return;
   }
+  logUnsupportedEvent("unknown_whatsapp_field");
 }
 
 /** Durum güncellemesi: last-write-wins (sıralama garantisi yok). */
@@ -142,13 +148,35 @@ export async function applyMessageStatus(tenantId: string, externalId: string, s
 }
 
 async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any, platformBot = false) {
+  const postback = textForPayload(m.postback?.payload);
+  if (m.postback) {
+    if (!postback) {
+      logUnsupportedEvent("unsupported_postback");
+      return;
+    }
+    const mid = m.postback.mid ?? `postback:${m.timestamp}:${m.sender?.id ?? "x"}`;
+    if (!(await firstSeen(mid, provider.toLowerCase()))) return;
+    await handleInbound(tenantId, provider, {
+      externalMessageId: mid,
+      from: m.sender?.id,
+      phoneE164: null,
+      name: null,
+      text: postback.opening ? null : postback.text,
+      at: metaEventDate(m.timestamp),
+      fromAd: false,
+    }, { platformBot, opening: postback.opening, locale: typeof m.locale === "string" ? m.locale : undefined });
+    return;
+  }
   const msg = m.message ?? {};
   if (msg.is_deleted || m.message_deletes) {
     const mid = msg.mid ?? m.message_deletes?.mid;
     if (mid) await purgeMessage(tenantId, { externalId: mid });
     return;
   }
-  if (!msg.mid || msg.is_echo) return;
+  if (!msg.mid || msg.is_echo) {
+    if (!m.delivery && !m.read && !m.reaction && !msg.is_echo) logUnsupportedEvent("unknown_messaging");
+    return;
+  }
   if (!(await firstSeen(msg.mid, provider.toLowerCase()))) return;
   await handleInbound(tenantId, provider, {
     externalMessageId: msg.mid,
@@ -173,7 +201,7 @@ export type InboundInput = {
   mediaUrl?: string | null;
 };
 
-export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput, opts: { platformBot?: boolean } = {}) {
+export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput, opts: { platformBot?: boolean; opening?: boolean; locale?: string } = {}) {
   const cfg = {
     serviceWindowHours: await getConfig("whatsapp.serviceWindowHours"),
     fepWindowDays: await getConfig("whatsapp.fepWindowDays"),
@@ -198,16 +226,18 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     await captureOptOut(tenantId, contact.phoneE164, "MESAJ", `${channel.toLowerCase()}_opt_out`, input.at).catch(() => undefined);
     return { conversationId: conv.id, optOut: true };
   }
-  if (input.text && opts.platformBot && (channel === "WHATSAPP" || channel === "INSTAGRAM" || channel === "MESSENGER")) {
+  if ((input.text || opts.opening) && opts.platformBot && (channel === "WHATSAPP" || channel === "INSTAGRAM" || channel === "MESSENGER")) {
     await handlePlatformBot({
       tenantId,
       conversationId: conv.id,
       channel,
       externalId: channel === "WHATSAPP" ? canonicalPhone(input.phoneE164 ?? input.from) : input.from,
       phone: input.phoneE164,
-      text: input.text,
+      text: input.text ?? "",
       windowOpen: isOpen(conv.serviceWindowExpiresAt, input.at),
       now: input.at,
+      opening: opts.opening,
+      locale: opts.locale,
     }).catch((e) => console.error("[bot]", e));
     return { conversationId: conv.id, optOut: false };
   }

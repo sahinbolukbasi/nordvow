@@ -46,6 +46,9 @@ export interface MetaClient {
   verifyToken(token: string): Promise<{ ok: true }>;
   /** Creator hesapları webhook almadan önce bir Conversations API çağrısı yapmalı. */
   primeConversations(igUserId: string, token: string): Promise<void>;
+  enableConversationalAutomation(phoneNumberId: string, token: string, body: { enable_welcome_message: boolean; prompts: string[] }): Promise<{ success: boolean }>;
+  setMessengerProfile(pageId: string, token: string, body: unknown): Promise<{ success: boolean }>;
+  setInstagramIceBreakers(igUserId: string, token: string, body: unknown): Promise<{ success: boolean }>;
   downloadMedia(url: string, token: string): Promise<{ bytes: Uint8Array; mime: string }>;
 }
 
@@ -83,6 +86,18 @@ export const mockMetaClient: MetaClient = {
   },
   async downloadMedia() {
     return { bytes: new TextEncoder().encode("mock-media"), mime: "image/jpeg" };
+  },
+  async enableConversationalAutomation(_id, token) {
+    guard(token);
+    return { success: true };
+  },
+  async setMessengerProfile(_id, token) {
+    guard(token);
+    return { success: true };
+  },
+  async setInstagramIceBreakers(_id, token) {
+    guard(token);
+    return { success: true };
   },
 };
 
@@ -147,6 +162,18 @@ export function httpMetaClient(): MetaClient {
     },
     async primeConversations(igId, token) {
       await call(`/${igId}/conversations?platform=instagram&limit=1`, { token });
+    },
+    async enableConversationalAutomation(id, token, body) {
+      await call(`/${id}/conversational_automation`, { method: "POST", token, body: JSON.stringify(body) });
+      return { success: true };
+    },
+    async setMessengerProfile(id, token, body) {
+      await call(`/${id}/messenger_profile`, { method: "POST", token, body: JSON.stringify(body) });
+      return { success: true };
+    },
+    async setInstagramIceBreakers(id, token, body) {
+      await call(`/${id}/messenger_profile?platform=instagram`, { method: "POST", token, body: JSON.stringify(body) });
+      return { success: true };
     },
     async downloadMedia(url, token) {
       const res = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) });

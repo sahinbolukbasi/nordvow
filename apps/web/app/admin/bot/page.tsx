@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { prisma } from "@infulancer/core/db";
 import { META_BOT_TEMPLATES } from "@infulancer/core/bot/window-plan";
 import { MENU_BUTTONS_TR } from "@infulancer/core/bot/menu";
-import { saveBotSettingsAction, setBotLeadStatusAction } from "@/lib/actions/bot";
+import { enablePagePromptsAction, enableWhatsAppWelcomeAction, saveBotSettingsAction, setBotLeadStatusAction } from "@/lib/actions/bot";
 import { requireAdmin } from "@/lib/auth-guard";
 import { PageHeader } from "@/components/ui/layout";
 
@@ -35,6 +35,14 @@ export default async function AdminBotPage() {
         <label className="flex flex-col gap-1">Karşılama (EN)<textarea name="welcomeEn" rows={3} defaultValue={settings?.welcomeEn ?? ""} className="rounded-lg border border-line px-3 py-2" /></label>
         <button type="submit" className="h-9 rounded-full bg-fg px-4 text-bg">Kaydet</button>
       </form>
+      <div className="flex flex-wrap gap-3 text-sm">
+        <form action={enableWhatsAppWelcomeAction}>
+          <button type="submit" className="h-9 rounded-full border border-line px-4">WhatsApp karşılama ve buz kırıcıları aç</button>
+        </form>
+        <form action={enablePagePromptsAction}>
+          <button type="submit" className="h-9 rounded-full border border-line px-4">Messenger ve Instagram karşılama / buz kırıcıları yaz</button>
+        </form>
+      </div>
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold">Yeni müşteri talepleri</h2>
         <ul className="flex flex-col gap-2 text-[13px]">
