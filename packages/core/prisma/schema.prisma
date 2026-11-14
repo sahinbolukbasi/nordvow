@@ -409,6 +409,7 @@ model Assignment {
   campaign               Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   influencerId           String
   influencer             Influencer     @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  /// Postgres INT. Yazma yolu assertFeeKurus ile 2.147.483.647 kuruşta kesilir; hakediş defteri de INT.
   feeKurus               Int
   commissionKurus        Int
   contractStatus         ContractStatus @default(TEKLIF)
