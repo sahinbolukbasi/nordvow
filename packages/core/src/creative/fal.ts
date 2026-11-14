@@ -34,7 +34,14 @@ export const mockFal: FalClient = {
   async submit() {
     return { requestId: `req_mock_${Date.now()}_${++n}` };
   },
-  async download() {
+  async download(url) {
+    const u = url.toLowerCase();
+    if (u.endsWith(".mp4") || u.endsWith(".mov") || u.endsWith(".webm") || u.includes("/video")) {
+      return { bytes: new TextEncoder().encode("mock-video-bytes"), mime: "video/mp4" };
+    }
+    if (u.endsWith(".mp3") || u.endsWith(".wav") || u.includes("/audio")) {
+      return { bytes: new TextEncoder().encode("mock-audio-bytes"), mime: "audio/mpeg" };
+    }
     return { bytes: new TextEncoder().encode("mock-image-bytes"), mime: "image/png" };
   },
 };
@@ -165,14 +172,43 @@ export async function handleFalWebhook(w: FalWebhook) {
     await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: `Çıktı alınamadı: ${(e as Error).message}`.slice(0, 300), completedAt: new Date() } });
     return { handled: true, status: "FAILED" as const };
   }
-  const c2pa = embedC2pa({ assetBytes: out.bytes, mime: out.mime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
+  const isVideoPayload = !!w.payload?.video?.url;
+  const isAudioPayload = !!w.payload?.audio?.url;
+  const effectiveMime =
+    isVideoPayload && !out.mime.startsWith("video/")
+      ? "video/mp4"
+      : isAudioPayload && !out.mime.startsWith("audio/")
+        ? "audio/mpeg"
+        : out.mime;
+  const c2pa = embedC2pa({ assetBytes: out.bytes, mime: effectiveMime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
   const key = `generated/${job.tenantId}/${job.id}`;
-  await objectStore().put(key, c2pa.signedBytes, out.mime);
+  await objectStore().put(key, c2pa.signedBytes, effectiveMime);
   await objectStore().put(`${key}.c2pa.json`, c2pa.sidecarJson, "application/json");
   const asset = await prisma.$transaction(async (tx) => {
     const a = await tx.generatedAsset.create({
       data: { tenantId: job.tenantId, campaignId: job.campaignId, jobId: job.id, modelKey: job.modelKey, modelId: job.modelId, promptHash: job.promptHash, s3Key: key, c2paManifestId: c2pa.manifestId, isAiGenerated: true },
     });
+    // Üretilen video ve fotoğrafları otomatik olarak kullanıcının Kitaplığına (creative_uploads) da kaydet.
+    if (effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/")) {
+      const kind = effectiveMime.startsWith("video/") ? "video" : "image";
+      const cleanPrompt = job.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
+      const existingLib = await tx.creativeUpload.findFirst({ where: { tenantId: job.tenantId, s3Key: key }, select: { id: true } });
+      if (!existingLib) {
+        await tx.creativeUpload.create({
+          data: {
+            tenantId: job.tenantId,
+            kind,
+            mime: effectiveMime,
+            sizeBytes: Math.max(1, c2pa.signedBytes.byteLength),
+            s3Key: key,
+            name: (cleanPrompt || `AI ${kind === "video" ? "Video" : "Fotoğraf"} · ${job.modelKey}`).slice(0, 120),
+            source: "ai",
+            parentId: job.inputUploadId ?? null,
+            durationSec: kind === "video" ? Number(job.units) || 5 : null,
+          },
+        });
+      }
+    }
     if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
     await tx.creativeJob.update({ where: { id: job.id }, data: { status: "COMPLETED", completedAt: new Date(), inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null } });
     return a;

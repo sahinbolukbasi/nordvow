@@ -33,11 +33,13 @@ export function StudioEditor({ uploads, tenantId, available, prices, isAdmin, in
   const tt = useTT();
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(initialSelected && uploads.some((u) => u.id === initialSelected) ? initialSelected : (uploads[0]?.id ?? null));
+  const [kindFilter, setKindFilter] = useState<"all" | "video" | "image">("all");
   const [progress, setProgress] = useState<{ name: string; pct: number } | null>(null);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const filteredUploads = kindFilter === "all" ? uploads : uploads.filter((u) => u.kind === kindFilter);
   const current = uploads.find((u) => u.id === selected) ?? null;
   const onFiles = async (files: FileList | File[]) => {
     setUploadErr(null);
@@ -105,11 +107,30 @@ export function StudioEditor({ uploads, tenantId, available, prices, isAdmin, in
             </p>
           ) : null}
         </div>
-        {uploads.length === 0 ? (
-          <p className="rounded-2xl border border-line px-4 py-6 text-center text-[13px] text-fg-muted">{tt("Kitaplık boş. İlk dosyanızı yükleyin.")}</p>
+        <div className="flex items-center justify-between gap-1 rounded-full border border-line bg-surface p-1">
+          {[
+            { id: "all" as const, label: `${tt("Tümü")} (${uploads.length})` },
+            { id: "video" as const, label: `🎬 ${tt("Video")} (${uploads.filter((x) => x.kind === "video").length})` },
+            { id: "image" as const, label: `📸 ${tt("Fotoğraf")} (${uploads.filter((x) => x.kind === "image").length})` },
+          ].map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setKindFilter(f.id)}
+              className={cn(
+                "flex-1 rounded-full px-2 py-1 text-[11px] font-medium transition-standard",
+                kindFilter === f.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {filteredUploads.length === 0 ? (
+          <p className="rounded-2xl border border-line px-4 py-6 text-center text-[13px] text-fg-muted">{tt("Bu filtrede dosya yok. AI Sohbette ürettiğiniz veya yüklediğiniz videolar ve fotoğraflar burada listelenir.")}</p>
         ) : (
           <ul className="grid max-h-[560px] grid-cols-3 gap-2 overflow-y-auto pr-1 lg:grid-cols-2" aria-label={tt("Dosyalar")}>
-            {uploads.map((u) => (
+            {filteredUploads.map((u) => (
               <li key={u.id}>
                 <button
                   type="button"
@@ -123,9 +144,9 @@ export function StudioEditor({ uploads, tenantId, available, prices, isAdmin, in
                   ) : (
                     <video src={`${fileUrl(u.id)}#t=0.5`} muted preload="metadata" className="h-full w-full object-cover" aria-label={u.name ?? tt("Video")} />
                   )}
-                  <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+                  <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
                     <KindIcon kind={u.kind} size={10} />
-                    {u.source === "edit" ? tt("Düzenlendi") : u.kind === "video" ? tt("Video") : tt("Görsel")}
+                    {u.source === "ai" ? `AI ${u.kind === "video" ? tt("Video") : tt("Foto")}` : u.source === "edit" ? tt("Düzenlendi") : u.kind === "video" ? tt("Video") : tt("Fotoğraf")}
                   </span>
                 </button>
               </li>

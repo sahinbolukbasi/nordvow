@@ -96,6 +96,21 @@ export async function deleteUploadAction(_p: ActionState, fd: FormData): Promise
   });
 }
 
+/** AI ile üretilen fotoğraf veya videoyu kullanıcı kitaplığına (creative_uploads) kaydeder. */
+export async function saveAssetToLibraryAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
+  return attempt(async () => {
+    const tenantId = await creativeTenantFor(actor);
+    const u = await importGeneratedAsset(tenantId, str(fd, "assetId"), actor.userId);
+    revalidateAll();
+    return {
+      ok: true,
+      message: `${u.kind === "video" ? "Video" : "Fotoğraf"} kitaplığa kaydedildi.`,
+      data: { uploadId: u.id, kind: u.kind, name: u.name ?? "" },
+    };
+  });
+}
+
 /** Galerideki AI çıktısını stüdyoya kopyalayıp düzenleyicide açar. */
 export async function openAssetInStudioAction(fd: FormData): Promise<void> {
   const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
