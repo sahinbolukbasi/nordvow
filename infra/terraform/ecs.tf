@@ -123,7 +123,7 @@ locals {
     { name = "AWS_REGION", value = var.region },
     { name = "META_API_MODE", value = var.meta_api_mode },
     { name = "IYS_MODE", value = "mock" },
-    { name = "FAL_MODE", value = "mock" },
+    { name = "FAL_MODE", value = "http" },
     { name = "C2PA_MODE", value = "mock" },
     { name = "WEBHOOK_REQUIRE_SIGNATURE", value = "true" },
     # Sosyal hesap senkronu: API anahtarları Secrets Manager'a eklenene kadar kapalı (elle girilen veri korunur).

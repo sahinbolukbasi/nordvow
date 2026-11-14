@@ -238,8 +238,8 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           <StatStrip
             stats={[
               { label: "Hesap", value: String(accounts.length) },
-              { label: "Toplam bakiye (TL hesaplar)", value: fmtTl(accounts.filter((a) => a.currency === "TRY").reduce((s, a) => s + Number(a.balanceCredits), 0)) },
-              { label: "Blokede (TL)", value: fmtTl(accounts.filter((a) => a.currency === "TRY").reduce((s, a) => s + Number(a.heldCredits), 0)) },
+              { label: "Toplam kredi bakiyesi", value: fmtTl(accounts.filter((a) => a.currency === "TRY").reduce((s, a) => s + Number(a.balanceCredits), 0)) },
+              { label: "Blokede kredi", value: fmtTl(accounts.filter((a) => a.currency === "TRY").reduce((s, a) => s + Number(a.heldCredits), 0)) },
               { label: "Son işler", value: String(jobs.length) },
               { label: "Tamamlanan", value: String(completed) },
               { label: "Aktif model", value: String(usable.length) },
@@ -252,7 +252,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
               <PricingForm markup={pricing.markup} minTry={pricing.minTry} usdTry={pricing.usdTry} autoFx={pricing.autoFx} />
               <SectionHead title={tt("Bakiye yükle")} />
               <TopUpForm label={tt("Hesap")} brands={tenants.map((t) => ({ id: t.id, name: t.group === "Ajans" ? t.name : `${t.group === "Markalar" ? "Marka" : "Influencer"} · ${t.name}` }))} />
-              <p className="text-[12px] text-fg-passive">{tt("Tutarlar TL cinsindendir. Yeni marka/influencer ilk girişte")}{" "}{fmtTl(Number(process.env.CREATIVE_STARTER_CREDITS ?? "250"))}{" "}{tt("hoş geldin bakiyesi alır.")}</p>
+              <p className="text-[12px] text-fg-passive">{tt("Tutarlar Kredi cinsindendir. Yeni marka/influencer ilk girişte")}{" "}{fmtTl(Number(process.env.CREATIVE_STARTER_CREDITS ?? "250"))}{" "}{tt("hoş geldin kredisi alır.")}</p>
             </div>
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
               <SectionHead title={tt("Bakiyeler")} />

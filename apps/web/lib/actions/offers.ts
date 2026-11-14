@@ -6,7 +6,7 @@ import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { formatKurus } from "@infulancer/core/domain/labels";
-import { offerItemsSchema, respondOffer, saveRateCard, sendOffers, withdrawOffer, type OfferItem } from "@infulancer/core/domain/offers";
+import { acceptCounterByBrand, counterOffer, offerItemsSchema, respondOffer, saveRateCard, sendOffers, withdrawOffer, type OfferItem } from "@infulancer/core/domain/offers";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
@@ -121,5 +121,60 @@ export async function withdrawOfferAction(_p: ActionState, fd: FormData): Promis
     await audit.append({ actor: toAuditActor(actor), action: "OFFER_WITHDRAWN", entityType: "Offer", entityId: o.id, data: {} });
     revalidateAll();
     return { ok: true, message: "Teklif geri çekildi." };
+  });
+}
+
+/** Marka veya influencer: teklif için farklı fiyat talebinde bulunur. */
+export async function counterOfferAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("BRAND", "INFLUENCER");
+  return attempt(async () => {
+    const id = str(fd, "id");
+    const rawPrice = str(fd, "counterTl");
+    const counterKurus = rawPrice ? tlToKurus(rawPrice) : 0;
+    if (!Number.isInteger(counterKurus) || counterKurus <= 0) {
+      throw new DomainError("DOGRULAMA", "Geçerli bir fiyat girin.");
+    }
+    const note = optStr(fd, "note");
+    const role = actor.role === "BRAND" ? "BRAND" : "INFLUENCER";
+    const o = await counterOffer(id, { role, brandId: actor.brandId, influencerId: actor.influencerId }, counterKurus, note);
+    if (role === "BRAND") {
+      await notifyInfluencer(prisma, o.influencerId, {
+        title: `Karşı fiyat talebi: ${formatKurus(counterKurus)}`,
+        body: note ? `${o.title} · ${note}` : o.title,
+        href: "/influencer/teklifler",
+      });
+    } else {
+      const users = await prisma.user.findMany({ where: { brandId: o.brandId, status: "ACTIVE" }, select: { id: true } });
+      if (users.length) {
+        await prisma.notification.createMany({
+          data: users.map((u) => ({
+            userId: u.id,
+            title: `Influencer karşı fiyat önerdi: ${formatKurus(counterKurus)}`,
+            body: note ? `${o.title} · ${note}` : o.title,
+            href: "/marka/teklifler",
+          })),
+        });
+      }
+    }
+    await audit.append({ actor: toAuditActor(actor), action: "OFFER_COUNTERED", entityType: "Offer", entityId: o.id, data: { role, counterKurus, note } });
+    revalidateAll();
+    return { ok: true, message: `Fiyat talebi gönderildi (${formatKurus(counterKurus)}).` };
+  });
+}
+
+/** Marka: influencer'ın karşı fiyatını onaylar. */
+export async function acceptCounterByBrandAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("BRAND");
+  return attempt(async () => {
+    const o = await acceptCounterByBrand(str(fd, "id"), actor.brandId!);
+    await notifyInfluencer(prisma, o.influencerId, {
+      title: `Karşı fiyatınız kabul edildi: ${formatKurus(o.totalKurus)}`,
+      body: o.title,
+      href: "/influencer/teklifler",
+    });
+    await notifyAdmins(prisma, { title: "Teklif karşı fiyatla kabul edildi", body: `${o.title} · ${formatKurus(o.totalKurus)}`, href: "/admin/teklifler" });
+    await audit.append({ actor: toAuditActor(actor), action: "OFFER_ACCEPTED", entityType: "Offer", entityId: o.id, data: { counterAccepted: true } });
+    revalidateAll();
+    return { ok: true, message: `Fiyat onaylandı (${formatKurus(o.totalKurus)}).` };
   });
 }

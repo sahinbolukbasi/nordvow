@@ -251,6 +251,8 @@ model Brand {
   competitorBrandIds String[]
   /// Markanın varsayılan çalışma modu: yeni kampanyalar bu modla açılır (marka değiştirebilir).
   defaultExecutionMode ExecutionMode @default(AJANS)
+  /// Marka ajansla çalışmayı seçtiyse tercih edilen ajans kullanıcısı (User.id, role=AGENCY).
+  preferredAgencyUserId String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -1480,8 +1482,11 @@ model Offer {
   items        Json
   totalKurus   Int
   publishBy    DateTime?
-  /// GONDERILDI | KABUL | RED | GERI_CEKILDI | SURESI_DOLDU | KAMPANYAYA_EKLENDI
+  /// GONDERILDI | KARSI_TEKLIF | KABUL | RED | GERI_CEKILDI | SURESI_DOLDU | KAMPANYAYA_EKLENDI
   status       String    @default("GONDERILDI")
+  counterKurus Int?
+  counterNote  String?
+  counterByRole String?
   responseNote String?
   respondedAt  DateTime?
   expiresAt    DateTime

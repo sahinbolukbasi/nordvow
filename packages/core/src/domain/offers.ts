@@ -111,13 +111,58 @@ export async function sendOffers(input: OfferInput, now = new Date()): Promise<{
 export async function respondOffer(offerId: string, influencerId: string, decision: "KABUL" | "RED", note: string | null, now = new Date()) {
   const o = await prisma.offer.findUnique({ where: { id: offerId } });
   if (!o || o.influencerId !== influencerId) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
-  if (o.status !== "GONDERILDI") throw new DomainError("GECERSIZ_GECIS", "Bu teklif artık yanıtlanamaz.");
+  if (o.status !== "GONDERILDI" && !(o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) {
+    throw new DomainError("GECERSIZ_GECIS", "Bu teklif artık yanıtlanamaz.");
+  }
   if (o.expiresAt <= now) {
     await prisma.offer.update({ where: { id: o.id }, data: { status: "SURESI_DOLDU" } });
     throw new DomainError("GECERSIZ_GECIS", "Teklifin süresi doldu.");
   }
   if (decision === "RED" && (!note || note.trim().length < 3)) throw new DomainError("DOGRULAMA", "Reddederken kısa bir not yazın.");
-  return prisma.offer.update({ where: { id: o.id }, data: { status: decision, responseNote: note, respondedAt: now } });
+  const finalTotal = decision === "KABUL" && o.status === "KARSI_TEKLIF" && o.counterKurus ? o.counterKurus : o.totalKurus;
+  return prisma.offer.update({ where: { id: o.id }, data: { status: decision, totalKurus: finalTotal, responseNote: note, respondedAt: now } });
+}
+
+/** Marka veya influencer karşı fiyat talebinde bulunur. */
+export async function counterOffer(
+  offerId: string,
+  party: { role: "BRAND" | "INFLUENCER"; brandId?: string | null; influencerId?: string | null },
+  counterKurus: number,
+  note: string | null,
+  now = new Date(),
+) {
+  if (!Number.isInteger(counterKurus) || counterKurus <= 0) throw new DomainError("DOGRULAMA", "Geçerli bir fiyat girin.");
+  const o = await prisma.offer.findUnique({ where: { id: offerId } });
+  if (!o) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  if (party.role === "BRAND" && o.brandId !== party.brandId) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  if (party.role === "INFLUENCER" && o.influencerId !== party.influencerId) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  if (o.status !== "GONDERILDI" && o.status !== "KARSI_TEKLIF") throw new DomainError("GECERSIZ_GECIS", "Bu teklif için fiyat talebi yapılamaz.");
+  if (o.expiresAt <= now) {
+    await prisma.offer.update({ where: { id: o.id }, data: { status: "SURESI_DOLDU" } });
+    throw new DomainError("GECERSIZ_GECIS", "Teklifin süresi doldu.");
+  }
+  return prisma.offer.update({
+    where: { id: o.id },
+    data: {
+      status: "KARSI_TEKLIF",
+      counterKurus,
+      counterNote: note?.trim() || null,
+      counterByRole: party.role,
+    },
+  });
+}
+
+/** Marka, influencer'ın karşı fiyatını kabul eder. */
+export async function acceptCounterByBrand(offerId: string, brandId: string, now = new Date()) {
+  const o = await prisma.offer.findUnique({ where: { id: offerId } });
+  if (!o || o.brandId !== brandId) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  if (o.status !== "KARSI_TEKLIF" || o.counterByRole !== "INFLUENCER" || !o.counterKurus) {
+    throw new DomainError("GECERSIZ_GECIS", "Onaylanacak karşı fiyat yok.");
+  }
+  return prisma.offer.update({
+    where: { id: o.id },
+    data: { status: "KABUL", totalKurus: o.counterKurus, respondedAt: now },
+  });
 }
 
 /** Marka teklifi geri çeker (yalnız yanıt bekleyen). */

@@ -5,7 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { ReviewApplication } from "@/components/campaigns/open-call-forms";
 import { Pill, StatStrip } from "@/components/luma/primitives";
-import { WithdrawOffer } from "@/components/offers/offer-forms";
+import { BrandOfferActions } from "@/components/offers/offer-forms";
 import { Avatar, pickAvatar } from "@/components/ui/avatar";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
@@ -60,13 +60,20 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
                 <span className="text-[14px] text-fg">{o.title}</span>
                 <span className="truncate text-[12px] text-fg-muted">{itemsSummary(o.items).join(" · ")}</span>
                 {o.responseNote ? <span className="text-[12px] text-fg-muted">{tt("Not:")}{" "}{o.responseNote}</span> : null}
+                {o.status === "KARSI_TEKLIF" && o.counterKurus ? (
+                  <span className="text-[12px] text-amber-600 dark:text-amber-400">
+                    {o.counterByRole === "BRAND" ? tt("Markanın fiyat talebi:") : tt("Influencer'ın karşı fiyatı:")}{" "}
+                    <strong>{formatKurus(o.counterKurus)}</strong>
+                    {o.counterNote ? ` · ${o.counterNote}` : ""}
+                  </span>
+                ) : null}
               </div>
               <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-1">
                 <span className="text-[17px] font-semibold tabular-nums text-fg">{formatKurus(o.totalKurus)}</span>
-                <Pill tone={p.tone}>{p.label}</Pill>
+                <Pill tone={o.status === "KARSI_TEKLIF" ? "amber" : p.tone}>{o.status === "KARSI_TEKLIF" ? tt("Karşı fiyat") : p.label}</Pill>
                 <span className="text-[11px] text-fg-passive">{fmtDate(o.createdAt)} {expiryText(o.expiresAt, o.status)}</span>
               </div>
-              {o.status === "GONDERILDI" ? <WithdrawOffer id={o.id} /> : null}
+              <BrandOfferActions id={o.id} status={o.status} counterByRole={o.counterByRole} counterKurus={o.counterKurus} />
             </li>
           );
         })}

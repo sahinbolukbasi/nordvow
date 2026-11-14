@@ -18,12 +18,18 @@ import { DomainError } from "./errors";
  */
 
 /** Markanın varsayılan çalışma modu (yeni kampanyalar bununla açılır). */
-export async function setBrandDefaultMode(actor: Actor, brandId: string, mode: "SELF" | "AJANS") {
+export async function setBrandDefaultMode(actor: Actor, brandId: string, mode: "SELF" | "AJANS", preferredAgencyUserId?: string | null) {
   if (actor.role !== "ADMIN" && !(actor.role === "BRAND" && actor.brandId === brandId)) {
     throw new DomainError("YETKISIZ", "Bu markanın ayarını değiştiremezsiniz.");
   }
-  await prisma.brand.update({ where: { id: brandId }, data: { defaultExecutionMode: mode } });
-  await audit.append({ actor: toAuditActor(actor), action: "BRAND_UPDATED", entityType: "Brand", entityId: brandId, data: { defaultExecutionMode: mode } });
+  let agencyId: string | null = null;
+  if (mode === "AJANS" && preferredAgencyUserId) {
+    const ag = await prisma.user.findFirst({ where: { id: preferredAgencyUserId, role: "AGENCY", status: "ACTIVE" }, select: { id: true } });
+    if (!ag) throw new DomainError("DOGRULAMA", "Seçilen ajans bulunamadı veya aktif değil.");
+    agencyId = ag.id;
+  }
+  await prisma.brand.update({ where: { id: brandId }, data: { defaultExecutionMode: mode, preferredAgencyUserId: agencyId } });
+  await audit.append({ actor: toAuditActor(actor), action: "BRAND_UPDATED", entityType: "Brand", entityId: brandId, data: { defaultExecutionMode: mode, preferredAgencyUserId: agencyId } });
 }
 
 /**

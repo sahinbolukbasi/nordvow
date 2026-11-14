@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
+import { SyncInfluencerButton } from "@/components/offers/sync-influencer-button";
 import { ButtonLink } from "@/components/ui/form";
 import { requireActor } from "@/lib/auth-guard";
 export const metadata: Metadata = { title: "İçerik üreticisi profili" };
@@ -21,7 +22,10 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
       <CreatorShowcase
         influencerId={inf.id}
         actions={
-          <ButtonLink href={`/marka/kesfet?sec=${inf.id}`} className="bg-neon text-black">{tt("Teklif gönder →")}</ButtonLink>
+          <div className="flex flex-wrap items-center gap-2">
+            <SyncInfluencerButton influencerId={inf.id} />
+            <ButtonLink href={`/marka/kesfet?sec=${inf.id}`} className="bg-neon text-black">{tt("Teklif gönder →")}</ButtonLink>
+          </div>
         }
       />
     </div>

@@ -9,6 +9,7 @@ import { computeBalances } from "@infulancer/core/domain/ledger";
 import { syncSourceLabels } from "@infulancer/core/social/sync";
 import { WorkHistory } from "@/components/history/work-history";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
+import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
 import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
 import { OwnAccountForm, SyncOwnButton } from "@/components/forms/own-account-forms";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
@@ -227,12 +228,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </div>
       ),
     });
-  } else if (actor.role === "BRAND" && actor.brandId) {
+  }
+  let brandModeSettings: { mode: "SELF" | "AJANS"; selectedAgencyId: string | null; agencies: AgencyOption[] } | null = null;
+  if (actor.role === "BRAND" && actor.brandId) {
     const brandId = actor.brandId;
-    const [campaigns, offers] = await Promise.all([
+    const [campaigns, offers, brandCfg, agencies] = await Promise.all([
       prisma.campaign.findMany({ where: { brandId }, orderBy: { startsAt: "desc" }, select: { id: true, name: true, status: true, startsAt: true, endsAt: true, brandTotalFeeKurus: true, _count: { select: { assignments: { where: { contractStatus: { not: "RED" } } } } } } }),
       prisma.offer.findMany({ where: { brandId }, orderBy: { createdAt: "desc" }, take: 30 }),
+      prisma.brand.findUnique({ where: { id: brandId }, select: { defaultExecutionMode: true, preferredAgencyUserId: true } }),
+      prisma.user.findMany({ where: { role: "AGENCY", status: "ACTIVE" }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     ]);
+    brandModeSettings = { mode: brandCfg?.defaultExecutionMode ?? "AJANS", selectedAgencyId: brandCfg?.preferredAgencyUserId ?? null, agencies };
     headline = `${user.brand?.name ?? "Marka"} · marka yetkilisi`;
     tabs.push({
       id: "isbirlikleri",
@@ -293,6 +299,13 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <CardTitle>{tt("Güvenlik")}</CardTitle>
           <PasswordForm />
         </Card>
+        {brandModeSettings ? (
+          <DefaultModeCard
+            mode={brandModeSettings.mode}
+            agencies={brandModeSettings.agencies}
+            selectedAgencyId={brandModeSettings.selectedAgencyId}
+          />
+        ) : null}
         {actor.role === "INFLUENCER" || actor.role === "BRAND" ? (
           <Card interactive={false} className="flex flex-col gap-3">
             <CardTitle>{tt("Hızlı erişim")}</CardTitle>

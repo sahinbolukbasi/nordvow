@@ -59,14 +59,10 @@ export function toneFor(kind: CreativeKind, seed: string): string {
   return list[h % list.length]!;
 }
 export const fmtCredits = (n: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(n);
-/** TL para biçimi (1 kredi = 1 TL). Üretim maliyeti ve bakiye bu birimle gösterilir. */
-const fmtTry = (n: number) => `${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: Math.abs(n) < 10 && !Number.isInteger(n) ? 2 : 0 }).format(Math.abs(n) < 10 ? n : Math.round(n))} TL`;
-
-const INTL: Record<string, string> = { TRY: "tr-TR", EUR: "de-DE", CHF: "de-CH", GBP: "en-GB", USD: "en-US" };
-/** Para biçimi hesabın kendi para biriminde (çevrim yok). Varsayılan TL. */
-export function fmtTl(n: number, currency = "TRY"): string {
-  if (currency === "TRY") return fmtTry(n);
-  return new Intl.NumberFormat(INTL[currency] ?? "en-GB", { style: "currency", currency, minimumFractionDigits: Math.abs(n) < 10 && n % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 }).format(n);
+/** Creative Stüdyo birimi: Kredi (TL yerine kredi gösterilir). */
+export function fmtTl(n: number, _currency = "TRY"): string {
+  const v = Math.abs(n) < 10 && !Number.isInteger(n) ? n : Math.round(n);
+  return `${fmtCredits(v)} Kredi`;
 }
 /** Sunucudaki pricing.chargeIn ile aynı: TRY tam TL, diğerleri cent'e yukarı yuvarlanır; en az min. */
 export function chargeAmount(cpu: number, units: number, min: number, currency = "TRY"): number {

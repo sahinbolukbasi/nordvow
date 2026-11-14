@@ -42,13 +42,6 @@ export function SignupForm({ code, kind, categories }: { code: string; kind: "IN
       <Field label={kind === "BRAND" ? tt("Markanızı kısaca anlatın") : tt("Kendinizi kısaca anlatın")}>
         {(p) => <Textarea {...p} name="about" rows={3} maxLength={1000} />}
       </Field>
-      <label className="flex items-start gap-2 text-[13px] text-fg-muted">
-        <input type="checkbox" name="acceptTerms" required className="mt-0.5 h-4 w-4 accent-[var(--color-fg)]" />
-        <span>
-          <Link href="/kullanim-kosullari" target="_blank" className="underline underline-offset-4">{tt("Kullanım koşullarını")}</Link>{" "}{tt("ve")}{" "}
-          <Link href="/gizlilik" target="_blank" className="underline underline-offset-4">{tt("gizlilik politikasını")}</Link>{" "}{tt("okudum, kabul ediyorum.")}{" "}
-          <Link href="/kvkk" target="_blank" className="underline underline-offset-4">{tt("KVKK Aydınlatma Metni")}</Link>{tt("'ni okudum.")}</span>
-      </label>
     </ActionForm>
   );
 }

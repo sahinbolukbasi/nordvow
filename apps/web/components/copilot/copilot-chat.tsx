@@ -74,10 +74,18 @@ function CampaignStartForm({ brands }: { brands: { id: string; name: string }[] 
   );
 }
 
-function CampaignRequestForm() {
+function CampaignRequestForm({ executionMode }: { executionMode?: "SELF" | "AJANS" }) {
   const tt = useTT();
+  const isSelf = executionMode === "SELF";
   return (
-    <ActionForm action={requestCampaignAction} submitLabel={tt("Talebi ajansa gönder")} submitSize="sm" resetOnSuccess aria-label={tt("Kampanya talebi")} className="gap-3">
+    <ActionForm
+      action={requestCampaignAction}
+      submitLabel={isSelf ? tt("Kampanya taslağını oluştur") : tt("Talebi ajansa gönder")}
+      submitSize="sm"
+      resetOnSuccess
+      aria-label={isSelf ? tt("Hızlı kampanya taslağı") : tt("Kampanya talebi")}
+      className="gap-3"
+    >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label={tt("Kampanya adı")} className="sm:col-span-2">
           {(p) => <Input {...p} name="title" required minLength={3} maxLength={140} placeholder={tt("Yeni ürün lansmanı")} />}
@@ -211,7 +219,7 @@ export function CopilotChat({ welcome, compact = false, onClose }: { welcome: Co
               ) : null}
               {m.form === "campaign-request" ? (
                 <div className="rounded-2xl border border-neon-cyan/40 p-4">
-                  <CampaignRequestForm />
+                  <CampaignRequestForm executionMode={welcome.brandExecutionMode} />
                 </div>
               ) : null}
               {m.actions?.length ? (

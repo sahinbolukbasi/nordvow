@@ -11,7 +11,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { ProgressBar } from "@/components/ui/progress";
-import { DefaultModeCard } from "@/components/campaign/default-mode-card";
 import { StatusDot } from "@/components/ui/status";
 import { requireActor } from "@/lib/auth-guard";
 import { cn } from "@/lib/cn";
@@ -34,14 +33,13 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
   const actor = await requireActor("BRAND");
   const { durum } = await searchParams;
   const status = TABS.find((t) => t.id && t.id === durum)?.id || undefined;
-  const [rows, counts, brand] = await Promise.all([
+  const [rows, counts] = await Promise.all([
     prisma.campaign.findMany({
       where: { brandId: actor.brandId!, ...(status ? { status } : { status: { not: "IPTAL" } }) },
       orderBy: [{ updatedAt: "desc" }],
       include: { assignments: { include: { influencer: { select: { id: true, name: true } } } } },
     }),
     prisma.campaign.groupBy({ by: ["status"], where: { brandId: actor.brandId! }, _count: true }),
-    prisma.brand.findUniqueOrThrow({ where: { id: actor.brandId! }, select: { defaultExecutionMode: true } }),
   ]);
   // Marka ekranına yalnız DTO (influencer bedeli/komisyon yok).
   const campaigns = rows.map((c) => ({ view: toBrandCampaignView(c), raw: c }));
@@ -49,8 +47,7 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
   const total = counts.reduce((s, c) => s + (c.status === "IPTAL" ? 0 : c._count), 0);
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={tt("Kampanyalar")} description={tt("Taslakları tamamlayın, aktif kampanyaların skorunu ve raporunu izleyin.")} actions={<ButtonLink href="/marka/kampanyalar/yeni">{tt("Yeni kampanya")}</ButtonLink>} />
-      <DefaultModeCard mode={brand.defaultExecutionMode} />
+      <PageHeader title={tt("Kampanyalar")} description={tt("Taslakları tamamlayın, aktif kampanyaların skorunu ve raporunu izleyin. Çalışma şeklinizi Profilim → Bilgilerim bölümünden değiştirebilirsiniz.")} actions={<ButtonLink href="/marka/kampanyalar/yeni">{tt("Yeni kampanya")}</ButtonLink>} />
       <nav aria-label={tt("Durum")} className="inline-flex w-fit flex-wrap rounded-full border border-line bg-glass p-1">
         {TABS.map((t) => {
           const n = t.id ? (counts.find((c) => c.status === t.id)?._count ?? 0) : total;

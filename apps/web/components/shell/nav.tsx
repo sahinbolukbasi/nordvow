@@ -83,6 +83,33 @@ export const navByRole: Record<Role, NavItem[]> = {
   ],
 };
 navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai"].includes(i.href));
+
+/** Rolün varsayılan olarak açık gelen ekranları (PagePermission kaydı yoksa). */
+export function isDefaultOpenForRole(role: Role, href: string): boolean {
+  return (navByRole[role] ?? []).some((i) => i.href === href);
+}
+
+/**
+ * Platformdaki tüm benzersiz ekranları döndürür: önce seçili rolün kendi ekranları,
+ * ardından diğer rollerdeki ekranlar eklenir (Rol ve Yetkinlikler matrisi ile menü için).
+ */
+export function getAllPlatformPagesForRole(role: Role): NavItem[] {
+  const own = navByRole[role] ?? [];
+  const seen = new Set(own.map((i) => i.href));
+  const rest: NavItem[] = [];
+  for (const r of ["ADMIN", "BRAND", "INFLUENCER"] as Role[]) {
+    for (const item of navByRole[r]) {
+      if (seen.has(item.href)) continue;
+      seen.add(item.href);
+      rest.push({
+        ...item,
+        section: item.section ? `${item.section} (${r === "ADMIN" ? "Admin" : r === "BRAND" ? "Marka" : "Influencer"})` : r === "ADMIN" ? "Admin" : r === "BRAND" ? "Marka" : "Influencer",
+      });
+    }
+  }
+  return [...own, ...rest];
+}
+
 export function isActive(pathname: string, item: NavItem): boolean {
   if (item.exact) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);

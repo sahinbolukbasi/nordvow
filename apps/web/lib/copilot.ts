@@ -8,7 +8,7 @@ import { BRAND_NAME } from "@infulancer/core/brand";
 import { allowedActions, COPILOT_ACTIONS, COPILOT_SUGGESTIONS, matchIntent, type CopilotAction, type CopilotForm, type CopilotRole } from "@infulancer/core/copilot/intents";
 
 export type NextStep = { title: string; detail: string; href: string; tone: "critical" | "warn" | "info" | "ok" };
-export type CopilotWelcome = { role: CopilotRole; userId: string; name: string; greeting: string; steps: NextStep[]; suggestions: string[]; brands: { id: string; name: string }[] };
+export type CopilotWelcome = { role: CopilotRole; userId: string; name: string; greeting: string; steps: NextStep[]; suggestions: string[]; brands: { id: string; name: string }[]; brandExecutionMode?: "SELF" | "AJANS" };
 export type CopilotAnswer = { reply: string; actions: CopilotAction[]; form?: CopilotForm; steps?: NextStep[]; source: "kural" | "ai" };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -97,22 +97,30 @@ export async function nextSteps(actor: Actor): Promise<NextStep[]> {
 }
 
 export async function copilotWelcome(actor: Actor): Promise<CopilotWelcome> {
-  const [user, steps, brands] = await Promise.all([
+  const [user, steps, brands, brandCfg] = await Promise.all([
     prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } }),
     nextSteps(actor),
     actor.role === "ADMIN" ? prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }) : Promise.resolve([]),
+    actor.role === "BRAND" && actor.brandId ? prisma.brand.findUnique({ where: { id: actor.brandId }, select: { defaultExecutionMode: true } }) : Promise.resolve(null),
   ]);
   const first = (user?.name ?? "").split(" ")[0] ?? "";
   const hour = Number(new Date().toLocaleString("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", hour12: false }));
   const hello = hour < 12 ? "Günaydın" : hour < 18 ? "İyi günler" : "İyi akşamlar";
   const role = actor.role as CopilotRole;
+  const brandExecutionMode = brandCfg?.defaultExecutionMode ?? (role === "BRAND" ? "AJANS" : undefined);
   const intro =
     role === "ADMIN"
       ? "Ajans operasyonunuzu birlikte yönetelim. Bugün öncelikli olanlar:"
       : role === "BRAND"
-        ? "Kampanyalarınızı birlikte takip edelim. Bugün dikkat etmeniz gerekenler:"
+        ? brandExecutionMode === "SELF"
+          ? "Kampanyalarınızı kendi yönetiminizle (Manuel mod) birlikte takip edelim. Bugün dikkat etmeniz gerekenler:"
+          : "Ajansla yürüttüğünüz kampanyaları birlikte takip edelim. Bugün dikkat etmeniz gerekenler:"
         : "İşlerinizi ve ödemelerinizi birlikte takip edelim. Bugün sizi bekleyenler:";
-  return { role, userId: actor.userId, brands, name: user?.name ?? "", greeting: `${hello}${first ? ` ${first}` : ""}! ${intro}`, steps, suggestions: COPILOT_SUGGESTIONS[role] };
+  const suggestions =
+    role === "BRAND" && brandExecutionMode === "SELF"
+      ? COPILOT_SUGGESTIONS.BRAND.map((s) => (s === "Yeni kampanya talep et" ? "Yeni kampanya başlat" : s))
+      : COPILOT_SUGGESTIONS[role];
+  return { role, userId: actor.userId, brands, brandExecutionMode, name: user?.name ?? "", greeting: `${hello}${first ? ` ${first}` : ""}! ${intro}`, steps, suggestions };
 }
 
 const ROLE_TR: Record<CopilotRole, string> = { ADMIN: "ajans yöneticisi", BRAND: "marka kullanıcısı", INFLUENCER: "içerik üreticisi" };
@@ -123,10 +131,18 @@ const ROLE_TR: Record<CopilotRole, string> = { ADMIN: "ajans yöneticisi", BRAND
  */
 export async function copilotAnswer(actor: Actor, message: string, history: { role: "user" | "assistant"; text: string }[]): Promise<CopilotAnswer> {
   const role = actor.role as CopilotRole;
+  const brandCfg = role === "BRAND" && actor.brandId ? await prisma.brand.findUnique({ where: { id: actor.brandId }, select: { defaultExecutionMode: true } }) : null;
+  const isSelfBrand = role === "BRAND" && brandCfg?.defaultExecutionMode === "SELF";
   const rule = matchIntent(role, message);
   const steps = rule.intent === "summary" ? await nextSteps(actor) : undefined;
+  const baseReply =
+    rule.intent === "summary"
+      ? "Bugün öncelikli olanlar aşağıda. Birine tıklayarak doğrudan ilgili sayfaya gidebilirsiniz."
+      : isSelfBrand && rule.intent === "campaign-start"
+        ? "Manuel çalışma modundasınız: ajansa talep göndermeden doğrudan kendi kampanya taslağınızı oluşturabilirsiniz. Aşağıdaki formu doldurarak hızlıca başlayın veya tam kampanya sihirbazını açın."
+        : rule.reply;
   const base: CopilotAnswer = {
-    reply: rule.intent === "summary" ? "Bugün öncelikli olanlar aşağıda. Birine tıklayarak doğrudan ilgili sayfaya gidebilirsiniz." : rule.reply,
+    reply: baseReply,
     actions: forActor(actor, allowedActions(role, rule.actions)),
     form: rule.form,
     steps,

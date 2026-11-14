@@ -89,7 +89,7 @@ export type RegisterInput = {
   password: string;
   name: string;
   phone: string;
-  acceptTerms: boolean;
+  acceptTerms?: boolean;
   application: InfluencerApplication | BrandApplication;
 };
 
@@ -105,7 +105,6 @@ export async function registerWithInvite(input: RegisterInput) {
   if (name.length < 3 || name.length > 80) throw new DomainError("DOGRULAMA", "Ad soyad 3–80 karakter olmalı.");
   const phone = input.phone.replace(/[^\d+]/g, "");
   if (!/^\+?\d{10,15}$/.test(phone)) throw new DomainError("DOGRULAMA", "Geçerli bir telefon numarası girin.");
-  if (!input.acceptTerms) throw new DomainError("DOGRULAMA", "Kullanım koşulları ve gizlilik politikasını kabul etmelisiniz.");
   const a = input.application;
   if (!a.categoryIds.length || a.categoryIds.length > 8) throw new DomainError("DOGRULAMA", "1–8 kategori seçin.");
   const cats = await prisma.category.count({ where: { id: { in: a.categoryIds }, active: true } });

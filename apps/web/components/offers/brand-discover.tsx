@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import type { Platform } from "@infulancer/core/enums";
 import { CheckIcon, SearchIcon, XIcon } from "@/components/icons";
 import { PlatformIcon } from "@/components/platform-icon";
+import { SyncInfluencerButton } from "@/components/offers/sync-influencer-button";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, Input, Select, Textarea } from "@/components/ui/form";
 import { sendOffersAction } from "@/lib/actions/offers";
@@ -19,8 +20,19 @@ export type DiscoverCreator = {
   avatarUrl: string | null;
   categories: string[];
   primaryCategory: string;
-  accounts: { platform: Platform; handle: string; followers: number; er: number }[];
+  accounts: {
+    platform: Platform;
+    handle: string;
+    followers: number;
+    er: number;
+    avgLikes?: number | null;
+    avgViews?: number | null;
+    lastSyncedAt?: string | null;
+    syncSource?: string | null;
+  }[];
   totalFollowers: number;
+  internalCampaigns?: number;
+  internalDeliverables?: number;
   rates: { platform: Platform; contentType: string; label: string; priceKurus: number }[];
   headline?: string | null;
 };
@@ -142,16 +154,26 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
                     {c.accounts.map((a) => (
                       <span key={a.platform} className="inline-flex items-center gap-1">
                         <PlatformIcon platform={a.platform} size={12} /> {compact.format(a.followers)} · {pct.format(a.er)}
+                        {a.avgLikes ? ` · ❤ ${compact.format(a.avgLikes)}` : ""}
+                        {a.avgViews ? ` · ▶ ${compact.format(a.avgViews)}` : ""}
                       </span>
                     ))}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
+                    <span>{tt("Platform içi:")}{" "}{c.internalCampaigns ?? 0} {tt("kampanya")} · {c.internalDeliverables ?? 0} {tt("içerik")}</span>
+                    {c.accounts.some((a) => a.lastSyncedAt) ? <span>· {tt("Canlı API")}</span> : null}
                   </span>
                   <span className="mt-auto flex items-center justify-between border-t border-line pt-2 text-[12px]">
                     <span className="text-fg-muted">{c.rates.length ? `${c.rates.length} içerik fiyatı` : tt("Fiyat listesi yok")}</span>
                     {from != null ? <span className="font-semibold text-fg">{tl(from)}{tt("'den başlayan")}</span> : null}
                   </span>
                 </button>
-                <Link href={`/marka/kesfet/${c.id}`} className="flex items-center justify-between border-t border-line px-4 py-2 text-[13px] text-fg-muted transition-standard hover:bg-surface-hover hover:text-fg">{tt("Detaylı profil, iş birlikleri ve işler")}{" "}<span aria-hidden>→</span>
-                </Link>
+                <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+                  <Link href={`/marka/kesfet/${c.id}`} className="text-[13px] text-fg-muted transition-standard hover:text-fg">
+                    {tt("Detaylı profil")} →
+                  </Link>
+                  <SyncInfluencerButton influencerId={c.id} />
+                </div>
               </li>
             );
           })}

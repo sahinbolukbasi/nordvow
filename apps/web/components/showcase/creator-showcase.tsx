@@ -40,7 +40,7 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
       showCollaborations: true,
       avatarKey: true,
       categories: { include: { category: { include: { parent: { select: { name: true } } } } }, orderBy: { primary: "desc" } },
-      socialAccounts: { orderBy: { followers: "desc" }, select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true, profileUrl: true, postsCount: true, avgViews: true, verified: true, lastSyncedAt: true } },
+      socialAccounts: { orderBy: { followers: "desc" }, select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true, profileUrl: true, postsCount: true, avgLikes: true, avgComments: true, avgViews: true, verified: true, lastSyncedAt: true, syncSource: true } },
     },
   });
   if (!inf) return null;
@@ -121,7 +121,7 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
                     <span className="text-[12px] text-fg-muted">{platformLabels[a.platform]}{a.verified ? tt(" · doğrulanmış") : ""}</span>
                   </div>
                 </div>
-                <dl className="grid grid-cols-3 gap-2 text-[12px]">
+                <dl className="grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-4">
                   <div>
                     <dt className="text-fg-passive">{tt("Takipçi")}</dt>
                     <dd className="text-base font-semibold tabular-nums">{compact.format(a.followers)}</dd>
@@ -131,8 +131,12 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
                     <dd className="text-base font-semibold tabular-nums">{pct.format(Number(a.engagementRate))}</dd>
                   </div>
                   <div>
-                    <dt className="text-fg-passive">{a.avgViews ? tt("Ort. izlenme") : tt("Gönderi")}</dt>
-                    <dd className="text-base font-semibold tabular-nums">{a.avgViews ? compact.format(a.avgViews) : a.postsCount ? compact.format(a.postsCount) : "—"}</dd>
+                    <dt className="text-fg-passive">{a.avgViews ? tt("Ort. izlenme") : tt("Ort. beğeni")}</dt>
+                    <dd className="text-base font-semibold tabular-nums">{a.avgViews ? compact.format(a.avgViews) : a.avgLikes ? compact.format(a.avgLikes) : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-fg-passive">{a.avgComments ? tt("Ort. yorum") : tt("Gönderi")}</dt>
+                    <dd className="text-base font-semibold tabular-nums">{a.avgComments ? compact.format(a.avgComments) : a.postsCount ? compact.format(a.postsCount) : "—"}</dd>
                   </div>
                 </dl>
                 <a
