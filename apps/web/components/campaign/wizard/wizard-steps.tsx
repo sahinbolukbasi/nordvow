@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import type { ContentType, Platform } from "@infulancer/core/enums";
 import { COUNTRIES, GENDERS, OBJECTIVES, type ContentPlanItem, type DraftCheck } from "@infulancer/core/domain/campaign-plan";
+import { MAX_CAMPAIGN_AMOUNT_LABEL } from "@infulancer/core/domain/money";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import { ActionForm, type FormAction } from "@/components/forms/action-form";
@@ -261,11 +262,11 @@ export function ScheduleStep({
         <span className="text-[12px] tabular-nums text-fg-passive">{days > 0 ? `${days} gün` : tt("Bitiş başlangıçtan önce olamaz")}</span>
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label={`Toplam bütçe (${cur})`} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Ajansa ödeyeceğiniz toplam tutar (influencer bedelleri dahil)."} Kampanyanın para birimi hedef ülkelere göre ${values.currency ?? "TRY"}; tutarlar çevrilmez.`}>
+        <Field label={`Toplam bütçe (${cur})`} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Ajansa ödeyeceğiniz toplam tutar (influencer bedelleri dahil)."} Kampanyanın para birimi hedef ülkelere göre ${values.currency ?? "TRY"}; tutarlar çevrilmez. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`}>
           {(p) => <Input {...p} name="brandTotalFee" required inputMode="decimal" defaultValue={values.brandTotalFee} placeholder="250.000" />}
         </Field>
         {isAdmin ? (
-          <Field label={`Influencer bütçesi (${cur})`} hint={tt("Yalnız ajans görür; boşsa kurulumda girilir.")}>
+          <Field label={`Influencer bütçesi (${cur})`} hint={tt(`Yalnız ajans görür; boşsa kurulumda girilir. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`)}>
             {(p) => <Input {...p} name="budget" inputMode="decimal" defaultValue={values.budget} placeholder="200.000" />}
           </Field>
         ) : null}

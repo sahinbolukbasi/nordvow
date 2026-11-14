@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import type { Platform } from "../enums";
 import { audienceSchema, contentPlanSchema, draftChecks, OBJECTIVES, parseContentPlan, type Objective } from "./campaign-plan";
 import { DomainError } from "./errors";
+import { assertCampaignAmountKurus } from "./money";
 import { utmSafe } from "./utm";
 import { campaignCurrency, currencyOf } from "../i18n/regions";
 
@@ -131,6 +132,7 @@ export async function updateSchedule(actor: Actor, id: string, input: { startsAt
   await assertCanEditDraft(actor, id);
   if (!(input.endsAt > input.startsAt)) throw new DomainError("DOGRULAMA", "Bitiş tarihi başlangıçtan sonra olmalı.");
   if (!Number.isInteger(input.brandTotalFeeKurus) || input.brandTotalFeeKurus <= 0) throw new DomainError("DOGRULAMA", "Toplam bütçeyi girin.");
+  assertCampaignAmountKurus(input.brandTotalFeeKurus, "Toplam bütçe");
   const data: { startsAt: Date; endsAt: Date; brandTotalFeeKurus: bigint; budgetKurus?: bigint } = {
     startsAt: input.startsAt,
     endsAt: input.endsAt,
@@ -138,6 +140,7 @@ export async function updateSchedule(actor: Actor, id: string, input: { startsAt
   };
   if (actor.role === "ADMIN" && input.budgetKurus != null) {
     if (!Number.isInteger(input.budgetKurus) || input.budgetKurus < 0) throw new DomainError("DOGRULAMA", "Influencer bütçesi geçersiz.");
+    assertCampaignAmountKurus(input.budgetKurus, "Influencer bütçesi");
     data.budgetKurus = BigInt(input.budgetKurus);
   }
   await prisma.campaign.update({ where: { id }, data });

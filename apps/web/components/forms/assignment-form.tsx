@@ -4,6 +4,7 @@ import { useTT } from "@/lib/i18n/tt-client";
 import { useState, useTransition } from "react";
 import { ActionForm } from "@/components/forms/action-form";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { MAX_FEE_LABEL } from "@infulancer/core/domain/money";
 import { createAssignment, previewBrandConflict } from "@/lib/actions/assignments";
 
 /**
@@ -51,8 +52,8 @@ export function AssignmentForm({ campaignId, influencers }: { campaignId: string
             </Select>
           )}
         </Field>
-        <Field label={tt("Influencer bedeli (TL)")}>{(p) => <Input {...p} name="fee" required inputMode="decimal" placeholder="45000" />}</Field>
-        <Field label={tt("Ajans komisyonu (TL)")}>{(p) => <Input {...p} name="commission" inputMode="decimal" placeholder="9000" />}</Field>
+        <Field label={tt("Influencer bedeli (TL)")} hint={tt(`En fazla ${MAX_FEE_LABEL}.`)}>{(p) => <Input {...p} name="fee" required inputMode="decimal" placeholder="45000" />}</Field>
+        <Field label={tt("Ajans komisyonu (TL)")} hint={tt(`En fazla ${MAX_FEE_LABEL}.`)}>{(p) => <Input {...p} name="commission" inputMode="decimal" placeholder="9000" />}</Field>
         <Field label={tt("Kupon kodu")}>{(p) => <Input {...p} name="couponCode" placeholder={tt("ZEYNEP15")} />}</Field>
         <Field label={tt("Münhasırlık (gün)")} hint={tt("Kampanya bitişinden itibaren.")}>
           {(p) => <Input {...p} name="exclusivityDays" type="number" min={0} max={365} defaultValue={0} />}

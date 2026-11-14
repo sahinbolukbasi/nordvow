@@ -2,6 +2,7 @@
 import { useTT } from "@/lib/i18n/tt-client";
 import { useState, type ReactNode } from "react";
 import { KPI_KEYS, kpiLabels, type Kpi } from "@infulancer/core/domain/campaign-score";
+import { MAX_CAMPAIGN_AMOUNT_LABEL } from "@infulancer/core/domain/money";
 import { ActionForm } from "@/components/forms/action-form";
 import { Button, Field, Input, Select } from "@/components/ui/form";
 import { saveCampaign } from "@/lib/actions/campaigns";
@@ -165,10 +166,10 @@ export function CampaignForm({ campaign, brands, returnTo, defaultBrandId }: { r
 
       <Section n={3} title={tt("Bütçe")}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Field label={tt("Influencer bütçesi (TL)")} hint={tt("Yalnız ajans görür.")}>
+          <Field label={tt("Influencer bütçesi (TL)")} hint={tt(`Yalnız ajans görür. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`)}>
             {(p) => <Input {...p} name="budget" required inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="450000" />}
           </Field>
-          <Field label={tt("Marka bedeli (TL)")} hint={tt("Markanın ödediği tutar.")}>
+          <Field label={tt("Marka bedeli (TL)")} hint={tt(`Markanın ödediği tutar. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`)}>
             {(p) => <Input {...p} name="brandTotalFee" required inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="560000" />}
           </Field>
           <div className="flex flex-col justify-center gap-1 rounded-2xl border border-line p-4">
