@@ -1,5 +1,5 @@
 import { metaSubscriptionChallenge } from "@infulancer/core/channels/meta-hub";
-import { receiveWebhook } from "@infulancer/core/channels/webhook";
+import { receiveWebhook, warnMetaSignature } from "@infulancer/core/channels/webhook";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.text();
-  await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"));
+  const result = await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"));
+  warnMetaSignature(result.reason);
   return new Response(null, { status: 200 });
 }
