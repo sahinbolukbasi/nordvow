@@ -9,6 +9,7 @@ import { targetsSchema } from "@infulancer/core/domain/campaign-score";
 import { assertCampaignCanGoLive, CampaignGateError } from "@infulancer/core/compliance/disclosure";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { MAX_CAMPAIGN_AMOUNT_KURUS, MAX_CAMPAIGN_AMOUNT_LABEL } from "@infulancer/core/domain/money";
 import { utmSafe } from "@infulancer/core/domain/utm";
 import { publish } from "@infulancer/core/events";
 import { ensureCampaignTrackers } from "@infulancer/core/agents/trackers";
@@ -22,8 +23,8 @@ const campaignSchema = z
     brandId: z.string().min(1, { error: "Marka seçin." }).max(64),
     name: z.string().min(3).max(140),
     slug: z.string().regex(/^[a-z0-9][a-z0-9-]{1,80}$/, { error: "Küçük harf, rakam ve tire kullanın." }),
-    budgetKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative(),
-    brandTotalFeeKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative(),
+    budgetKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative().max(MAX_CAMPAIGN_AMOUNT_KURUS, { error: `Bütçe en fazla ${MAX_CAMPAIGN_AMOUNT_LABEL} olabilir.` }),
+    brandTotalFeeKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative().max(MAX_CAMPAIGN_AMOUNT_KURUS, { error: `Marka bedeli en fazla ${MAX_CAMPAIGN_AMOUNT_LABEL} olabilir.` }),
     startsAt: z.string().refine(isDay, { error: "Geçerli bir tarih girin." }),
     endsAt: z.string().refine(isDay, { error: "Geçerli bir tarih girin." }),
     status: z.enum(["TASLAK", "AKTIF", "IPTAL"], { error: "Durum seçin (kapatma için 'Kampanyayı kapat' kullanın)." }),
