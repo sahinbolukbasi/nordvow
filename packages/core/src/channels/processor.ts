@@ -9,6 +9,7 @@ import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
 import { handlePlatformBot, isPlatformBot } from "../bot/engine";
+import { botLog } from "../bot/trace";
 import { canonicalPhone } from "../bot/tokens";
 import { metaEventDate } from "../messaging/meta-time";
 import { isOpen, onInbound } from "../messaging/windows";
@@ -26,6 +27,8 @@ export async function processRawWebhook(rawId: string, bodyOverride?: string) {
   const body = bodyOverride ?? rawBodies.get(rawId);
   rawBodies.delete(rawId);
   if (!body) {
+    const { botLog } = await import("../bot/trace");
+    botLog("warn", "skipped", { reason: "body_missing" });
     await prisma.rawWebhook.update({ where: { id: rawId }, data: { error: "gövde bulunamadı (S3'ten yeniden okunmalı)" } });
     return { skipped: true };
   }
@@ -51,16 +54,24 @@ async function tenantByExternal(provider: ChannelProvider, key: string, value: s
   return c?.tenantId ?? null;
 }
 
+export const PLATFORM_TENANT_ID = "nordvow-platform";
+
 async function dispatch(p: Any): Promise<string | null> {
   if (p.object === "whatsapp_business_account") {
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
       for (const change of entry.changes ?? []) {
         const v = change.value ?? {};
-        const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(v.metadata.phone_number_id) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
-        tenant ??= t;
-        if (!t) continue;
-        await handleWhatsAppChange(t, change.field, v, await isPlatformBot("WHATSAPP", String(v.metadata?.phone_number_id ?? "")));
+        const phoneId = String(v.metadata?.phone_number_id ?? "");
+        const t = phoneId ? await tenantByPhoneNumberId(phoneId) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
+        const platformBot = phoneId ? await isPlatformBot("WHATSAPP", phoneId) : false;
+        tenant ??= t ?? (platformBot ? PLATFORM_TENANT_ID : null);
+        botLog("info", "matched", { channel: "WHATSAPP", tenant: t ? "db" : platformBot ? "platform" : "none", platformBot });
+        if (!t && !platformBot) {
+          botLog("warn", "skipped", { reason: "no_tenant" });
+          continue;
+        }
+        await handleWhatsAppChange(t ?? PLATFORM_TENANT_ID, change.field, v, platformBot);
       }
     }
     return tenant;
@@ -70,13 +81,18 @@ async function dispatch(p: Any): Promise<string | null> {
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
       const t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
-      tenant ??= t;
-      if (!t) continue;
       const platformBot = await isPlatformBot(provider, String(entry.id));
-      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m, platformBot);
+      tenant ??= t ?? (platformBot ? PLATFORM_TENANT_ID : null);
+      botLog("info", "matched", { channel: provider, tenant: t ? "db" : platformBot ? "platform" : "none", platformBot });
+      if (!t && !platformBot) {
+        botLog("warn", "skipped", { reason: "no_tenant" });
+        continue;
+      }
+      for (const m of entry.messaging ?? []) await handleMetaMessaging(t ?? PLATFORM_TENANT_ID, provider, m, platformBot);
     }
     return tenant;
   }
+  botLog("warn", "skipped", { reason: "unknown_object" });
   return null;
 }
 
@@ -84,7 +100,10 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any, pla
   if (field === "messages") {
     const contacts = new Map<string, string>((v.contacts ?? []).map((c: Any) => [c.wa_id, c.profile?.name]));
     for (const m of v.messages ?? []) {
-      if (!(await firstSeen(m.id, "whatsapp"))) continue;
+      if (!(await firstSeen(m.id, "whatsapp"))) {
+        botLog("info", "deduped", { channel: "WHATSAPP" });
+        continue;
+      }
       const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null;
       await handleInbound(tenantId, "WHATSAPP", {
         externalMessageId: m.id,

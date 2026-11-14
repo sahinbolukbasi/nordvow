@@ -57,7 +57,7 @@ export function setWebhookEnqueue(fn: Enqueue): void {
 }
 
 /** Her koşulda 200 döner; hatalar loglanır (Meta retry fırtınası üretmemek için). */
-export async function receiveWebhook(provider: string, rawBody: string, signatureHeader: string | null): Promise<ReceiveResult> {
+export async function receiveWebhook(provider: string, rawBody: string, signatureHeader: string | null, opts?: { awaitProcessing?: boolean }): Promise<ReceiveResult> {
   try {
     if (Buffer.byteLength(rawBody, "utf8") > MAX_PAYLOAD_BYTES) {
       return { status: 200, rawId: null, accepted: false, reason: "payload_too_large" };
@@ -73,7 +73,16 @@ export async function receiveWebhook(provider: string, rawBody: string, signatur
     const raw = await prisma.rawWebhook.create({ data: { provider, s3Key: key }, select: { id: true } });
     // Ham gövde işlemciye bellekten de verilir (S3 okuma gecikmesi olmadan).
     rawBodies.set(raw.id, rawBody);
-    enqueue(raw.id);
+    if (opts?.awaitProcessing) {
+      try {
+        const { processRawWebhook } = await import("./processor");
+        await processRawWebhook(raw.id);
+      } catch (err) {
+        console.warn("[meta-bot]", { step: "process_error", name: err instanceof Error ? err.name : "Error" });
+      }
+    } else {
+      enqueue(raw.id);
+    }
     return { status: 200, rawId: raw.id, accepted: true };
   } catch (err) {
     console.error("[webhook] alım hatası", err);
