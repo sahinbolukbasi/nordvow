@@ -16,3 +16,4 @@ bedrock_text_model_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 #   -var domain_name=nordvow.com -var domain_validated=true -var llm_provider=bedrock
 domain_name      = "nordvow.com"
 domain_validated = true
+meta_api_mode    = "http"

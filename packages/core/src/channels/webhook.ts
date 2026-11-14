@@ -42,11 +42,13 @@ export function setWebhookEnqueue(fn: Enqueue): void {
 export async function receiveWebhook(provider: string, rawBody: string, signatureHeader: string | null): Promise<ReceiveResult> {
   try {
     if (Buffer.byteLength(rawBody, "utf8") > MAX_PAYLOAD_BYTES) {
+      console.warn(`[webhook:${provider}] payload_too_large`);
       return { status: 200, rawId: null, accepted: false, reason: "payload_too_large" };
     }
-    const secret = envStr(provider === "fal" ? "FAL_WEBHOOK_SECRET" : "META_APP_SECRET", "");
+    const secret = envStr(provider === "fal" ? "FAL_WEBHOOK_SECRET" : "META_APP_SECRET", "").trim();
     const requireSig = envStr("WEBHOOK_REQUIRE_SIGNATURE", "true") !== "false";
     if (requireSig && !verifySignature(rawBody, signatureHeader, secret)) {
+      console.warn(`[webhook:${provider}] bad_signature (secretSet=${Boolean(secret)}, hasHeader=${Boolean(signatureHeader)})`);
       return { status: 200, rawId: null, accepted: false, reason: "bad_signature" };
     }
     const key = rawKey(provider);

@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { envStr } from "../env";
 import { getConfig, setConfig } from "../config/store";
 import { captureOptOut, OPT_OUT_RE } from "../compliance/iys";
 import type { ChannelProvider } from "../generated/prisma/enums";
@@ -38,14 +39,27 @@ export async function processRawWebhook(rawId: string, bodyOverride?: string) {
   }
 }
 
+async function defaultSystemTenant() {
+  const explicit = envStr("DEFAULT_TENANT_ID", "");
+  if (explicit) return explicit;
+  const brand = await prisma.brand.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+  return brand?.id ?? null;
+}
+
 async function tenantByPhoneNumberId(id: string) {
   const n = await prisma.whatsAppNumber.findUnique({ where: { phoneNumberId: id } });
-  return n?.tenantId ?? null;
+  if (n?.tenantId) return n.tenantId;
+  const globalWaId = envStr("WHATSAPP_PHONE_NUMBER_ID", "");
+  if (globalWaId && id === globalWaId) return defaultSystemTenant();
+  return null;
 }
 
 async function tenantByExternal(provider: ChannelProvider, key: string, value: string) {
   const c = await prisma.channelConnection.findFirst({ where: { provider, externalIds: { path: [key], equals: value } } });
-  return c?.tenantId ?? null;
+  if (c?.tenantId) return c.tenantId;
+  const globalIgId = envStr("INSTAGRAM_IG_USER_ID", "");
+  if (provider === "INSTAGRAM" && globalIgId && value === globalIgId) return defaultSystemTenant();
+  return null;
 }
 
 async function dispatch(p: Any): Promise<string | null> {
@@ -54,9 +68,12 @@ async function dispatch(p: Any): Promise<string | null> {
     for (const entry of p.entry ?? []) {
       for (const change of entry.changes ?? []) {
         const v = change.value ?? {};
-        const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(v.metadata.phone_number_id) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
+        const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(String(v.metadata.phone_number_id)) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
         tenant ??= t;
-        if (!t) continue;
+        if (!t) {
+          console.warn(`[processor] WhatsApp tenant bulunamadı (phone_number_id=${v.metadata?.phone_number_id}, waba_id=${entry.id})`);
+          continue;
+        }
         await handleWhatsAppChange(t, change.field, v);
       }
     }
@@ -68,8 +85,16 @@ async function dispatch(p: Any): Promise<string | null> {
     for (const entry of p.entry ?? []) {
       const t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
       tenant ??= t;
-      if (!t) continue;
+      if (!t) {
+        console.warn(`[processor] ${provider} tenant bulunamadı (entry.id=${entry.id})`);
+        continue;
+      }
       for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m);
+      for (const change of entry.changes ?? []) {
+        if (change.field === "messages" && change.value) {
+          await handleMetaMessaging(t, provider, change.value);
+        }
+      }
     }
     return tenant;
   }
