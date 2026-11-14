@@ -326,6 +326,9 @@ model SocialAccount {
   avgComments    Int?
   avgViews       Int?
   verified       Boolean    @default(false)
+  /// Business Discovery'den gelen ad ve kısa biyografi
+  displayName    String?    @map("display_name")
+  bioSnippet     String?    @map("bio_snippet")
   /// TikTok OAuth token'ı kasada (Secrets Manager); burada yalnız referans
   tokenRef       String?
   lastSyncedAt   DateTime?
@@ -1932,6 +1935,20 @@ model BotSettings {
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("bot_settings")
+}
+
+/// Otomatik bağlamada çakışan Instagram kullanıcı adı. Bot bağlama yapmaz.
+model BotLinkFlag {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  handle     String
+  reason     String
+  userIds    String[]        @map("user_ids")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId])
+  @@map("bot_link_flags")
 }
 
 /// Meta veri silme callback kaydı (onay kodu + durum sayfası).

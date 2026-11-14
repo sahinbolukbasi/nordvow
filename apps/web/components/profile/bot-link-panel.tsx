@@ -14,7 +14,7 @@ export async function BotLinkPanel({ userId }: { userId: string }) {
     <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4" aria-label="Mesaj botu">
       <h2 className="text-[15px] font-semibold">WhatsApp ve Instagram botu</h2>
       <p className="text-[13px] text-fg-muted">
-        WhatsApp’ta kayıtlı telefonunuz eşleşirse hesap otomatik bağlanır. Instagram’da bottan gelen bağlantıyı giriş yapmışken açın veya bu kodu gönderin. Kod 15 dakika geçerlidir. Ayrıntı: /gizlilik
+        Instagram kullanıcı adınızı ve telefonunuzu girerseniz Nordvow botu sizi otomatik tanır. WhatsApp numarası profil telefonuyla, Instagram kullanıcı adı profildeki hesapla eşleşir. Eşleşme yoksa veya aynı kullanıcı adı iki profildeyse bu 6 haneli kodu ya da bottaki bağlantıyı kullanın. Messenger yalnız kod ve bağlantı ile bağlanır. Kod 15 dakika geçerlidir. Ayrıntı: /gizlilik
       </p>
       <p className="font-mono text-2xl tracking-[0.3em]">{code}</p>
       {links.length === 0 ? <p className="text-[13px] text-fg-passive">Bağlı kanal yok.</p> : (

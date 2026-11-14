@@ -25,8 +25,17 @@ export type ProfileStats = {
   profileUrl: string | null;
   avatarUrl: string | null;
   verified: boolean;
+  displayName?: string | null;
+  bioSnippet?: string | null;
   source: "instagram_business_discovery" | "youtube_data" | "tiktok_oauth" | "mock";
 };
+
+export const IG_PROFESSIONAL_HINT =
+  "Kişisel hesaplar Business Discovery ile okunamaz. Instagram’da hesabı Professional (İşletme veya İçerik Üreticisi) yapın.";
+
+export function instagramDiscoveryFailure(message: string): boolean {
+  return /business_discovery|not a business|nonexisting field|cannot find user|invalid user id|unsupported get request/i.test(message);
+}
 
 export class SyncError extends Error {
   constructor(message: string, readonly code: "NOT_CONFIGURED" | "NOT_FOUND" | "NOT_BUSINESS" | "NEEDS_OAUTH" | "API") {
@@ -79,29 +88,49 @@ export const httpSocial: SocialProvider = {
   async fetch(platform, rawHandle, ctx) {
     const handle = cleanHandle(rawHandle);
     if (platform === "INSTAGRAM") {
-      const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "");
-      const token = envStr("IG_GRAPH_TOKEN", "");
-      if (!igUser || !token) throw new SyncError("Instagram senkronu yapılandırılmadı (IG_BUSINESS_ACCOUNT_ID / IG_GRAPH_TOKEN).", "NOT_CONFIGURED");
-      const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,followers_count,media_count,profile_picture_url,media.limit(12){like_count,comments_count}}`;
-      const j = (await getJson(`https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`)) as {
-        business_discovery?: { id: string; followers_count: number; media_count: number; profile_picture_url?: string; media?: { data: { like_count?: number; comments_count?: number }[] } };
+      const igUser = envStr("INSTAGRAM_IG_USER_ID", "") || envStr("IG_BUSINESS_ACCOUNT_ID", "");
+      const token = envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("IG_GRAPH_TOKEN", "") || envStr("META_IG_TOKEN", "");
+      if (!igUser || !token) throw new SyncError("Instagram senkronu yapılandırılmadı (INSTAGRAM_IG_USER_ID / INSTAGRAM_ACCESS_TOKEN).", "NOT_CONFIGURED");
+      if (!/^[A-Za-z0-9._]{1,30}$/.test(handle)) throw new SyncError(`@${handle} geçerli bir Instagram kullanıcı adı değil.`, "NOT_FOUND");
+      const fields = `business_discovery.username(${handle}){id,followers_count,media_count,username,name,profile_picture_url,biography,media.limit(12){like_count,comments_count,timestamp,permalink,media_type}}`;
+      let j: {
+        business_discovery?: {
+          id?: string;
+          followers_count: number;
+          media_count: number;
+          username?: string;
+          name?: string;
+          profile_picture_url?: string;
+          biography?: string;
+          media?: { data: { like_count?: number; comments_count?: number }[] };
+        };
       };
+      try {
+        j = (await getJson(`https://graph.facebook.com/v24.0/${igUser}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`)) as typeof j;
+      } catch (e) {
+        if (e instanceof SyncError && instagramDiscoveryFailure(e.message)) {
+          throw new SyncError(`@${handle} bulunamadı. ${IG_PROFESSIONAL_HINT}`, "NOT_BUSINESS");
+        }
+        throw e;
+      }
       const bd = j.business_discovery;
-      if (!bd) throw new SyncError(`@${handle} bir Business/Creator hesabı değil veya bulunamadı.`, "NOT_BUSINESS");
+      if (!bd) throw new SyncError(`@${handle} bulunamadı. ${IG_PROFESSIONAL_HINT}`, "NOT_BUSINESS");
       const media = bd.media?.data ?? [];
       const avgLikes = media.length ? Math.round(media.reduce((s, m) => s + (m.like_count ?? 0), 0) / media.length) : null;
       const avgComments = media.length ? Math.round(media.reduce((s, m) => s + (m.comments_count ?? 0), 0) / media.length) : null;
       return {
-        externalId: bd.id,
+        externalId: bd.id ?? null,
         followers: bd.followers_count,
         postsCount: bd.media_count,
         avgLikes,
         avgComments,
         avgViews: null,
         engagementRate: bd.followers_count && avgLikes != null ? (avgLikes + (avgComments ?? 0)) / bd.followers_count : null,
-        profileUrl: `https://instagram.com/${handle}`,
+        profileUrl: `https://instagram.com/${bd.username ?? handle}`,
         avatarUrl: bd.profile_picture_url ?? null,
         verified: false,
+        displayName: bd.name ?? null,
+        bioSnippet: bd.biography?.slice(0, 300) ?? null,
         source: "instagram_business_discovery",
       };
     }
@@ -198,6 +227,8 @@ export async function syncSocialAccount(accountId: string, now = new Date()): Pr
           profileUrl: s.profileUrl,
           avatarUrl: s.avatarUrl,
           verified: s.verified,
+          displayName: s.displayName ?? null,
+          bioSnippet: s.bioSnippet ?? null,
           syncSource: s.source,
           lastSyncedAt: now,
           syncError: null,

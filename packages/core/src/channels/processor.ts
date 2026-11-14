@@ -9,6 +9,7 @@ import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
 import { handlePlatformBot, isPlatformBot } from "../bot/engine";
+import { canonicalPhone } from "../bot/tokens";
 import { metaEventDate } from "../messaging/meta-time";
 import { isOpen, onInbound } from "../messaging/windows";
 import { firstSeen, rawBodies } from "./webhook";
@@ -202,7 +203,7 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
       tenantId,
       conversationId: conv.id,
       channel,
-      externalId: channel === "WHATSAPP" ? (input.phoneE164 ?? input.from).replace(/\D/g, "") : input.from,
+      externalId: channel === "WHATSAPP" ? canonicalPhone(input.phoneE164 ?? input.from) : input.from,
       phone: input.phoneE164,
       text: input.text,
       windowOpen: isOpen(conv.serviceWindowExpiresAt, input.at),

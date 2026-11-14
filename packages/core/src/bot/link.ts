@@ -1,7 +1,9 @@
 import { prisma } from "../db";
 import { DomainError } from "../domain/errors";
 import type { ChannelProvider } from "../generated/prisma/enums";
-import { phonesMatch, randomLinkCode, signAccountLink } from "./tokens";
+import { normalizeSocialHandle } from "../social/handles";
+import { igIdentity } from "./ig-identity";
+import { canonicalPhone, phonesMatch, randomLinkCode, signAccountLink } from "./tokens";
 
 export async function activeLink(channel: ChannelProvider, externalId: string) {
   return prisma.channelAccountLink.findFirst({
@@ -35,8 +37,57 @@ export async function linkWhatsAppByPhone(externalPhone: string): Promise<{ ok: 
   const users = await prisma.user.findMany({ where: { phone: { not: null }, status: "ACTIVE" }, select: { id: true, phone: true } });
   const hits = users.filter((u) => phonesMatch(u.phone, externalPhone));
   if (hits.length !== 1) return { ok: false, reason: hits.length === 0 ? "eşleşme yok" : "birden fazla hesap" };
-  await linkChannel({ channel: "WHATSAPP", externalId: externalPhone.replace(/\D/g, ""), userId: hits[0]!.id });
+  await linkChannel({ channel: "WHATSAPP", externalId: canonicalPhone(externalPhone), userId: hits[0]!.id });
   return { ok: true, userId: hits[0]!.id };
+}
+
+async function flagHandleConflict(channel: ChannelProvider, externalId: string, handle: string, userIds: string[]) {
+  const open = await prisma.botLinkFlag.findFirst({ where: { channel, externalId, handle, reason: "duplicate_handle" } });
+  if (open) return;
+  await prisma.botLinkFlag.create({ data: { channel, externalId, handle, reason: "duplicate_handle", userIds } });
+}
+
+/**
+ * Instagram: IGSID → Graph username, profildeki kullanıcı adıyla tek eşleşme.
+ * İki profil aynı adı kullanıyorsa bağlanmaz ve /admin/bot için işaret düşer.
+ * Messenger kullanıcı adı çözmez.
+ */
+export async function linkInstagramByIgsid(igsid: string): Promise<{ ok: true; userId: string } | { ok: false; reason: string }> {
+  const profile = await igIdentity().username(igsid);
+  const handle = normalizeSocialHandle(profile?.username);
+  if (!handle) return { ok: false, reason: "kullanıcı adı yok" };
+  const accounts = await prisma.socialAccount.findMany({
+    where: { platform: "INSTAGRAM" },
+    select: {
+      handle: true,
+      verified: true,
+      tokenRef: true,
+      syncSource: true,
+      influencer: { select: { user: { select: { id: true, status: true } } } },
+    },
+  });
+  const hits = accounts.filter((a) => normalizeSocialHandle(a.handle) === handle && a.influencer.user?.status === "ACTIVE");
+  const byUser = new Map<string, typeof hits>();
+  for (const hit of hits) {
+    const userId = hit.influencer.user!.id;
+    byUser.set(userId, [...(byUser.get(userId) ?? []), hit]);
+  }
+  if (byUser.size === 0) return { ok: false, reason: "eşleşme yok" };
+  if (byUser.size > 1) {
+    await flagHandleConflict("INSTAGRAM", igsid, handle, [...byUser.keys()]);
+    return { ok: false, reason: "birden fazla hesap" };
+  }
+  const [userId, rows] = [...byUser.entries()][0]!;
+  // Tek kullanıcıda OAuth/senkron satırı varsa bağlarız. İki farklı kullanıcı aynı adı paylaşırsa yukarıda durur.
+  if (rows.length > 1) rows.sort((a, b) => Number(b.verified || !!b.tokenRef) - Number(a.verified || !!a.tokenRef));
+  await linkChannel({ channel: "INSTAGRAM", externalId: igsid, userId });
+  return { ok: true, userId };
+}
+
+export async function autoLinkSender(channel: ChannelProvider, externalId: string, phone?: string | null) {
+  if (channel === "WHATSAPP") return linkWhatsAppByPhone(phone || externalId);
+  if (channel === "INSTAGRAM") return linkInstagramByIgsid(externalId);
+  return { ok: false as const, reason: "messenger kod veya bağlantı" };
 }
 
 export async function issueLinkCode(userId: string, now = new Date()): Promise<string> {

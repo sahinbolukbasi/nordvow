@@ -49,10 +49,19 @@ export function phoneDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
+/** Türkiye: 00, 90 ve baştaki 0 atılır. 0532…, +90 532… ve 90532… aynı anahtara iner. */
+export function canonicalPhone(value: string | null | undefined): string {
+  let d = phoneDigits(value);
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("90") && d.length > 10) d = d.slice(2);
+  if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
 /** Türkiye numaralarında 90 öneki ve baştaki 0 yok sayılarak eşleştirilir. */
 export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const da = phoneDigits(a).replace(/^90/, "").replace(/^0/, "");
-  const db = phoneDigits(b).replace(/^90/, "").replace(/^0/, "");
+  const da = canonicalPhone(a);
+  const db = canonicalPhone(b);
   return da.length >= 10 && da === db;
 }
 

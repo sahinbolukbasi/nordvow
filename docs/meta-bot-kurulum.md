@@ -10,13 +10,16 @@ Metinler taslaktır. App Review videosundan önce bir Türk avukatı gizlilik ve
 |---|---|---|
 | `whatsapp_business_messaging` | WhatsApp | Kullanıcıya hizmet mesajı ve onaylı utility şablon göndermek |
 | `whatsapp_business_management` | WhatsApp | Numara, şablon ve webhook aboneliği |
-| `instagram_basic` | Instagram | Hesap kimliğini okumak |
+| `instagram_basic` | Instagram | IGSID’den kullanıcı adı okumak (`GET /{igsid}?fields=username,name`) |
 | `instagram_manage_messages` | Instagram | DM almak ve yanıtlamak |
+| `instagram_manage_insights` | Instagram | Business Discovery’de gönderi etkileşimi. Yoksa takipçi okunur, beğeni alanları boş kalabilir |
+| `pages_show_list` | Facebook Login | Bağlı sayfaları listelemek |
+| `pages_read_engagement` | Sayfa | Sayfa ve bağlı Instagram hesabını okumak |
 | `pages_messaging` | Messenger | Sayfa DM’i (aynı bot motoru) |
 | `pages_manage_metadata` | Messenger | Webhook aboneliği |
 | `business_management` | Business | İşletme varlıklarını listelemek ve Embedded Signup |
 
-Bu izinler marka gelen kutusu için de kullanılır. Bot, kart numarası toplamaz.
+Bu izinler marka gelen kutusu için de kullanılır. Bot, kart numarası toplamaz. Kişisel Instagram hesapları Business Discovery’de görünmez; profilde Professional hesap istenir.
 
 ## Webhook alanları
 
@@ -24,11 +27,11 @@ Uç: `https://<APP_URL>/api/webhooks/meta`
 
 Doğrulama: `GET` `hub.mode=subscribe`, `hub.verify_token=META_VERIFY_TOKEN`, `hub.challenge` düz metin döner.
 
-Abone olunacak alanlar:
+Ürün bazında abone olunacak alanlar (başka alan eklemeyin):
 
-- WhatsApp: `messages` (gelen mesaj, durum)
-- Instagram: `messages`, `messaging_postbacks`
-- Messenger (sayfa): `messages`, `messaging_postbacks`
+- WhatsApp (`whatsapp_business_account`): `messages`
+- Instagram (`instagram`): `messages`, `messaging_postbacks`
+- Messenger (`page`): `messages`, `messaging_postbacks`
 
 İmza: `X-Hub-Signature-256` ve `META_APP_SECRET`.
 
@@ -46,6 +49,9 @@ Abone olunacak alanlar:
 | `APP_URL` | Sihirli bağlama ve ücretli bilet bağlantısı |
 | `AUTH_SECRET` | Bağlama bağlantısının imzası |
 | `LLM_PROVIDER` | `mock` menü ve anahtar kelime. `bedrock` ek araç seçimi |
+| `INSTAGRAM_ACCESS_TOKEN` | IGSID kullanıcı adı ve Business Discovery. Yoksa `META_IG_TOKEN`, sonra `IG_GRAPH_TOKEN` |
+| `INSTAGRAM_IG_USER_ID` | Business Discovery’deki kendi IG işletme kimliği. Yoksa `IG_BUSINESS_ACCOUNT_ID` |
+| `SOCIAL_SYNC_MODE` | `off` veriye dokunmaz. `mock` deterministik fixture. `http` Graph ve YouTube |
 
 `/admin/bot` kanalı kapatır, kimlikleri ve karşılama metnini yazar. Kanal kapalıyken o hatta marka asistanı çalışmaya devam eder.
 
@@ -62,10 +68,19 @@ Pazarlama kategorisi kullanılmaz. İYS kapısı promosyonlu şablonda durur. In
 
 ## Hesap bağlama
 
-- WhatsApp: profil telefonu tek kullanıcıyla eşleşirse bağlanır.
-- Instagram / Messenger: bot, 15 dakikalık imzalı `/hesap-bagla?token=...` gönderir. Kullanıcı sitede giriş yapmışken açar. Ya da profildeki 6 haneli kodu bota yazar.
+- WhatsApp: gönderen `wa_id` profil telefonuyla E.164 üzerinden eşleşir. `00`, `90` ve baştaki `0` aynı numaradır. Tek aktif kullanıcı varsa otomatik bağlanır. İki profil aynı numarayı taşıyorsa bağlanmaz.
+- Instagram: `GET /{igsid}?fields=username,name` ile kullanıcı adı alınır (`META_API_MODE=mock` iken fixture). Profildeki Instagram kullanıcı adıyla büyük/küçük harf ve `@` yok sayılarak karşılaştırılır. Tam bir eşleşme varsa otomatik bağlanır. Aynı ad iki profildeyse bağlanmaz; 6 hane veya imzalı bağlantı gerekir ve `/admin/bot` çakışmayı listeler. OAuth veya senkronla doğrulanmış satır, aynı kullanıcının birden fazla kaydında öne alınır.
+- Messenger: kullanıcı adı yok. Yalnız 6 hane veya `/hesap-bagla?token=...`.
 - Bağlı olmayan kişi yalnız Nordvow tanımı, herkese açık etkinlik ve `/kayit` görür.
-- Profilde bağlantı kaldırılır.
+- Profilde bağlantı kaldırılır. Profil uyarısı: Instagram kullanıcı adı ve telefon girilirse bot otomatik tanır.
+
+## İçerik üreticisi Instagram verisi
+
+YouTube kanalı `forHandle` ile Data API’den okunduğu gibi, Instagram kullanıcı adı Business Discovery ile okunur:
+
+`GET /{INSTAGRAM_IG_USER_ID}?fields=business_discovery.username(HANDLE){id,followers_count,media_count,username,name,profile_picture_url,biography,media.limit(12){like_count,comments_count,timestamp,permalink,media_type}}`
+
+Takipçi, medya sayısı, ortalama beğeni ve yorum `SocialAccount` üzerine yazılır. Kişisel hesapta hata metni Professional hesaba geçmeyi söyler; eski takipçi silinmez. `social-sync` işi 6 saatte bir, 12 saatten eski hesapları yeniler.
 
 Hassas işlemler (kupon kodu, bilet, kısa link) `EVET` yazılmadan çalışmaz ve saatte 5 ile sınırlıdır. Tam IBAN ve kart istenmez.
 

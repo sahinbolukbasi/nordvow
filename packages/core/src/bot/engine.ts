@@ -3,11 +3,11 @@ import { getLlm } from "../llm";
 import { envStr } from "../env";
 import { handoff } from "../assistant/runtime";
 import { SendBlockedError, sendMessage } from "../messaging/send";
-import { activeLink, consumeLinkCode, linkWhatsAppByPhone, magicLinkUrl } from "./link";
+import { activeLink, autoLinkSender, consumeLinkCode, magicLinkUrl } from "./link";
 import { detectBotLang, matchMenu, menuText } from "./menu";
 import { planOutbound, type BotTemplateKey } from "./window-plan";
 import { BOT_TOOLS, toolByMenu } from "./registry";
-import { rateAllows, SENSITIVE_TOOL_LIMIT } from "./tokens";
+import { canonicalPhone, rateAllows, SENSITIVE_TOOL_LIMIT } from "./tokens";
 import type { BotChannel, BotUser, ToolName } from "./types";
 
 const PUBLIC_TR = "Nordvow, marka ve içerik üreticilerini buluşturan bir platformdur. Herkese açık etkinlikler için “etkinlikler” yazın. Kayıt: /kayit. Hesabınızı bağlamak için profilinizdeki 6 haneli kodu gönderin. Ayrıntı: /gizlilik";
@@ -24,12 +24,12 @@ async function loadUser(userId: string): Promise<BotUser | null> {
 }
 
 async function ensureLinked(channel: BotChannel, externalId: string, phone: string | null): Promise<BotUser | null> {
-  const link = await activeLink(channel, externalId);
+  const key = channel === "WHATSAPP" ? canonicalPhone(phone || externalId) : externalId;
+  const link = await activeLink(channel, key);
   if (link?.user) return loadUser(link.userId);
-  if (channel === "WHATSAPP" && phone) {
-    const linked = await linkWhatsAppByPhone(phone);
-    if (linked.ok) return loadUser(linked.userId);
-  }
+  if (channel === "MESSENGER") return null;
+  const linked = await autoLinkSender(channel, key, phone);
+  if (linked.ok) return loadUser(linked.userId);
   return null;
 }
 

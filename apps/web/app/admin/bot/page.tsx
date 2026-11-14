@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminBotPage() {
   await requireAdmin();
-  const [settings, links, calls] = await Promise.all([
+  const [settings, links, calls, flags] = await Promise.all([
     prisma.botSettings.findUnique({ where: { id: "default" } }),
     prisma.channelAccountLink.count({ where: { revokedAt: null } }),
     prisma.botToolCall.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
+    prisma.botLinkFlag.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
   return (
     <div className="flex flex-col gap-6">
@@ -31,6 +32,13 @@ export default async function AdminBotPage() {
         <label className="flex flex-col gap-1">Karşılama (EN)<textarea name="welcomeEn" rows={3} defaultValue={settings?.welcomeEn ?? ""} className="rounded-lg border border-line px-3 py-2" /></label>
         <button type="submit" className="h-9 rounded-full bg-fg px-4 text-bg">Kaydet</button>
       </form>
+      <section className="flex flex-col gap-2">
+        <h2 className="text-[15px] font-semibold">Otomatik bağlama çakışmaları</h2>
+        <ul className="text-[13px] text-fg-muted">
+          {flags.map((f) => <li key={f.id}>{f.createdAt.toISOString().slice(0, 16)} · @{f.handle} · {f.userIds.length} profil · kod veya bağlantı gerekir</li>)}
+          {flags.length === 0 ? <li>Çakışma yok.</li> : null}
+        </ul>
+      </section>
       <section className="flex flex-col gap-2">
         <h2 className="text-[15px] font-semibold">Son araç çağrıları</h2>
         <ul className="text-[13px] text-fg-muted">
