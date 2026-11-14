@@ -12,6 +12,7 @@ import { LANDING_FEATURES, type LandingReference, type LandingVideo } from "@/li
 import { cn } from "@/lib/cn";
 import { BRAND_NAME } from "@/lib/brand";
 import { NordvowMark } from "@/components/brand/logo";
+import { LegalFooterNav } from "@/components/legal/legal-footer-nav";
 
 export type LandingStats = { influencers: number; followers: number; campaigns: number; published: number };
 
@@ -603,13 +604,7 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-[13px] text-fg-passive">
           <span>© {new Date().getFullYear()} {BRAND_NAME}</span>
-          <nav aria-label={tt("Yasal")} className="flex gap-6">
-            <Link href="/gizlilik" className="hover:text-fg">{tt("Gizlilik")}</Link>
-            <Link href="/kullanim-kosullari" className="hover:text-fg">{tt("Kullanım koşulları")}</Link>
-            <Link href="/kvkk" className="hover:text-fg">{tt("KVKK")}</Link>
-            <Link href="/cerez-politikasi" className="hover:text-fg">{tt("Çerezler")}</Link>
-            <Link href="/giris" className="hover:text-fg">{tt("Giriş")}</Link>
-          </nav>
+          <LegalFooterNav className="flex flex-wrap gap-x-4 gap-y-2" />
         </div>
       </footer>
     </RevealRoot>

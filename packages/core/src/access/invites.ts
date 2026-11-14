@@ -6,6 +6,7 @@ import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
+import { LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
 
 /**
  * Davetle kayıt. Kayıt yalnız geçerli bir davet koduyla (özel link: /kayit?kod=...) yapılır; kayıt olan
@@ -90,6 +91,10 @@ export type RegisterInput = {
   name: string;
   phone: string;
   acceptTerms: boolean;
+  /** İsteğe bağlı. Sözleşme kutusundan ayrıdır. */
+  acceptOpenConsent?: boolean;
+  /** İsteğe bağlı ticari elektronik ileti onayı. Sözleşme kutusundan ayrıdır. */
+  acceptCommercial?: boolean;
   application: InfluencerApplication | BrandApplication;
 };
 
@@ -132,6 +137,14 @@ export async function registerWithInvite(input: RegisterInput) {
     if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw new DomainError("DOGRULAMA", "Bu e-posta ile kayıtlı bir hesap var.");
     const u = await tx.user.create({ data: { email, name, phone, passwordHash, role: inv.targetRole, status: "PENDING" } });
     await tx.signupApplication.create({ data: { userId: u.id, inviteId: inv.id, targetRole: inv.targetRole, data: a as object } });
+    const docs = [
+      ...requiredAcceptanceDocs(inv.targetRole === "BRAND" ? "BRAND" : "INFLUENCER"),
+      ...(input.acceptOpenConsent ? ["acik-riza"] : []),
+      ...(input.acceptCommercial ? ["ileti-izni"] : []),
+    ];
+    await tx.legalAcceptance.createMany({
+      data: docs.map((document) => ({ userId: u.id, email, document, version: LEGAL_VERSION })),
+    });
     const admins = await tx.user.findMany({ where: { role: { in: ["ADMIN", "AGENCY"] }, status: "ACTIVE" }, select: { id: true } });
     await tx.notification.createMany({
       data: admins.map((x) => ({ userId: x.id, title: "Yeni üyelik başvurusu", body: `${name} (${a.kind === "BRAND" ? "marka" : "influencer"}) onayınızı bekliyor.`, href: "/admin/davetler?bolum=basvurular" })),

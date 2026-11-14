@@ -1,4 +1,3 @@
-import { getTT } from "@/lib/i18n/tt-server";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { RotatingWord } from "@/components/landing/motion";
@@ -8,6 +7,7 @@ import type { LandingVideo } from "@/lib/landing-content";
 import { cn } from "@/lib/cn";
 import { BRAND_NAME } from "@/lib/brand";
 import { NordvowMark } from "@/components/brand/logo";
+import { LegalFooterNav } from "@/components/legal/legal-footer-nav";
 import { getT } from "@/lib/i18n/server";
 
 /**
@@ -29,7 +29,6 @@ export async function AuthShell({
   wide?: boolean;
   videos: LandingVideo[];
 }) {
-  const tt = await getTT();
   const t = await getT();
   return (
     <div className="relative isolate grid min-h-dvh grid-cols-1 overflow-hidden bg-canvas text-fg lg:grid-cols-[1fr_minmax(0,1.05fr)]">
@@ -88,17 +87,7 @@ export async function AuthShell({
             {children}
           </div>
           {footer ? <div className="text-center text-[13px] text-fg-muted">{footer}</div> : null}
-          <nav aria-label={tt("Yasal")} className="flex justify-center gap-5 text-[12px] text-fg-passive">
-            <Link href="/" className="hover:text-fg">
-              {t("legal.home", "Ana sayfa")}
-            </Link>
-            <Link href="/gizlilik" className="hover:text-fg">
-              {t("legal.privacy", "Gizlilik")}
-            </Link>
-            <Link href="/kullanim-kosullari" className="hover:text-fg">
-              {t("legal.terms", "Kullanım koşulları")}
-            </Link>
-          </nav>
+          <LegalFooterNav className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-[12px] text-fg-passive" />
         </div>
       </main>
     </div>

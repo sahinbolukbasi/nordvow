@@ -225,8 +225,24 @@ model User {
   invitesCreated       Invite[]                  @relation("InviteCreatedBy")
   application          SignupApplication?        @relation("ApplicationUser")
   applicationsReviewed SignupApplication[]       @relation("ApplicationReviewer")
+  legalAcceptances     LegalAcceptance[]
 
   @@index([brandId])
+}
+
+/// Kullanıcının hangi yasal metni, hangi sürümde, ne zaman kabul ettiği.
+model LegalAcceptance {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email      String
+  document   String
+  version    String
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+
+  @@index([userId, document])
+  @@index([email, document])
+  @@map("legal_acceptances")
 }
 
 // ───────────── Marka / Influencer ─────────────

@@ -21,6 +21,8 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
       name: str(fd, "name"),
       phone: str(fd, "phone"),
       acceptTerms: bool(fd, "acceptTerms"),
+      acceptOpenConsent: bool(fd, "acceptOpenConsent"),
+      acceptCommercial: bool(fd, "acceptCommercial"),
       application:
         kind === "BRAND"
           ? { kind, companyName: str(fd, "companyName"), taxOffice: str(fd, "taxOffice"), taxNumber: str(fd, "taxNumber"), categoryIds, website: optStr(fd, "website") ?? undefined, about: optStr(fd, "about") ?? undefined }

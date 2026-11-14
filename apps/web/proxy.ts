@@ -6,7 +6,22 @@ import { isAdminOnlyPath, requiredRoleForPath, roleHome } from "./lib/roles";
 import { clearAuthCookies } from "./lib/auth-cookies";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kullanim-sartlari", "/kvkk", "/cerez-politikasi", "/veri-silme", "/destek"]);
+const PUBLIC_PATHS = new Set([
+  "/gizlilik",
+  "/kullanim-kosullari",
+  "/kullanim-sartlari",
+  "/kvkk",
+  "/kvkk-aydinlatma",
+  "/acik-riza",
+  "/cerez-politikasi",
+  "/veri-silme",
+  "/influencer-sozlesmesi",
+  "/marka-sozlesmesi",
+  "/mesafeli-satis",
+  "/iade-iptal",
+  "/ileti-izni",
+  "/destek",
+]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";
 
