@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
@@ -503,4 +504,62 @@ export async function runCampaignStoryAgentAction(
       message: `Otonom Story & Gönderi Ajanı tamamlandı (${scannedDeliverables} içerik metriği güncellendi).`,
     };
   });
+}
+
+/**
+ * Kampanyayı siler (ilişkili bekleyen teklifleri ve takip botlarını temizler).
+ * Eğer kampanyada kilitli finansal hareket / tamamlanmış teslimat varsa güvenli şekilde IPTAL durumuna çeker.
+ */
+export async function deleteCampaignAction(
+  _prev: ActionState,
+  fd: FormData,
+): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  const campaignId = str(fd, "campaignId");
+  const backTo = actor.role === "ADMIN" ? "/admin/kampanyalar" : "/marka/kampanyalar";
+
+  const res = await attempt(async () => {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true, brandId: true, status: true },
+    });
+    if (!campaign) throw new DomainError("BULUNAMADI", "Kampanya bulunamadı.");
+    if (actor.role === "BRAND" && campaign.brandId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kampanyayı silme yetkiniz yok.");
+    }
+
+    await prisma.trackerAgent.deleteMany({
+      where: { scope: "CAMPAIGN", targetId: campaignId },
+    });
+    await prisma.offer.updateMany({
+      where: { campaignId, status: { in: ["GONDERILDI", "KARSI_TEKLIF"] } },
+      data: { status: "GERI_CEKILDI" },
+    });
+
+    try {
+      await prisma.campaign.delete({ where: { id: campaignId } });
+    } catch {
+      // Finansal / metrik kısıtı olan eski kampanyalar güvenli şekilde IPTAL olarak arşivlenir
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: "IPTAL" },
+      });
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "CAMPAIGN_DELETED",
+      entityType: "Campaign",
+      entityId: campaignId,
+      data: { name: campaign.name },
+    });
+
+    revalidateAll();
+    return { ok: true, message: "Kampanya silindi." };
+  });
+
+  if (res.ok) {
+    redirect(backTo);
+  }
+  return res;
 }

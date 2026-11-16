@@ -138,10 +138,10 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
                   <Card className="flex h-full flex-col gap-4">
                     <div className="flex items-start justify-between gap-4">
                       <h2 className="text-section">{c.name}</h2>
-                      <StatusDot tone={campaignTone(raw.status)}>{draft && raw.submittedAt ? tt("Ajansta") : campaignStatusLabels[raw.status]}</StatusDot>
+                      <StatusDot tone={campaignTone(raw.status)}>{draft && raw.submittedAt ? tt("Kaydedildi") : campaignStatusLabels[raw.status]}</StatusDot>
                     </div>
                     {draft ? (
-                      <p className="text-[13px] text-fg-muted">{isAgencyManaged || raw.submittedAt ? tt("Ajans influencer atamasını ve bedelleri hazırlıyor.") : tt("Taslak: kalan adımları tamamlayıp yayına alın.")}</p>
+                      <p className="text-[13px] text-fg-muted">{isAgencyManaged || raw.submittedAt ? tt("Kampanya bilgileri kaydedildi.") : tt("Taslak: kalan adımları tamamlayıp kaydedin.")}</p>
                     ) : (
                       <div className="flex flex-col gap-2">
                         <div className="flex items-baseline justify-between">

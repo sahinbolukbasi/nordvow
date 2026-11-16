@@ -27,7 +27,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClass } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
-import { CampaignHub } from "@/components/campaign/campaign-hub";
+import { CampaignDeleteButton, CampaignHub } from "@/components/campaign/campaign-hub";
 import { StatusDot } from "@/components/ui/status";
 import { requireActor } from "@/lib/auth-guard";
 import { prisma } from "@infulancer/core/db";
@@ -370,11 +370,12 @@ export default async function BrandCampaignPage({
                 {tt("Raporu indir (PDF)")}
               </a>
             ) : null}
+            <CampaignDeleteButton campaignId={campaign.id} campaignName={campaign.name} />
           </div>
         }
       />
       {gonderildi ? (
-        <p role="status" className="rounded-2xl bg-emerald-500/10 px-4 py-3 text-[14px] text-emerald-700 dark:text-emerald-400">{tt("Kampanya kaydedildi ve ajansa gönderildi. Ajans influencer atamalarını ve bedelleri onayladığında bildirim alacaksınız.")}</p>
+        <p role="status" className="rounded-2xl bg-emerald-500/10 px-4 py-3 text-[14px] text-emerald-700 dark:text-emerald-400">{tt("Kampanya kaydedildi, aktif duruma alındı, seçilen influencerlara teklifler iletildi ve otomatik takip botları başlatıldı.")}</p>
       ) : null}
       <div className="flex flex-col justify-between gap-3 rounded-2xl border border-line bg-surface p-4 sm:flex-row sm:items-center">
         <div className="flex flex-col gap-1">

@@ -464,19 +464,58 @@ export function MediaStep({ id, backHref, gallery }: { id: string; backHref: str
   );
 }
 
-// ───────────────────────── 7. Influencerlar (toplu) ─────────────────────────
-export type WizardInfluencer = { id: string; name: string; category: string; city: string | null; avatarUrl: string | null; platforms: Platform[]; followers: number };
+// ───────────────────────── 7. Influencerlar (Influencer Bul görünümü + Sağ Kampanya Bilgi Alanı) ─────────────────────────
+export type WizardInfluencer = {
+  id: string;
+  name: string;
+  category: string;
+  city: string | null;
+  avatarUrl: string | null;
+  platforms: Platform[];
+  followers: number;
+  er: number | null;
+  handle: string | null;
+};
+export type WizardCampaignSummary = {
+  name: string;
+  objective: string | null;
+  dates: string;
+  budgetLabel: string;
+  countriesLabel: string;
+  planSummary: string[];
+};
 const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
-export function InfluencerStep({ id, backHref, influencers, selected: initial, note }: { id: string; backHref: string; influencers: WizardInfluencer[]; selected: string[]; note: string }) {
+export function InfluencerStep({
+  id,
+  backHref,
+  influencers,
+  selected: initial,
+  note,
+  campaignSummary,
+}: {
+  id: string;
+  backHref: string;
+  influencers: WizardInfluencer[];
+  selected: string[];
+  note: string;
+  campaignSummary?: WizardCampaignSummary;
+}) {
   const tt = useTT();
   const [selected, setSelected] = useState<Set<string>>(new Set(initial));
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [platform, setPlatform] = useState<"" | Platform>("");
+  const [minFollowers, setMinFollowers] = useState("");
   const cats = useMemo(() => [...new Set(influencers.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [influencers]);
+  const minF = Number(minFollowers) || 0;
   const shown = influencers.filter(
-    (i) => (!q || i.name.toLocaleLowerCase("tr").includes(q.toLocaleLowerCase("tr"))) && (!cat || i.category === cat) && (!platform || i.platforms.includes(platform)),
+    (i) =>
+      (!q || i.name.toLocaleLowerCase("tr").includes(q.toLocaleLowerCase("tr")) || (i.handle ?? "").toLocaleLowerCase("tr").includes(q.toLocaleLowerCase("tr"))) &&
+      (!cat || i.category === cat) &&
+      (!platform || i.platforms.includes(platform)) &&
+      i.followers >= minF,
   );
+  const selectedItems = useMemo(() => influencers.filter((i) => selected.has(i.id)), [influencers, selected]);
   const allShown = shown.length > 0 && shown.every((i) => selected.has(i.id));
   const toggle = (iid: string) =>
     setSelected((s) => {
@@ -491,78 +530,178 @@ export function InfluencerStep({ id, backHref, influencers, selected: initial, n
         <input key={s} type="hidden" name="influencerIds" value={s} />
       ))}
       <p className="text-[13px] text-fg-muted">{note}</p>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="relative flex-1">
-          <span className="sr-only">{tt("Influencer ara")}</span>
-          <SearchIcon size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-passive" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tt("İsimle ara")} className="pl-9" />
-        </label>
-        <Select aria-label={tt("Kategori")} value={cat} onChange={(e) => setCat(e.target.value)} className="w-auto">
-          <option value="">{tt("Tüm kategoriler")}</option>
-          {cats.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-        <Select aria-label={tt("Platform")} value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} className="w-auto">
-          <option value="">{tt("Tüm platformlar")}</option>
-          {PLATFORMS.map((p) => (
-            <option key={p} value={p}>
-              {platformLabels[p]}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-fg/[0.03] px-4 py-3 text-[13px]">
-        <span className="font-medium tabular-nums">{selected.size}{" "}{tt("seçili")}</span>
-        <span className="text-fg-passive">· {shown.length}{" "}{tt("listeleniyor")}</span>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="ml-auto"
-          onClick={() =>
-            setSelected((s) => {
-              const n = new Set(s);
-              for (const i of shown) {
-                if (allShown) n.delete(i.id);
-                else n.add(i.id);
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
+        {/* Sol: Influencer Bul Ekranı Gibi Zengin Filtreleme & Kart Seçimi */}
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="relative sm:col-span-2 xl:col-span-1">
+              <span className="sr-only">{tt("Influencer ara")}</span>
+              <SearchIcon size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-passive" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tt("İsim veya @kullanıcı ara")} className="pl-9" />
+            </label>
+            <Select aria-label={tt("Kategori")} value={cat} onChange={(e) => setCat(e.target.value)}>
+              <option value="">{tt("Tüm kategoriler")}</option>
+              {cats.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label={tt("Platform")} value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")}>
+              <option value="">{tt("Tüm platformlar")}</option>
+              {PLATFORMS.map((p) => (
+                <option key={p} value={p}>
+                  {platformLabels[p]}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label={tt("Min takipçi")} value={minFollowers} onChange={(e) => setMinFollowers(e.target.value)}>
+              <option value="">{tt("Takipçi (Tümü)")}</option>
+              <option value="10000">10K+</option>
+              <option value="50000">50K+</option>
+              <option value="100000">100K+</option>
+              <option value="500000">500K+</option>
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-fg/[0.03] px-4 py-2.5 text-[13px]">
+            <span className="font-semibold tabular-nums">{selected.size} {tt("influencer seçili")}</span>
+            <span className="text-fg-passive">· {shown.length} {tt("listeleniyor")}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="ml-auto"
+              onClick={() =>
+                setSelected((s) => {
+                  const n = new Set(s);
+                  for (const i of shown) {
+                    if (allShown) n.delete(i.id);
+                    else n.add(i.id);
+                  }
+                  return n;
+                })
               }
-              return n;
-            })
-          }
-        >
-          {allShown ? tt("Listelenenlerin seçimini kaldır") : tt("Listelenenlerin tümünü seç")}
-        </Button>
-        {selected.size ? (
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>{tt("Seçimi temizle")}</Button>
-        ) : null}
+            >
+              {allShown ? tt("Tüm Seçimi Kaldır") : tt("Listelenenleri Seç")}
+            </Button>
+            {selected.size ? (
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>{tt("Temizle")}</Button>
+            ) : null}
+          </div>
+
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label={tt("Influencerlar")}>
+            {shown.map((i) => {
+              const on = selected.has(i.id);
+              return (
+                <li key={i.id}>
+                  <label
+                    className={cn(
+                      "flex h-full cursor-pointer flex-col gap-3 rounded-2xl border p-4 transition-standard",
+                      on ? "border-fg bg-fg/[0.04] shadow-sm" : "border-line bg-surface hover:border-fg/40",
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggle(i.id)}
+                        className="mt-1 h-4 w-4 accent-[var(--color-fg)]"
+                        aria-label={`${i.name} seç`}
+                      />
+                      <Avatar name={i.name} src={i.avatarUrl} size={44} />
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[15px] font-semibold text-fg">{i.name}</span>
+                        <span className="truncate text-[12px] text-fg-muted">
+                          {i.handle ? `@${i.handle} · ` : ""}{i.category}
+                        </span>
+                        {i.city ? <span className="truncate text-[11px] text-fg-passive">{i.city}</span> : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-line pt-2.5 text-[12px]">
+                      <div className="flex items-center gap-3 tabular-nums">
+                        <span className="font-semibold text-fg">{compact.format(i.followers)} <span className="font-normal text-fg-muted">{tt("takipçi")}</span></span>
+                        {i.er != null ? (
+                          <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-fg-muted">
+                            ER %{(i.er * 100).toFixed(1)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="flex gap-1.5 text-fg-muted">
+                        {i.platforms.map((p) => (
+                          <PlatformIcon key={p} platform={p} size={14} title={platformLabels[p]} />
+                        ))}
+                      </span>
+                    </div>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          {shown.length === 0 ? <p className="rounded-2xl border border-dashed border-line p-6 text-center text-[13px] text-fg-passive">{tt("Bu filtreye uygun influencer bulunamadı.")}</p> : null}
+        </div>
+
+        {/* Sağ: Kampanya Bilgi Alanı */}
+        <aside className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-4 lg:sticky lg:top-6">
+          <div className="flex flex-col gap-1 border-b border-line pb-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-muted">{tt("Kampanya Bilgileri")}</span>
+            <h3 className="text-[15px] font-semibold text-fg">{campaignSummary?.name || tt("Yeni Kampanya")}</h3>
+            {campaignSummary?.objective ? (
+              <span className="text-[12px] text-fg-muted">{OBJECTIVES.find((o) => o.id === campaignSummary.objective)?.title ?? campaignSummary.objective}</span>
+            ) : null}
+          </div>
+
+          {campaignSummary ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+              <dt className="text-fg-passive">{tt("Tarih")}</dt>
+              <dd className="text-right font-medium tabular-nums text-fg">{campaignSummary.dates}</dd>
+              <dt className="text-fg-passive">{tt("Bütçe")}</dt>
+              <dd className="text-right font-semibold tabular-nums text-fg">{campaignSummary.budgetLabel}</dd>
+              <dt className="text-fg-passive">{tt("Hedef Ülke")}</dt>
+              <dd className="text-right text-fg-muted">{campaignSummary.countriesLabel}</dd>
+            </dl>
+          ) : null}
+
+          {campaignSummary?.planSummary.length ? (
+            <div className="flex flex-col gap-1.5 border-t border-line pt-3">
+              <span className="text-[11px] font-medium text-fg-muted">{tt("İçerik Planı")}</span>
+              <ul className="flex flex-wrap gap-1.5">
+                {campaignSummary.planSummary.map((p) => (
+                  <li key={p} className="rounded-full border border-line bg-surface-muted/50 px-2.5 py-0.5 text-[11px] text-fg">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-2 border-t border-line pt-3">
+            <span className="text-[11px] font-medium text-fg-muted">
+              {tt("Seçilen Influencerlar")} ({selectedItems.length})
+            </span>
+            {selectedItems.length === 0 ? (
+              <p className="text-[12px] text-fg-passive">
+                {tt("Sol listeden influencer seçtiğinizde teklifler kampanya kaydedilince otomatik iletilir.")}
+              </p>
+            ) : (
+              <ul className="flex max-h-48 flex-col gap-1.5 overflow-y-auto">
+                {selectedItems.map((inf) => (
+                  <li key={inf.id} className="flex items-center justify-between gap-2 rounded-xl bg-surface-muted/40 px-2.5 py-1.5 text-[12px]">
+                    <span className="truncate font-medium text-fg">{inf.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggle(inf.id)}
+                      className="text-[11px] text-fg-muted hover:text-critical"
+                    >
+                      {tt("Çıkar")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
       </div>
-      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label={tt("Influencerlar")}>
-        {shown.map((i) => {
-          const on = selected.has(i.id);
-          return (
-            <li key={i.id}>
-              <label className={cn("flex cursor-pointer items-center gap-3 rounded-2xl border p-3 transition-standard", on ? "border-fg bg-fg/[0.04]" : "border-line hover:border-fg/40")}>
-                <input type="checkbox" checked={on} onChange={() => toggle(i.id)} className="h-4 w-4 accent-[var(--color-fg)]" aria-label={`${i.name} seç`} />
-                <Avatar name={i.name} src={i.avatarUrl} size={36} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-[14px] font-medium">{i.name}</span>
-                  <span className="truncate text-[12px] text-fg-muted">
-                    {i.category}
-                    {i.city ? ` · ${i.city}` : ""} · {compact.format(i.followers)}{" "}{tt("takipçi")}</span>
-                </span>
-                <span className="ml-auto flex gap-1 text-fg-muted">
-                  {i.platforms.map((p) => (
-                    <PlatformIcon key={p} platform={p} size={13} title={platformLabels[p]} />
-                  ))}
-                </span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
-      {shown.length === 0 ? <p className="text-[13px] text-fg-passive">{tt("Bu filtreyle influencer yok.")}</p> : null}
     </StepForm>
   );
 }
@@ -577,7 +716,7 @@ export function SubmitStep({ id, backHref, checks, ready, isBrand, submittedAt, 
       backHref={backHref}
       allowStay={false}
       label={tt("Özet ve kaydet")}
-      submitLabel={isBrand ? (submittedAt ? tt("Değişiklikleri kaydet ve ajansa gönder") : tt("Kampanyayı kaydet ve ajansa gönder")) : tt("Kaydet ve kuruluma geç →")}
+      submitLabel={isBrand ? (submittedAt ? tt("Değişiklikleri Kaydet") : tt("Kaydet ve Kampanyayı Başlat")) : tt("Kaydet ve Kuruluma Geç →")}
     >
       <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line">
         {checks.map((c) => (

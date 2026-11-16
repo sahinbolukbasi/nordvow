@@ -14,7 +14,7 @@ import {
 } from "@infulancer/core/domain/labels";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
-import { CampaignHub } from "@/components/campaign/campaign-hub";
+import { CampaignDeleteButton, CampaignHub } from "@/components/campaign/campaign-hub";
 import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
 import { ApproveSummaryButton, RecommendButton } from "@/components/forms/agent-job-forms";
 import { BriefPanel } from "@/components/brief-panel";
@@ -433,6 +433,7 @@ export default async function CampaignDetailPage({
             {campaign.status !== "KAPANDI" ? (
               <ButtonLink href={`/admin/kampanyalar/${campaign.id}/duzenle`} variant="secondary">{" "}{tt("Düzenle")}</ButtonLink>
             ) : null}
+            <CampaignDeleteButton campaignId={campaign.id} campaignName={campaign.name} />
           </>
         }
       />

@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button, Input, Textarea } from "@/components/ui/form";
 import { StatusDot } from "@/components/ui/status";
 import {
+  deleteCampaignAction,
   influencerMarkDeliverableDoneAction,
   runCampaignStoryAgentAction,
   sendCampaignMessageAction,
@@ -650,6 +651,42 @@ export function InfluencerTaskSyncCard({
           />
         </ActionForm>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Kampanyayı silme butonu (2 adımlı onay ile kazara silmeyi önler).
+ */
+export function CampaignDeleteButton({ campaignId, campaignName }: { campaignId: string; campaignName: string }) {
+  const tt = useTT();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setConfirming(true)}
+        className="text-critical hover:bg-critical/10"
+      >
+        {tt("Kampanyayı Sil")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-critical/40 bg-critical/5 px-3 py-1.5">
+      <span className="text-[12px] font-medium text-critical">
+        {campaignName} {tt("silinsin mi?")}
+      </span>
+      <ActionForm action={deleteCampaignAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary">
+        <input type="hidden" name="campaignId" value={campaignId} />
+      </ActionForm>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        {tt("Vazgeç")}
+      </Button>
     </div>
   );
 }

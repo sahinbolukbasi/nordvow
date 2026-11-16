@@ -1,12 +1,13 @@
 import { audit } from "../audit";
 import { toAuditActor, type Actor } from "../access/actor";
 import { notifyAdmins } from "../agents/common";
+import { ensureCampaignTrackers, runTracker } from "../agents/trackers";
 import { prisma } from "../db";
 import type { Platform } from "../enums";
 import { audienceSchema, contentPlanSchema, draftChecks, OBJECTIVES, parseContentPlan, type Objective } from "./campaign-plan";
 import { DomainError } from "./errors";
 import { utmSafe } from "./utm";
-import { campaignCurrency, currencyOf } from "../i18n/regions";
+import { campaignCurrency, convertMinor, currencyOf } from "../i18n/regions";
 
 /**
  * Kampanya taslağı (sihirbaz) — marka ve ajans ortak kullanır.
@@ -225,20 +226,139 @@ export async function draftStatus(id: string) {
   return { campaign: c, checks, ready: checks.every((x) => x.ok), plan: parseContentPlan(c.contentPlan) };
 }
 
-/** Marka: kampanyayı ajansa gönderir. Ajans: taslağı kuruluma hazır işaretler. */
+/**
+ * Kampanyayı kaydet ve yayına al:
+ *  - Gerekli bilgiler tamamsa kampanya taslakta kalmaz, doğrudan AKTIF olur.
+ *  - Seçilen influencerlara otomatik teklif (Offer) oluşturularak Influencer Teklifler sayfasında görünmesi sağlanır.
+ *  - Kampanyanın özelliklerine göre Admin panelinde kampanya & story takip botları otomatik kurulur ve çalıştırılır.
+ */
 export async function submitDraft(actor: Actor, id: string) {
   const c = await assertCanEditDraft(actor, id);
-  const { ready, checks } = await draftStatus(id);
+  const { campaign: full, ready, checks, plan } = await draftStatus(id);
   if (!ready) {
     const missing = checks.filter((x) => !x.ok).map((x) => x.note);
-    throw new DomainError("DOGRULAMA", `Göndermeden önce tamamlayın: ${missing.join(", ")}.`);
+    throw new DomainError("DOGRULAMA", `Kaydetmeden önce tamamlayın: ${missing.join(", ")}.`);
   }
+
   const first = !c.submittedAt;
-  await prisma.campaign.update({ where: { id }, data: { submittedAt: new Date() } });
-  await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_SUBMITTED", entityType: "Campaign", entityId: id, data: { by: actor.role, first, mode: c.executionMode } });
-  // Yalnız AJANS moduna devredilmiş kampanyada ajansa kurulum bildirimi düşer; SELF'te marka kendi kurar.
-  if (actor.role === "BRAND" && c.executionMode === "AJANS") {
-    await notifyAdmins(first ? "Markadan yeni kampanya" : "Marka kampanyayı güncelledi", `"${c.name}" kampanyası kuruluma hazır: influencer ataması, bedeller ve yayın kontrolü.`, `/admin/kampanyalar/${id}/kurulum?adim=influencerlar`);
+  const nextStatus = full.status === "TASLAK" ? "AKTIF" : full.status;
+
+  await prisma.campaign.update({
+    where: { id },
+    data: {
+      submittedAt: c.submittedAt ?? new Date(),
+      status: nextStatus,
+    },
+  });
+
+  // Seçilen (shortlist) influencerlar için otomatik Offer oluştur -> Influencer Teklifler sayfasında anında çıksın.
+  if (full.shortlistInfluencerIds.length > 0) {
+    const existingOffers = await prisma.offer.findMany({
+      where: {
+        brandId: full.brandId,
+        campaignId: id,
+        influencerId: { in: full.shortlistInfluencerIds },
+      },
+      select: { influencerId: true },
+    });
+    const alreadyOffered = new Set(existingOffers.map((o) => o.influencerId));
+    const toOffer = full.shortlistInfluencerIds.filter((infId) => !alreadyOffered.has(infId));
+
+    if (toOffer.length > 0) {
+      const [rateCards, infs, infUsers] = await Promise.all([
+        prisma.rateCard.findMany({
+          where: { influencerId: { in: toOffer }, active: true },
+        }),
+        prisma.influencer.findMany({
+          where: { id: { in: toOffer } },
+          select: { id: true, name: true, country: true },
+        }),
+        prisma.user.findMany({
+          where: { influencerId: { in: toOffer } },
+          select: { id: true, influencerId: true },
+        }),
+      ]);
+
+      const infMap = new Map(infs.map((i) => [i.id, i]));
+      const userByInf = new Map(infUsers.map((u) => [u.influencerId!, u.id]));
+      const expiresAt = new Date(Date.now() + 7 * DAY);
+      const fallbackPerInf = Math.max(
+        100_00,
+        Math.round(Number(full.brandTotalFeeKurus) / Math.max(1, full.shortlistInfluencerIds.length)),
+      );
+
+      for (const infId of toOffer) {
+        const inf = infMap.get(infId);
+        const infCur = currencyOf(inf?.country);
+        const items = (plan.length ? plan : [{ platform: "INSTAGRAM" as const, contentType: "STORY" as const, count: 1, notes: "" }]).map((row) => {
+          const rc = rateCards.find((r) => r.influencerId === infId && r.platform === row.platform && r.contentType === row.contentType);
+          const unitKurus = rc
+            ? convertMinor(rc.priceKurus, infCur, full.currency)
+            : Math.round(fallbackPerInf / Math.max(1, plan.length));
+          return {
+            platform: row.platform,
+            contentType: row.contentType,
+            qty: row.count,
+            priceKurus: unitKurus,
+          };
+        });
+        const totalKurus = items.reduce((s, it) => s + it.priceKurus * it.qty, 0);
+
+        await prisma.offer.create({
+          data: {
+            brandId: full.brandId,
+            influencerId: infId,
+            createdById: actor.userId,
+            campaignId: id,
+            title: full.name,
+            message: full.description?.trim() || `${full.name} kampanyası için iş birliği teklifi.`,
+            items,
+            totalKurus: Math.max(0, totalKurus),
+            publishBy: full.endsAt,
+            status: "GONDERILDI",
+            expiresAt,
+          },
+        });
+
+        const uId = userByInf.get(infId);
+        if (uId) {
+          await prisma.notification.create({
+            data: {
+              userId: uId,
+              title: `Yeni Kampanya Teklifi: ${full.name}`,
+              body: `${full.name} kampanyası için davet ve içerik teklifi aldınız. Teklifler sayfasından inceleyip yanıtlayabilirsiniz.`,
+              href: "/influencer/teklifler",
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Kampanyanın özelliklerine göre takip botlarını otomatik kur ve ilk çalışmayı başlat
+  await ensureCampaignTrackers(id, full.name, actor.userId);
+  const createdTrackers = await prisma.trackerAgent.findMany({
+    where: { scope: "CAMPAIGN", targetId: id, enabled: true },
+    select: { id: true },
+  });
+  for (const t of createdTrackers) {
+    await runTracker(t.id).catch(() => undefined);
+  }
+
+  await audit.append({
+    actor: toAuditActor(actor),
+    action: "CAMPAIGN_SUBMITTED",
+    entityType: "Campaign",
+    entityId: id,
+    data: { by: actor.role, first, mode: c.executionMode, status: nextStatus },
+  });
+
+  if (actor.role === "BRAND") {
+    await notifyAdmins(
+      first ? "Yeni kampanya aktif edildi" : "Kampanya güncellendi",
+      `"${c.name}" kampanyası kaydedildi, aktif duruma alındı ve otomatik takip botları başlatıldı.`,
+      `/admin/kampanyalar/${id}`,
+    );
   }
   return { first, mode: c.executionMode };
 }

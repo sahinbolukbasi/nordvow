@@ -178,7 +178,7 @@ async function offersData(u: LinkedUser, now: Date): Promise<string> {
   return `Teklifler:\n${lines.join("\n")}\n${hint}\nDetay: ${link}`;
 }
 
-async function jobsData(u: LinkedUser): Promise<string> {
+async function jobsData(u: LinkedUser, question: string = ""): Promise<string> {
   if (u.role === "INFLUENCER" && u.influencerId) {
     const jobs = await prisma.deliverable.findMany({
       where: { assignment: { influencerId: u.influencerId }, status: { notIn: ["TAMAMLANDI", "IPTAL"] } },
@@ -190,12 +190,46 @@ async function jobsData(u: LinkedUser): Promise<string> {
     const lines = jobs.map((j, i) => `${i + 1}. ${j.assignment.campaign.name} — ${j.platform} ${j.contentType}, durum ${j.status}${j.plannedAt ? `, plan ${j.plannedAt.toLocaleDateString("tr-TR")}` : ""}`);
     return `Aktif işler:\n${lines.join("\n")}\nDetay: ${APP_BASE()}/influencer`;
   }
-  const where = u.role === "BRAND" && u.brandId ? { brandId: u.brandId, status: { in: ["TASLAK", "AKTIF"] as ("TASLAK" | "AKTIF")[] } } : { status: { in: ["AKTIF"] as "AKTIF"[] } };
-  const camps = await prisma.campaign.findMany({ where, orderBy: { updatedAt: "desc" }, take: 5, select: { name: true, status: true, executionMode: true } });
+  const where = u.role === "BRAND" && u.brandId ? { brandId: u.brandId, status: { not: "IPTAL" as const } } : { status: { not: "IPTAL" as const } };
+  const camps = await prisma.campaign.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    take: 8,
+    include: {
+      assignments: {
+        where: { contractStatus: { not: "RED" } },
+        include: { deliverables: { select: { status: true } }, influencer: { select: { name: true } } },
+      },
+    },
+  });
   const link = u.role === "BRAND" ? `${APP_BASE()}/marka/kampanyalar` : `${APP_BASE()}/admin/kampanyalar`;
   if (!camps.length) return `Açık kampanya yok. Panel: ${link}`;
-  const lines = camps.map((c, i) => `${i + 1}. ${c.name} — ${c.status}, yürütme: ${c.executionMode === "AJANS" ? "ajans" : "kendi ekibi"}`);
-  return `Kampanyalar:\n${lines.join("\n")}\nPanel: ${link}`;
+
+  const qNorm = norm(question);
+  const matched = camps.find((c) => qNorm.includes(norm(c.name)));
+  if (matched) {
+    const delivs = matched.assignments.flatMap((a) => a.deliverables);
+    const done = delivs.filter((d) => ["YAYINLANDI", "TAMAMLANDI"].includes(d.status)).length;
+    const trackers = await prisma.trackerAgent.findMany({
+      where: { scope: "CAMPAIGN", targetId: matched.id },
+      select: { name: true, lastFindings: true },
+    });
+    const infNames = matched.assignments.map((a) => a.influencer.name).join(", ") || "Henüz yok";
+    const trackerTxt = trackers.map((t) => `${t.name} (${Array.isArray(t.lastFindings) ? t.lastFindings.length : 0} bulgu)`).join(", ") || "Aktif";
+    return `Kampanya Detayı — ${matched.name}:\nDurum: ${matched.status}\nTarih: ${matched.startsAt.toLocaleDateString("tr-TR")} - ${matched.endsAt.toLocaleDateString("tr-TR")}\nInfluencerlar: ${infNames}\nGörevler: ${done}/${delivs.length} tamamlandı\nTakip Botları: ${trackerTxt}\nDetay: ${link}/${matched.id}`;
+  }
+
+  if (/\b(genel|ozet|hepsi|tumu)\b/.test(qNorm)) {
+    const lines = camps.map((c, i) => {
+      const delivs = c.assignments.flatMap((a) => a.deliverables);
+      const done = delivs.filter((d) => ["YAYINLANDI", "TAMAMLANDI"].includes(d.status)).length;
+      return `${i + 1}. ${c.name} — ${c.status}, ${c.assignments.length} influencer, ${done}/${delivs.length} içerik tamam`;
+    });
+    return `Genel Kampanya Özeti:\n${lines.join("\n")}\nBelirli bir kampanyanın adını yazarsan detayını da paylaşabilirim. Panel: ${link}`;
+  }
+
+  const names = camps.map((c, i) => `${i + 1}. ${c.name} (${c.status})`).join("\n");
+  return `Nasıl bir bilgi istersin? Genel özet mi paylaşayım, yoksa belirli bir kampanya hakkında detaylı bilgi mi? Kampanyaların:\n${names}\n(Yanıt olarak "genel" veya kampanya adını yazabilirsin.)`;
 }
 
 async function balanceData(u: LinkedUser, tenantId: string): Promise<string> {
@@ -433,7 +467,7 @@ export async function handleChannelBotTurn(
       return { handled: true };
     }
     case "jobs": {
-      await reply(tenantId, convId, await phrase(user, text, await jobsData(user!)));
+      await reply(tenantId, convId, await phrase(user, text, await jobsData(user!, text)));
       return { handled: true };
     }
     case "balance": {
