@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
+import { creativePricing } from "@infulancer/core/creative/pricing";
+import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { ReviewApplication } from "@/components/campaigns/open-call-forms";
 import { Pill, StatStrip } from "@/components/luma/primitives";
 import { BrandOfferActions } from "@/components/offers/offer-forms";
@@ -26,13 +28,16 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
   const actor = await requireActor("BRAND");
   const { sekme } = await searchParams;
   const brandId = actor.brandId!;
-  const [offers, calls, apps] = await Promise.all([
+  const [offers, calls, apps, brand, pricing] = await Promise.all([
     prisma.offer.findMany({ where: { brandId }, orderBy: { createdAt: "desc" }, take: 300 }),
     prisma.campaignOpenCall.findMany({ where: { tenantId: brandId }, orderBy: { createdAt: "desc" }, include: { applications: { select: { status: true } } } }),
     prisma.campaignApplication.findMany({ where: { openCall: { tenantId: brandId } }, orderBy: { createdAt: "desc" }, include: { openCall: { select: { id: true, title: true } } } }),
+    prisma.brand.findUnique({ where: { id: brandId }, select: { country: true } }),
+    creativePricing(),
   ]);
+  const brandCur = currencyOf(brand?.country);
   const infIds = [...new Set([...offers.map((o) => o.influencerId), ...apps.map((a) => a.influencerId)])];
-  const infs = new Map((await prisma.influencer.findMany({ where: { id: { in: infIds } }, select: { id: true, name: true, category: true, socialAccounts: { select: { platform: true, avatarUrl: true } } } })).map((i) => [i.id, i]));
+  const infs = new Map((await prisma.influencer.findMany({ where: { id: { in: infIds } }, select: { id: true, name: true, category: true, country: true, socialAccounts: { select: { platform: true, avatarUrl: true } } } })).map((i) => [i.id, i]));
   const fromApplication = new Set(apps.map((a) => a.offerId).filter(Boolean));
   const pendingApps = apps.filter((a) => a.status === "BASVURULDU" || a.status === "INCELENIYOR");
   const count = (s: string) => offers.filter((o) => o.status === s).length;
@@ -48,6 +53,7 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
       <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
         {offers.map((o) => {
           const inf = infs.get(o.influencerId);
+          const infCur = currencyOf(inf?.country);
           const p = offerPill[o.status] ?? { label: o.status, tone: "gray" as const };
           return (
             <li key={o.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center">
@@ -63,13 +69,20 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
                 {o.status === "KARSI_TEKLIF" && o.counterKurus ? (
                   <span className="text-[12px] text-amber-600 dark:text-amber-400">
                     {o.counterByRole === "BRAND" ? tt("Markanın fiyat talebi:") : tt("Influencer'ın karşı fiyatı:")}{" "}
-                    <strong>{formatKurus(o.counterKurus)}</strong>
+                    <strong>{formatDualMinor(o.counterKurus, brandCur, { viewerCurrency: infCur !== brandCur ? infCur : undefined, perspective: "brand", fx: pricing.fx, showGlobalEquivalents: true })}</strong>
                     {o.counterNote ? ` · ${o.counterNote}` : ""}
                   </span>
                 ) : null}
               </div>
               <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-1">
-                <span className="text-[17px] font-semibold tabular-nums text-fg">{formatKurus(o.totalKurus)}</span>
+                <span className="text-[17px] font-semibold tabular-nums text-fg">
+                  {formatDualMinor(o.totalKurus, brandCur, {
+                    viewerCurrency: infCur !== brandCur ? infCur : undefined,
+                    perspective: "brand",
+                    fx: pricing.fx,
+                    showGlobalEquivalents: true,
+                  })}
+                </span>
                 <Pill tone={o.status === "KARSI_TEKLIF" ? "amber" : p.tone}>{o.status === "KARSI_TEKLIF" ? tt("Karşı fiyat") : p.label}</Pill>
                 <span className="text-[11px] text-fg-passive">{fmtDate(o.createdAt)} {expiryText(o.expiresAt, o.status)}</span>
               </div>

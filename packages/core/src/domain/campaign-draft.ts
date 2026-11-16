@@ -121,9 +121,11 @@ export async function updateAudience(actor: Actor, id: string, raw: unknown) {
   if (!r.success) throw new DomainError("DOGRULAMA", r.error.issues[0]?.message ?? "Hedef kitle geçersiz.");
   const c = await prisma.campaign.findUniqueOrThrow({ where: { id }, select: { brand: { select: { country: true } } } });
   const { currency, mixed } = campaignCurrency(r.data.targetCountries, c.brand.country);
-  if (mixed) throw new DomainError("DOGRULAMA", "Seçilen ülkelerin para birimleri farklı (ör. TRY ve EUR). Tutarlar çevrilmediği için her para birimi bölgesine ayrı kampanya açın.");
-  await prisma.campaign.update({ where: { id }, data: { ...r.data, platforms: r.data.platforms as Platform[], currency } });
-  await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_UPDATED", entityType: "Campaign", entityId: id, data: { step: "kitle", ...r.data } });
+  // Çoklu para birimi motoru: Farklı ülkeler seçildiğinde markanın yerel para birimini baz al,
+  // yabancı influencer teklif/hakedişlerinde otomatik kur dönüşümü uygula.
+  const effectiveCurrency = mixed ? currencyOf(c.brand.country) : currency;
+  await prisma.campaign.update({ where: { id }, data: { ...r.data, platforms: r.data.platforms as Platform[], currency: effectiveCurrency } });
+  await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_UPDATED", entityType: "Campaign", entityId: id, data: { step: "kitle", ...r.data, currency: effectiveCurrency } });
 }
 
 /** Tarih (UTC, çağıran saat dilimine çevirmiş olmalı) ve bütçe. Marka yalnız marka bedelini girer. */

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { toInfluencerAssignmentView } from "@infulancer/core/access/dto";
 import { prisma } from "@infulancer/core/db";
 import { contentTypeLabels, deliverableStatusLabels, platformLabels } from "@infulancer/core/domain/labels";
-import { currencyOf } from "@infulancer/core/i18n/regions";
+import { creativePricing } from "@infulancer/core/creative/pricing";
+import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { computeBalances, holdDays } from "@infulancer/core/domain/ledger";
 import { WeekAgenda, WeekCalendar } from "@/components/calendar/week-calendar";
 import { BalanceCards } from "@/components/finance/balance-cards";
@@ -28,15 +29,26 @@ export default async function InfluencerHomePage() {
   // Hakediş ve ödemeler influencer'ın kayıtlı ülkesinin para biriminde (çevrim yok).
   const myCountry = (await prisma.influencer.findUniqueOrThrow({ where: { id: actor.influencerId! }, select: { country: true } })).country;
   const influencerId = actor.influencerId!;
-  const [me, assignments, balances] = await Promise.all([
+  const [me, assignments, balances, pricing] = await Promise.all([
     prisma.influencer.findUniqueOrThrow({ where: { id: influencerId }, select: { id: true, name: true, audienceTimezone: true } }),
     prisma.assignment.findMany({
       where: { influencerId },
       orderBy: { createdAt: "desc" },
-      include: { campaign: { include: { brand: { select: { name: true } } } }, deliverables: { orderBy: { plannedAt: "asc" } } },
+      include: { campaign: { include: { brand: { select: { name: true, country: true } } } }, deliverables: { orderBy: { plannedAt: "asc" } } },
     }),
     computeBalances(influencerId),
+    creativePricing(),
   ]);
+  const myCur = currencyOf(myCountry);
+  const rawFeeMap = new Map(
+    assignments.map((a) => [
+      a.id,
+      {
+        feeMinor: Number(a.feeKurus),
+        currency: a.campaign.currency || currencyOf(a.campaign.brand.country),
+      },
+    ]),
+  );
   // Influencer ekranına veri yalnız DTO üzerinden (bütçe/komisyon yok).
   const views = assignments.map(toInfluencerAssignmentView);
   const tz = me.audienceTimezone;
@@ -65,20 +77,33 @@ export default async function InfluencerHomePage() {
         <Card interactive={false} className="flex flex-col gap-4">
           <CardTitle>{tt("Bekleyen teklifler")}</CardTitle>
           <ul className="flex flex-col divide-y divide-border">
-            {offers.map((o) => (
-              <li key={o.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm text-fg">{o.campaign.name}</span>
-                  <span className="text-[13px] text-fg-muted">
-                    {o.campaign.brandName} · {fmtDate(o.campaign.startsAt, tz)} – {fmtDate(o.campaign.endsAt, tz)} · {o.deliverables.length}{" "}{tt("iş")}{o.exclusivityDays ? ` · ${o.exclusivityDays} gün münhasırlık` : ""}
-                  </span>
-                  {o.deliverables[0] ? (
-                    <Link href={`/influencer/isler/${o.deliverables[0].id}`} className="text-[13px] text-fg-muted hover:text-fg">{tt("Brief'i gör →")}</Link>
-                  ) : null}
-                </div>
-                <ContractDecision assignmentId={o.id} />
-              </li>
-            ))}
+            {offers.map((o) => {
+              const feeInfo = rawFeeMap.get(o.id);
+              return (
+                <li key={o.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium text-fg">{o.campaign.name}</span>
+                    <span className="text-[13px] text-fg-muted">
+                      {o.campaign.brandName} · {fmtDate(o.campaign.startsAt, tz)} – {fmtDate(o.campaign.endsAt, tz)} · {o.deliverables.length}{" "}{tt("iş")}{o.exclusivityDays ? ` · ${o.exclusivityDays} gün münhasırlık` : ""}
+                    </span>
+                    {feeInfo && feeInfo.feeMinor > 0 ? (
+                      <span className="text-[13px] font-semibold tabular-nums text-fg">
+                        {formatDualMinor(feeInfo.feeMinor, feeInfo.currency, {
+                          viewerCurrency: myCur !== feeInfo.currency ? myCur : "EUR",
+                          perspective: myCur !== feeInfo.currency ? "influencer" : "brand",
+                          fx: pricing.fx,
+                          showGlobalEquivalents: true,
+                        })}
+                      </span>
+                    ) : null}
+                    {o.deliverables[0] ? (
+                      <Link href={`/influencer/isler/${o.deliverables[0].id}`} className="text-[13px] text-fg-muted hover:text-fg">{tt("Brief ve Görev Detayını Gör →")}</Link>
+                    ) : null}
+                  </div>
+                  <ContractDecision assignmentId={o.id} />
+                </li>
+              );
+            })}
           </ul>
         </Card>
       ) : null}
@@ -99,36 +124,57 @@ export default async function InfluencerHomePage() {
           <EmptyState message={tt("Kabul ettiğiniz bir iş olduğunda brief ve teslim tarihleri burada listelenir.")} />
         ) : (
           <div className="flex flex-col gap-6">
-            {active.map((a) => (
-              <section key={a.id} className="flex flex-col gap-2" aria-label={a.campaign.name}>
-                <h3 className="text-sm text-fg">
-                  {a.campaign.name} <span className="text-fg-passive">· {a.campaign.brandName}</span>
-                </h3>
-                <ul className="flex flex-col gap-2">
-                  {a.deliverables.map((d) => {
-                    const late = isOverdue(d, now);
-                    return (
-                      <li key={d.id}>
-                        <Link
-                          href={`/influencer/isler/${d.id}`}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-border bg-surface px-4 py-3 transition-standard hover:border-border-strong"
-                        >
-                          <span className="flex items-center gap-2 text-sm">
-                            <PlatformIcon platform={d.platform} size={16} title={platformLabels[d.platform]} />
-                            {contentTypeLabels[d.contentType]}
-                          </span>
-                          <span className="text-[13px] tabular-nums text-fg-muted">{fmtDateTime(d.plannedAt, tz)}</span>
-                          <StatusDot tone={deliverableTone(d.status, { overdue: late, violation: d.contractViolation })}>
-                            {deliverableStatusLabels[d.status]}
-                            {late ? tt(" · gecikti") : ""}
-                          </StatusDot>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            ))}
+            {active.map((a) => {
+              const feeInfo = rawFeeMap.get(a.id);
+              return (
+                <section key={a.id} className="flex flex-col gap-2" aria-label={a.campaign.name}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-medium text-fg">
+                      {a.campaign.name} <span className="font-normal text-fg-passive">· {a.campaign.brandName}</span>
+                    </h3>
+                    {feeInfo && feeInfo.feeMinor > 0 ? (
+                      <span className="text-[12px] font-semibold tabular-nums text-fg-muted">
+                        {formatDualMinor(feeInfo.feeMinor, feeInfo.currency, {
+                          viewerCurrency: myCur !== feeInfo.currency ? myCur : "EUR",
+                          perspective: myCur !== feeInfo.currency ? "influencer" : "brand",
+                          fx: pricing.fx,
+                          showGlobalEquivalents: true,
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {a.deliverables.map((d) => {
+                      const late = isOverdue(d, now);
+                      const isDone = ["YAYINLANDI", "TAMAMLANDI"].includes(d.status) || Boolean(d.postUrl);
+                      return (
+                        <li key={d.id}>
+                          <Link
+                            href={`/influencer/isler/${d.id}`}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-border bg-surface px-4 py-3 transition-standard hover:border-border-strong"
+                          >
+                            <span className="flex items-center gap-2 text-sm">
+                              <PlatformIcon platform={d.platform} size={16} title={platformLabels[d.platform]} />
+                              {contentTypeLabels[d.contentType]}
+                            </span>
+                            <span className="text-[13px] tabular-nums text-fg-muted">{fmtDateTime(d.plannedAt, tz)}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full border border-line px-2.5 py-0.5 text-[11px] font-medium text-fg-muted">
+                                {isDone ? tt("✓ Yaptım / Tamamlandı") : tt("Durumu Güncelle →")}
+                              </span>
+                              <StatusDot tone={deliverableTone(d.status, { overdue: late, violation: d.contractViolation })}>
+                                {deliverableStatusLabels[d.status]}
+                                {late ? tt(" · gecikti") : ""}
+                              </StatusDot>
+                            </div>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              );
+            })}
           </div>
         )}
       </Card>
