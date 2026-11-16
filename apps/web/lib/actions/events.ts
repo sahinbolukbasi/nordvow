@@ -5,6 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { createEvent, inviteManyToEvent, inviteToEvent, respondInvite, setEventStatus } from "@infulancer/core/events/service";
+import { canBrandManageEvent, setEventPartnerIds } from "@infulancer/core/events/partners";
 import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import { fmtDateTime } from "@/lib/time";
 import { DomainError } from "@infulancer/core/domain/errors";
@@ -60,6 +61,11 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
       coverImageKey: str(fd, "coverImageKey") || undefined,
     });
     const tenantId = actor.role === "BRAND" ? actor.brandId! : optStr(fd, "tenantId");
+    const partnerIds = [...new Set(fd.getAll("partnerBrandIds").map(String).filter((id) => id && id !== tenantId))];
+    if (partnerIds.length) {
+      const found = await prisma.brand.count({ where: { id: { in: partnerIds } } });
+      if (found !== partnerIds.length) throw new DomainError("DOGRULAMA", "İş birliği marka listesi geçersiz.");
+    }
     const e: { id: string } = await createEvent({
       tenantId,
       title: input.title,
@@ -76,7 +82,10 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
       coverImageKey: input.coverImageKey,
       createdByUserId: actor.userId,
     });
-    await audit.append({ actor: toAuditActor(actor), action: "EVENT_CREATED", entityType: "Event", entityId: e.id, data: { title: input.title } });
+    if (partnerIds.length) {
+      await setEventPartnerIds(e.id, partnerIds);
+    }
+    await audit.append({ actor: toAuditActor(actor), action: "EVENT_CREATED", entityType: "Event", entityId: e.id, data: { title: input.title, partnerBrandIds: partnerIds } });
     created.id = e.id;
     revalidateAll();
     return { ok: true, message: "Etkinlik taslağı oluşturuldu." };
@@ -90,9 +99,9 @@ export async function setEventStatusAction(_p: ActionState, fd: FormData): Promi
   return attempt(async () => {
     const id = str(fd, "id");
     const to = str(fd, "to") as "TASLAK" | "YAYINDA" | "IPTAL" | "TAMAMLANDI";
-    const ev = await prisma.event.findUnique({ where: { id }, select: { tenantId: true } });
+    const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, tenantId: true } });
     if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
-    if (actor.role === "BRAND" && ev.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     await setEventStatus(id, to);
     await audit.append({ actor: toAuditActor(actor), action: "EVENT_STATUS", entityType: "Event", entityId: id, data: { to } });
     revalidateAll();
@@ -107,9 +116,9 @@ export async function inviteEventAction(_p: ActionState, fd: FormData): Promise<
     const eventId = str(fd, "eventId");
     const ids = fd.getAll("influencerId").map(String).filter(Boolean);
     const guestName = str(fd, "guestName");
-    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { tenantId: true } });
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
     if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
-    if (actor.role === "BRAND" && ev.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     if (ids.length) {
       const r = await inviteManyToEvent(eventId, ids);
       await audit.append({ actor: toAuditActor(actor), action: "EVENT_INVITED", entityType: "Event", entityId: eventId, data: { count: r.length } });
@@ -140,10 +149,10 @@ export async function respondInviteAction(_p: ActionState, fd: FormData): Promis
     const accept = bool(fd, "accept");
     const holderName = str(fd, "holderName") || undefined;
     // Sahiplik: influencer yalnız kendi davetini, marka yalnız kendi etkinliğinin davetini yanıtlar.
-    const inv = await prisma.eventInvite.findUnique({ where: { id: inviteId }, select: { influencerId: true, event: { select: { tenantId: true } } } });
+    const inv = await prisma.eventInvite.findUnique({ where: { id: inviteId }, select: { influencerId: true, event: { select: { id: true, tenantId: true } } } });
     if (!inv) throw new DomainError("BULUNAMADI", "Davet bulunamadı.");
     if (actor.role === "INFLUENCER" && inv.influencerId !== actor.influencerId) throw new DomainError("YETKISIZ", "Bu davet size ait değil.");
-    if (actor.role === "BRAND" && inv.event.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(inv.event, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     await respondInvite(inviteId, accept, holderName);
     await audit.append({ actor: toAuditActor(actor), action: "EVENT_INVITE_RESPONSE", entityType: "EventInvite", entityId: inviteId, data: { accept } });
     revalidateAll();
@@ -158,12 +167,40 @@ export async function checkInAction(_p: ActionState, fd: FormData): Promise<Acti
     const { checkInTicket } = await import("@infulancer/core/events/service");
     const code = str(fd, "code").trim().toUpperCase();
     if (actor.role === "BRAND") {
-      const t = await prisma.eventTicket.findUnique({ where: { code }, select: { event: { select: { tenantId: true } } } });
-      if (t && t.event.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+      const t = await prisma.eventTicket.findUnique({ where: { code }, select: { event: { select: { id: true, tenantId: true } } } });
+      if (t && !(await canBrandManageEvent(t.event, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
     }
     const r = await checkInTicket(code);
     revalidateAll();
     if (r.alreadyUsed) return { ok: true, message: `Bu bilet zaten kullanılmış (${r.ticket.holderName}).` };
     return { ok: true, message: `Giriş onaylandı: ${r.ticket.holderName}.` };
+  });
+}
+
+/** Etkinliğe iş birliği (partner) markaları ekler veya günceller; tüm ortak markalar etkinliği yönetebilir. */
+export async function updateEventPartnersAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const eventId = str(fd, "eventId");
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
+    if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu etkinliği düzenleme yetkiniz yok.");
+    }
+    const partnerIds = [...new Set(fd.getAll("partnerBrandIds").map(String).filter((id) => id && id !== ev.tenantId))];
+    if (partnerIds.length) {
+      const found = await prisma.brand.count({ where: { id: { in: partnerIds } } });
+      if (found !== partnerIds.length) throw new DomainError("DOGRULAMA", "İş birliği marka listesi geçersiz.");
+    }
+    await setEventPartnerIds(eventId, partnerIds);
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_PARTNERS_UPDATED",
+      entityType: "Event",
+      entityId: eventId,
+      data: { partnerBrandIds: partnerIds },
+    });
+    revalidateAll();
+    return { ok: true, message: "İş birliği markaları güncellendi." };
   });
 }

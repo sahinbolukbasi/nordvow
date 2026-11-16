@@ -170,3 +170,62 @@ export async function deleteBrandAction(_prev: ActionState, fd: FormData): Promi
     return { ok: true, message: `${brand.name} silindi.` };
   });
 }
+
+/** Admin: mevcut bir marka kullanıcısını bu markaya atar (birden fazla kişi aynı marka hesabına giriş yapabilir). */
+export async function assignBrandUserAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      z.object({ brandId: z.string().min(1).max(64), userId: z.string().min(1).max(64) }),
+      { brandId: str(fd, "brandId"), userId: str(fd, "userId") },
+      { brandId: "Marka", userId: "Kullanıcı" },
+    );
+    const [brand, user] = await Promise.all([
+      prisma.brand.findUnique({ where: { id: input.brandId }, select: { id: true, name: true } }),
+      prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, email: true, role: true, influencerId: true } }),
+    ]);
+    if (!brand) throw new DomainError("BULUNAMADI", "Marka bulunamadı.");
+    if (!user) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
+    if (user.role === "ADMIN" || user.role === "INFLUENCER" || user.influencerId) {
+      throw new DomainError("KURAL_IHLALI", "Admin veya influencer hesabı markaya bağlanamaz.");
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { role: "BRAND", brandId: brand.id, status: "ACTIVE" },
+    });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "BRAND_USER_ASSIGNED",
+      entityType: "User",
+      entityId: user.id,
+      data: { brandId: brand.id, brandName: brand.name, email: user.email },
+    });
+    revalidateAll();
+    return { ok: true, message: `${user.email} kullanıcısı ${brand.name} hesabına atandı.` };
+  });
+}
+
+/** Admin: kullanıcıyı marka hesabından ayırır. */
+export async function detachBrandUserAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      z.object({ brandId: z.string().min(1).max(64), userId: z.string().min(1).max(64) }),
+      { brandId: str(fd, "brandId"), userId: str(fd, "userId") },
+    );
+    const user = await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, email: true, brandId: true } });
+    if (!user || user.brandId !== input.brandId) throw new DomainError("BULUNAMADI", "Bu kullanıcı bu markaya bağlı değil.");
+    await prisma.user.update({ where: { id: user.id }, data: { brandId: null } });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "BRAND_USER_DETACHED",
+      entityType: "User",
+      entityId: user.id,
+      data: { brandId: input.brandId, email: user.email },
+    });
+    revalidateAll();
+    return { ok: true, message: `${user.email} marka erişiminden çıkarıldı.` };
+  });
+}

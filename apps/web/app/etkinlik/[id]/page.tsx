@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
+import { getEventPartnerIds } from "@infulancer/core/events/partners";
 import { mapLinks } from "@infulancer/core/wallet/maps";
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { DateBadge, InfoRow, PersonIcon, PinIcon, Pill } from "@/components/luma/primitives";
@@ -24,9 +25,16 @@ export default async function PublicEventPage({ params }: { params: Promise<{ id
   const { id } = await params;
   const e = await prisma.event.findUnique({ where: { id }, include: { tickets: { where: { status: { not: "IPTAL" } }, select: { id: true } } } });
   if (!e) notFound();
-  const [brand, actor] = await Promise.all([e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null, getActor().catch(() => null)]);
+  const [brand, partnerIds, actor] = await Promise.all([
+    e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null,
+    getEventPartnerIds(e.id),
+    getActor().catch(() => null),
+  ]);
+  const partnerBrands = partnerIds.length
+    ? await prisma.brand.findMany({ where: { id: { in: partnerIds } }, orderBy: { name: "asc" }, select: { name: true } })
+    : [];
   const myInvite = actor?.influencerId ? await prisma.eventInvite.findFirst({ where: { eventId: e.id, influencerId: actor.influencerId }, include: { ticket: true } }) : null;
-  const organizer = brand?.name ?? BRAND_NAME;
+  const organizer = [brand?.name ?? BRAND_NAME, ...partnerBrands.map((b) => b.name)].join(" × ");
   const cover = mediaSrc(e.coverImageKey);
   const gallery = (e.imageKeys ?? []).map((k) => mediaSrc(k)).filter((x): x is string => !!x);
   const map = mapLinks({ latitude: e.latitude, longitude: e.longitude, address: e.address, venueName: e.venueName });

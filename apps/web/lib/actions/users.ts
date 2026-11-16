@@ -268,15 +268,17 @@ const updateUserSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.email().max(200),
   phone: z.string().trim().max(40).nullable(),
+  brandId: z.string().trim().max(64).nullable().optional(),
   password: z.string().min(8, { error: "Şifre en az 8 karakter olmalı." }).max(200).optional(),
 });
 
-/** Admin: kullanıcının ad, e-posta, telefon ve opsiyonel şifre bilgisini günceller. */
+/** Admin: kullanıcının ad, e-posta, telefon, bağlı marka ve opsiyonel şifre bilgisini günceller. */
 export async function updateUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN");
   assertPlatformAdmin(actor);
   return attempt(async () => {
     const rawPassword = optStr(fd, "password");
+    const rawBrandId = optStr(fd, "brandId");
     const input = parseInput(
       updateUserSchema,
       {
@@ -284,20 +286,26 @@ export async function updateUserAction(_p: ActionState, fd: FormData): Promise<A
         name: str(fd, "name"),
         email: str(fd, "email").toLowerCase(),
         phone: optStr(fd, "phone"),
+        brandId: fd.has("brandId") ? rawBrandId : undefined,
         password: rawPassword || undefined,
       },
-      { userId: "Kullanıcı", name: "Ad soyad", email: "E-posta", phone: "Telefon", password: "Yeni şifre" },
+      { userId: "Kullanıcı", name: "Ad soyad", email: "E-posta", phone: "Telefon", brandId: "Bağlı marka", password: "Yeni şifre" },
     );
 
     const existing = await prisma.user.findUnique({
       where: { id: input.userId },
-      select: { id: true, email: true, name: true, phone: true },
+      select: { id: true, email: true, name: true, phone: true, role: true, brandId: true },
     });
     if (!existing) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
 
     if (input.email !== existing.email) {
       const taken = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
       if (taken) throw new DomainError("DOGRULAMA", "Bu e-posta başka bir kullanıcıda kayıtlı.");
+    }
+
+    if (input.brandId) {
+      const b = await prisma.brand.findUnique({ where: { id: input.brandId }, select: { id: true } });
+      if (!b) throw new DomainError("BULUNAMADI", "Seçilen marka bulunamadı.");
     }
 
     const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : undefined;
@@ -307,6 +315,7 @@ export async function updateUserAction(_p: ActionState, fd: FormData): Promise<A
         name: input.name,
         email: input.email,
         phone: input.phone || null,
+        ...(existing.role === "BRAND" && input.brandId !== undefined ? { brandId: input.brandId || null } : {}),
         ...(passwordHash ? { passwordHash } : {}),
       },
     });

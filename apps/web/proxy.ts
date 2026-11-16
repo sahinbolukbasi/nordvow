@@ -5,7 +5,7 @@ import { detectRegion } from "@infulancer/core/i18n/regions";
 import { isAdminOnlyPath, requiredRoleForPath, roleHome } from "./lib/roles";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek"]);
+const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek", "/sifremi-unuttum", "/sifre-sifirla"]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";
 

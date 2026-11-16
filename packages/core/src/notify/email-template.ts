@@ -74,8 +74,17 @@ export function renderBrandedEmail(content: EmailContent): string {
   <tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #ececef;">
       <tr>
-        <td style="padding:28px 32px 16px;border-bottom:1px solid #f0f0f2;">
-          <span style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#111111;">${escapeHtml(BRAND_NAME)}</span>
+        <td style="padding:24px 32px 18px;border-bottom:1px solid #f0f0f2;">
+          <table role="presentation" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="width:30px;height:30px;border-radius:8px;background-color:#9d4dff;background-image:linear-gradient(135deg,#9d4dff 0%,#ff2bd6 50%,#00e5ff 100%);text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:800;color:#ffffff;line-height:30px;">
+                N
+              </td>
+              <td style="padding-left:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#111111;">
+                ${escapeHtml(BRAND_NAME)}
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
       <tr>

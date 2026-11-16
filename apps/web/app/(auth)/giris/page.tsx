@@ -10,8 +10,8 @@ import { getLandingContent, toVideos } from "@/lib/landing-store";
 export const metadata: Metadata = { title: "Giriş" };
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[]; onaylandi?: string }> }) {
-  const { next, onaylandi } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[]; onaylandi?: string; sifresifirlandi?: string }> }) {
+  const { next, onaylandi, sifresifirlandi } = await searchParams;
   const nextPath = safeNextPath(Array.isArray(next) ? next[0] : next);
 
   const videos = toVideos(await getLandingContent());
@@ -37,6 +37,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         {onaylandi ? (
           <p role="status" className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-fg">
             {t("auth.approved", "Üyeliğiniz onaylandı. E-posta ve şifrenizle giriş yapın.")}
+          </p>
+        ) : null}
+        {sifresifirlandi ? (
+          <p role="status" className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm text-fg">
+            {t("auth.passwordResetSuccess", "Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz.")}
           </p>
         ) : null}
         <LoginForm next={nextPath} />

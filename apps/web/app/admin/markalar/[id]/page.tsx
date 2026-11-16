@@ -14,7 +14,7 @@ import {
 } from "@infulancer/core/domain/labels";
 import { audit } from "@infulancer/core/audit";
 import { kvkkStatus } from "@infulancer/core/compliance/kvkk";
-import { BrandUserForm } from "@/components/forms/brand-forms";
+import { AssignExistingBrandUserForm, BrandUserForm, DetachBrandUserButton } from "@/components/forms/brand-forms";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
@@ -139,6 +139,12 @@ export default async function BrandProfilePage({
   const earnedBy = new Map(earned.map((e) => [e.referenceId, e._sum.amountKurus ?? 0]));
   const actorIds = [...new Set(history.map((h) => h.actorId).filter((x): x is string => !!x))];
   const actors = new Map((await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+  const candidateBrandUsers = await prisma.user.findMany({
+    where: { role: "BRAND", OR: [{ brandId: null }, { brandId: { not: id } }] },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, email: true, brand: { select: { name: true } } },
+    take: 200,
+  });
   const entityHref = (type: string, eid: string): string | undefined => {
     if (type === "Campaign") return `/admin/kampanyalar/${eid}`;
     if (type === "Assignment") {
@@ -269,18 +275,31 @@ export default async function BrandProfilePage({
       <div className="grid-12">
         <Card interactive={false} className="flex flex-col gap-4 md:col-span-12">
           <CardTitle>{tt("Panel kullanıcıları")}</CardTitle>
+          <p className="text-[13px] text-fg-muted">{tt("Bu listeye eklenen tüm kullanıcılar aynı marka hesabına giriş yapabilir.")}</p>
           {brand.users.length === 0 ? (
             <p className="text-sm text-fg-passive">{tt("Henüz kullanıcı yok.")}</p>
           ) : (
             <ul className="flex flex-col divide-y divide-border text-sm">
               {brand.users.map((u) => (
-                <li key={u.id} className="flex justify-between py-2">
-                  <span>{u.name}</span>
-                  <span className="text-fg-muted">{u.email}</span>
+                <li key={u.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-fg">{u.name}</span>
+                    <span className="text-fg-muted">{u.email}</span>
+                  </div>
+                  <DetachBrandUserButton brandId={brand.id} userId={u.id} name={u.name} />
                 </li>
               ))}
             </ul>
           )}
+          <AssignExistingBrandUserForm
+            brandId={brand.id}
+            candidates={candidateBrandUsers.map((u) => ({
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              currentBrandName: u.brand?.name ?? null,
+            }))}
+          />
           <BrandUserForm brandId={brand.id} />
         </Card>
       </div>

@@ -11,7 +11,7 @@ import { CalIcon, DateBadge, InfoRow, PersonIcon, PinIcon, Pill } from "@/compon
 import { cn } from "@/lib/cn";
 import { rangeLabel } from "@/lib/event-format";
 import { AGENCY_TZ, isDay, isTime, zonedToUtc } from "@/lib/time";
-import { checkInAction, createEventAction, inviteEventAction, respondInviteAction, setEventStatusAction } from "@/lib/actions/events";
+import { checkInAction, createEventAction, inviteEventAction, respondInviteAction, setEventStatusAction, updateEventPartnersAction } from "@/lib/actions/events";
 
 /** Numaralı form bölümü. */
 function Section({ n, title, hint, children }: { n: number; title: string; hint?: string; children: ReactNode }) {
@@ -54,7 +54,15 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
   const [city, setCity] = useState("");
   const [visibility, setVisibility] = useState("KAPALI");
   const [capacity, setCapacity] = useState("");
+  const [selectedTenant, setSelectedTenant] = useState("");
+  const [partnerIds, setPartnerIds] = useState<string[]>([]);
   const [org, setOrg] = useState(organizerName);
+
+  const togglePartner = (id: string) =>
+    setPartnerIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const availablePartners = (brands ?? []).filter((b) => b.id !== selectedTenant);
+  const partnerNames = availablePartners.filter((b) => partnerIds.includes(b.id)).map((b) => b.name);
+  const orgDisplay = [org, ...partnerNames].join(" × ");
 
   const start = useMemo(() => toDate(startDay, startTime), [startDay, startTime]);
   const end = useMemo(() => (endDay ? toDate(endDay, endTime) : null), [endDay, endTime]);
@@ -67,7 +75,17 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
           {isAdmin && brands ? (
             <Field label={tt("Düzenleyen")}>
               {(p) => (
-                <Select {...p} name="tenantId" defaultValue="" onChange={(e) => setOrg(brands.find((b) => b.id === e.target.value)?.name ?? organizerName)}>
+                <Select
+                  {...p}
+                  name="tenantId"
+                  defaultValue=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedTenant(v);
+                    setPartnerIds((prev) => prev.filter((x) => x !== v));
+                    setOrg(brands.find((b) => b.id === v)?.name ?? organizerName);
+                  }}
+                >
                   <option value="">{tt("Ajans (")}{BRAND_NAME})</option>
                   {brands.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
@@ -75,6 +93,36 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
                 </Select>
               )}
             </Field>
+          ) : null}
+          {availablePartners.length ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-medium text-fg">{tt("İş birliği yapılan markalar (opsiyonel)")}</span>
+              <p className="text-[12px] text-fg-muted">{tt("Seçtiğiniz tüm markalar etkinliği ortak yönetebilir ve sayfada iş birliği olarak görünür.")}</p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {availablePartners.map((b) => {
+                  const checked = partnerIds.includes(b.id);
+                  return (
+                    <label
+                      key={b.id}
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] transition-standard",
+                        checked ? "border-fg bg-fg text-bg font-medium" : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        name="partnerBrandIds"
+                        value={b.id}
+                        checked={checked}
+                        onChange={() => togglePartner(b.id)}
+                        className="sr-only"
+                      />
+                      <span>{b.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           ) : null}
           <Field label={tt("Etkinlik adı")}>{(p) => <Input {...p} name="title" required minLength={3} maxLength={140} placeholder={tt("Yaz lansman gecesi")} onChange={(e) => setTitle(e.target.value)} />}</Field>
           <Field label={tt("Açıklama")} hint={tt("Program, dress code, misafirlerin bilmesi gerekenler.")}>
@@ -140,7 +188,7 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
             <h3 className="text-[22px] font-semibold leading-tight text-fg">{title || tt("Etkinlik adı")}</h3>
             <InfoRow icon={start ? <DateBadge date={start} size="sm" /> : <CalIcon />} title={start ? rangeLabel(start, end) : tt("Tarih seçilmedi")} />
             <InfoRow icon={<PinIcon />} title={venue || tt("Mekan")}>{[address, city].filter(Boolean).join(", ") || tt("Adres")}</InfoRow>
-            <InfoRow icon={<PersonIcon />} title={org}>{capacity ? `${capacity} kişilik` : tt("Kapasite sınırsız")}</InfoRow>
+            <InfoRow icon={<PersonIcon />} title={orgDisplay}>{capacity ? `${capacity} kişilik` : tt("Kapasite sınırsız")}</InfoRow>
             {desc ? <p className="line-clamp-4 whitespace-pre-line border-t border-line pt-3 text-[13px] text-fg-muted">{desc}</p> : null}
           </div>
         </div>
@@ -155,6 +203,44 @@ export function EventStatusButton({ id, to, label, variant = "secondary" }: { id
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="to" value={to} />
       <Button type="submit" size="sm" variant={variant}>{label}</Button>
+    </ActionForm>
+  );
+}
+
+/** Etkinlik iş birliği (partner) markalarını düzenleme formu. */
+export function EventPartnersForm({
+  eventId,
+  brands,
+  initialPartnerIds,
+}: {
+  eventId: string;
+  brands: { id: string; name: string }[];
+  initialPartnerIds: string[];
+}) {
+  const tt = useTT();
+  const [selected, setSelected] = useState<string[]>(initialPartnerIds);
+  const toggle = (id: string) => setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  return (
+    <ActionForm action={updateEventPartnersAction} submitLabel={tt("İş birliğini kaydet")} submitSize="sm" submitVariant="secondary" aria-label={tt("İş birliği markaları")}>
+      <input type="hidden" name="eventId" value={eventId} />
+      <div className="flex flex-wrap gap-2">
+        {brands.map((b) => {
+          const checked = selected.includes(b.id);
+          return (
+            <label
+              key={b.id}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-[13px] transition-standard",
+                checked ? "border-fg bg-fg text-bg font-medium" : "border-line text-fg-muted hover:border-line-strong hover:text-fg",
+              )}
+            >
+              <input type="checkbox" name="partnerBrandIds" value={b.id} checked={checked} onChange={() => toggle(b.id)} className="sr-only" />
+              <span>{b.name}</span>
+            </label>
+          );
+        })}
+      </div>
     </ActionForm>
   );
 }

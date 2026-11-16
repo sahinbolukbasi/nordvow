@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
 import { Button, Field, Input, Select } from "@/components/ui/form";
-import { createBrandUser, deleteBrandAction, saveBrand } from "@/lib/actions/brands";
+import { assignBrandUserAction, createBrandUser, deleteBrandAction, detachBrandUserAction, saveBrand } from "@/lib/actions/brands";
 import type { CategoryNode } from "@infulancer/core/domain/categories";
 import { CategoryPicker } from "@/components/forms/category-picker";
 import { REGIONS } from "@infulancer/core/i18n/regions";
@@ -135,5 +135,45 @@ export function BrandDeleteButton({ brandId, name }: { brandId: string; name: st
         {tt("Vazgeç")}
       </Button>
     </div>
+  );
+}
+
+/** Mevcut bir marka kullanıcısını bu markaya atar (tek marka hesabına çoklu kullanıcı girişi). */
+export function AssignExistingBrandUserForm({
+  brandId,
+  candidates,
+}: {
+  brandId: string;
+  candidates: { id: string; name: string; email: string; currentBrandName: string | null }[];
+}) {
+  const tt = useTT();
+  if (!candidates.length) return null;
+  return (
+    <ActionForm action={assignBrandUserAction} submitLabel={tt("Mevcut kullanıcıyı ata")} submitVariant="secondary" submitSize="sm" resetOnSuccess aria-label={tt("Mevcut kullanıcıyı markaya ata")}>
+      <input type="hidden" name="brandId" value={brandId} />
+      <Field label={tt("Mevcut kullanıcıyı bu marka hesabına bağla")}>
+        {(p) => (
+          <Select {...p} name="userId" required defaultValue="">
+            <option value="" disabled>{tt("Kullanıcı seçin…")}</option>
+            {candidates.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.email}){u.currentBrandName ? ` · şu an: ${u.currentBrandName}` : " · atanmamış"}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+    </ActionForm>
+  );
+}
+
+/** Kullanıcıyı marka hesabından ayırma butonu. */
+export function DetachBrandUserButton({ brandId, userId, name }: { brandId: string; userId: string; name: string }) {
+  const tt = useTT();
+  return (
+    <ActionForm action={detachBrandUserAction} submitLabel={tt("Çıkar")} submitVariant="ghost" submitSize="sm" aria-label={`${name}: ${tt("Markadan çıkar")}`} className="!flex-row">
+      <input type="hidden" name="brandId" value={brandId} />
+      <input type="hidden" name="userId" value={userId} />
+    </ActionForm>
   );
 }

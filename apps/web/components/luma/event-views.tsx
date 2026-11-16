@@ -2,9 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { envStr } from "@infulancer/core/env";
+import { canBrandManageEvent, getEventIdsForBrand, getEventPartnerIds, getEventsPartnerMap } from "@infulancer/core/events/partners";
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { mapLinks } from "@infulancer/core/wallet/maps";
-import { CheckInForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { CheckInForm, EventPartnersForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { CopyCode } from "@/components/wallet/copy-code";
@@ -40,17 +41,29 @@ export async function EventsIndex({
   title: string;
   description: string;
 }) {
-  const where = tenantId ? { tenantId } : {};
+  const partnerEventIds = tenantId ? await getEventIdsForBrand(tenantId) : [];
+  const where = tenantId ? { OR: [{ tenantId }, ...(partnerEventIds.length ? [{ id: { in: partnerEventIds } }] : [])] } : {};
   const events = await prisma.event.findMany({
     where,
     orderBy: { startsAt: "asc" },
     take: 300,
     include: { invites: { select: { status: true } }, tickets: { select: { status: true } } },
   });
-  const brands = new Map((await prisma.brand.findMany({ where: { id: { in: [...new Set(events.map((e) => e.tenantId).filter((x): x is string => !!x))] } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]));
+  const partnerMap = await getEventsPartnerMap(events.map((e) => e.id));
+  const allBrandIds = [
+    ...new Set([
+      ...events.map((e) => e.tenantId).filter((x): x is string => !!x),
+      ...[...partnerMap.values()].flat(),
+    ]),
+  ];
+  const brands = new Map((await prisma.brand.findMany({ where: { id: { in: allBrandIds } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]));
   const now = new Date();
   const isPast = (e: (typeof events)[number]) => (e.endsAt ?? e.startsAt) < now || e.status === "TAMAMLANDI";
-  const orgName = (e: (typeof events)[number]) => (e.tenantId ? (brands.get(e.tenantId) ?? "Marka") : BRAND_NAME);
+  const orgName = (e: (typeof events)[number]) => {
+    const main = e.tenantId ? (brands.get(e.tenantId) ?? "Marka") : BRAND_NAME;
+    const partners = (partnerMap.get(e.id) ?? []).map((id) => brands.get(id)).filter((x): x is string => !!x);
+    return partners.length ? [main, ...partners].join(" × ") : main;
+  };
   // Arama (başlık, mekan, şehir, düzenleyen) ve marka filtresi bucket'lardan ÖNCE uygulanır;
   // böylece sekme sayıları da filtrelenmiş sonucu yansıtır.
   const q = (query ?? "").trim().toLocaleLowerCase("tr");
@@ -174,14 +187,17 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
     where: { id },
     include: { invites: { orderBy: { createdAt: "desc" }, include: { ticket: true } }, tickets: { orderBy: { checkedInAt: "desc" } } },
   });
-  if (!e || (tenantId && e.tenantId !== tenantId)) notFound();
-  const [organizer, influencers, invitedNames] = await Promise.all([
+  if (!e || (tenantId && !(await canBrandManageEvent(e, tenantId)))) notFound();
+  const [organizer, partnerIds, allBrands, influencers, invitedNames] = await Promise.all([
     e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null,
+    getEventPartnerIds(e.id),
+    prisma.brand.findMany({ where: e.tenantId ? { id: { not: e.tenantId } } : undefined, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
     prisma.influencer.findMany({ where: { id: { in: e.invites.map((i) => i.influencerId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
   ]);
   const names = new Map(invitedNames.map((x) => [x.id, x.name]));
-  const orgName = organizer?.name ?? BRAND_NAME;
+  const partnerNames = allBrands.filter((b) => partnerIds.includes(b.id)).map((b) => b.name);
+  const orgName = [organizer?.name ?? BRAND_NAME, ...partnerNames].join(" × ");
   const invitedIds = new Set(e.invites.map((i) => i.influencerId).filter(Boolean));
   const pickable = influencers.filter((i) => !invitedIds.has(i.id));
   const going = e.invites.filter((i) => i.status === "KABUL").length;
@@ -336,6 +352,16 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
             ) : null}
           </InfoRow>
           <InfoRow icon={<PersonIcon />} title={`Düzenleyen: ${orgName}`}>{e.capacity ? `${liveTickets.length}/${e.capacity} bilet` : `${liveTickets.length} bilet · kapasite sınırsız`}</InfoRow>
+          {allBrands.length ? (
+            <details className="rounded-2xl border border-line bg-surface px-4 py-3 text-[13px]">
+              <summary className="cursor-pointer font-medium text-fg">
+                İş birliği yapılan markalar ({partnerIds.length})
+              </summary>
+              <div className="mt-3">
+                <EventPartnersForm eventId={e.id} brands={allBrands} initialPartnerIds={partnerIds} />
+              </div>
+            </details>
+          ) : null}
           <p className="line-clamp-4 whitespace-pre-line text-[14px] text-fg-muted">{e.description}</p>
         </div>
       </div>

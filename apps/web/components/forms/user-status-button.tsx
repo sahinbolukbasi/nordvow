@@ -142,17 +142,23 @@ export function UserDeleteButton({ userId, name, email }: { userId: string; name
   );
 }
 
-/** Satır içi kullanıcı bilgisi düzenleme (ad, e-posta, telefon, opsiyonel şifre). */
+/** Satır içi kullanıcı bilgisi düzenleme (ad, e-posta, telefon, bağlı marka, opsiyonel şifre). */
 export function UserEditButton({
   userId,
   name,
   email,
   phone,
+  role,
+  brandId,
+  brands = [],
 }: {
   userId: string;
   name: string;
   email: string;
   phone: string | null;
+  role: "ADMIN" | "AGENCY" | "BRAND" | "INFLUENCER";
+  brandId: string | null;
+  brands?: { id: string; name: string }[];
 }) {
   const tt = useTT();
   const [editing, setEditing] = useState(false);
@@ -183,6 +189,14 @@ export function UserEditButton({
       <Input name="name" defaultValue={name} required placeholder={tt("Ad soyad")} aria-label={tt("Ad soyad")} />
       <Input name="email" type="email" defaultValue={email} required placeholder={tt("E-posta")} aria-label={tt("E-posta")} />
       <Input name="phone" type="tel" defaultValue={phone ?? ""} placeholder={tt("Telefon (opsiyonel)")} aria-label={tt("Telefon")} />
+      {role === "BRAND" ? (
+        <Select name="brandId" defaultValue={brandId ?? ""} aria-label={tt("Bağlı marka")}>
+          <option value="">{tt("Marka atanmamış")}</option>
+          {brands.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </Select>
+      ) : null}
       <Input name="password" type="text" minLength={8} autoComplete="new-password" placeholder={tt("Yeni şifre (boş = değişmez)")} aria-label={tt("Yeni şifre")} />
     </ActionForm>
   );

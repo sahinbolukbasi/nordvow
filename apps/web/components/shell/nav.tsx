@@ -104,7 +104,7 @@ export function getAllPlatformPagesForRole(role: Role): NavItem[] {
       seen.add(item.href);
       rest.push({
         ...item,
-        section: item.section ? `${item.section} (${r === "ADMIN" ? "Admin" : r === "BRAND" ? "Marka" : "Influencer"})` : r === "ADMIN" ? "Admin" : r === "BRAND" ? "Marka" : "Influencer",
+        section: undefined,
       });
     }
   }

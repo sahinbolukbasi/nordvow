@@ -1,6 +1,7 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { Field, Input } from "@/components/ui/form";
 import { loginAction, type LoginState } from "./actions";
@@ -53,6 +54,11 @@ export function LoginForm({ next }: { next: string | null }) {
           </div>
         )}
       </Field>
+      <div className="-mt-2 flex justify-end">
+        <Link href="/sifremi-unuttum" className="text-[13px] text-fg-muted underline-offset-4 hover:text-fg hover:underline">
+          {tt("Şifremi unuttum")}
+        </Link>
+      </div>
       <p role="alert" aria-live="polite" className="min-h-5 text-[13px] text-critical">
         {state.error}
       </p>

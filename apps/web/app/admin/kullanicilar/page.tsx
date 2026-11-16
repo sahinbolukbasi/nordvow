@@ -149,7 +149,15 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
               manage: {
                 display: (
                   <span className="inline-flex flex-wrap items-center gap-1">
-                    <UserEditButton userId={u.id} name={u.name} email={u.email} phone={u.phone} />
+                    <UserEditButton
+                      userId={u.id}
+                      name={u.name}
+                      email={u.email}
+                      phone={u.phone}
+                      role={u.role}
+                      brandId={u.brand?.id ?? null}
+                      brands={brands}
+                    />
                     {u.id === actor.userId ? null : u.status === "ACTIVE" || u.status === "SUSPENDED" ? (
                       <>
                         <UserStatusButton userId={u.id} status={u.status} name={u.name} />
