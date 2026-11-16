@@ -41,7 +41,7 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
   const sessionActor = await getActor();
   if (!sessionActor) redirect("/giris");
   const st = await getUserStatus(sessionActor.userId);
-  if (!st) redirect("/giris");
+  if (!st) redirect("/api/auth/clear-session?hata=oturum");
   if (st.status !== "ACTIVE") redirect("/onay-bekliyor");
   // Onay sonrası profil bağları JWT'de olmayabilir; veritabanındaki değerler esas alınır.
   const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
@@ -52,8 +52,8 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
       redirect(roleHome[actor.role]);
     }
   }
-  if (actor.role === "BRAND" && !actor.brandId) redirect("/giris");
-  if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/giris");
+  if (actor.role === "BRAND" && !actor.brandId) redirect("/api/auth/clear-session?hata=hesap");
+  if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/api/auth/clear-session?hata=hesap");
   await assertPageVisible(actor);
   return actor;
 }
@@ -64,9 +64,10 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
  */
 async function assertPageVisible(actor: Actor): Promise<void> {
   const pathname = (await headers()).get("x-pathname");
-  if (!pathname) return;
+  const home = roleHome[actor.role];
+  if (!pathname || pathname === home) return;
   // Ajans çalışanının kuralları AGENCY rolüne göre (oturumda ADMIN olarak çalışsa da).
-  if (await isPathHiddenFor(actor.staffRole ?? actor.role, actor.userId, pathname)) redirect(`${roleHome[actor.role]}?erisim=kapali`);
+  if (await isPathHiddenFor(actor.staffRole ?? actor.role, actor.userId, pathname)) redirect(`${home}?erisim=kapali`);
 }
 
 /** Yalnız platform yöneticisi (ADMIN): kullanıcılar, yetkiler, finans, tanıtım içeriği. Ajans çalışanı panel ana sayfasına döner. */

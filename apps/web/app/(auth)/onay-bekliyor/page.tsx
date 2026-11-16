@@ -17,7 +17,7 @@ export default async function PendingPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/giris");
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, include: { application: true } });
-  if (!user) redirect("/giris");
+  if (!user) redirect("/api/auth/clear-session?hata=oturum");
   const app = user.application;
 
   const button = "inline-flex h-11 items-center justify-center rounded-xl px-5 text-sm";
