@@ -110,8 +110,8 @@ export function StudioEditor({ uploads, tenantId, available, prices, isAdmin, in
         <div className="flex items-center justify-between gap-1 rounded-full border border-line bg-surface p-1">
           {[
             { id: "all" as const, label: `${tt("Tümü")} (${uploads.length})` },
-            { id: "video" as const, label: `🎬 ${tt("Video")} (${uploads.filter((x) => x.kind === "video").length})` },
-            { id: "image" as const, label: `📸 ${tt("Fotoğraf")} (${uploads.filter((x) => x.kind === "image").length})` },
+            { id: "video" as const, label: `${tt("Video")} (${uploads.filter((x) => x.kind === "video").length})` },
+            { id: "image" as const, label: `${tt("Fotoğraf")} (${uploads.filter((x) => x.kind === "image").length})` },
           ].map((f) => (
             <button
               key={f.id}
@@ -312,7 +312,7 @@ function ImageEditor({ upload, tenantId, available, prices, isAdmin, onSaved }: 
               }}
               className={cn("rounded-full border px-3 py-1.5 text-[12px]", phone ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40")}
             >
-              {phone ? tt("Önizlemeyi kapat") : tt("📱 Telefonda gör")}
+              {phone ? tt("Önizlemeyi kapat") : tt("Telefonda gör")}
             </button>
             <span className="truncate font-medium text-fg">{upload.name ?? tt("Görsel")}</span>
             <span>· {fmtSize(upload.sizeBytes)}</span>
@@ -589,7 +589,7 @@ function VideoEditor({ upload, tenantId, onDone }: { upload: StudioUpload; tenan
         </form>
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
           <button type="button" aria-pressed={phone} onClick={() => setPhone((v) => !v)} className={cn("rounded-full border px-3 py-1.5 text-[12px]", phone ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40")}>
-            {phone ? tt("Önizlemeyi kapat") : tt("📱 Telefonda gör")}
+            {phone ? tt("Önizlemeyi kapat") : tt("Telefonda gör")}
           </button>
           <span className="truncate font-medium text-fg">{upload.name ?? tt("Video")}</span>
           <span>

@@ -75,28 +75,28 @@ type ChatTurn =
 
 const QUICK_IDEAS: Record<CreativeKind, { label: string; text: string; format?: string }[]> = {
   video: [
-    { label: "🎬 Ürün Tanıtım Reels", text: "Ürünün etrafında yumuşak sinematik kamera dönüşü, sıcak stüdyo ışıkları, sonunda net ürün yakın çekimi", format: "9:16" },
-    { label: "📦 Kutu Açılışı (Unboxing)", text: "Minimal masada şık kutu açılışı, doğal sabah ışığı, akıcı ve davetkar sosyal medya videosu", format: "9:16" },
-    { label: "✨ Lansman Hikayesi", text: "Yeni sezon lansman videosu: dinamik ışık geçişleri, modern şehir atmosferi, yüksek enerji", format: "9:16" },
-    { label: "🌿 Yaşam Tarzı Video", text: "Güneşli bir kafede ürünün doğal kullanım anı, samimi ve sıcak renk tonları, sinematik derinlik", format: "9:16" },
+    { label: "Ürün Tanıtım Reels", text: "Ürünün etrafında yumuşak sinematik kamera dönüşü, sıcak stüdyo ışıkları, sonunda net ürün yakın çekimi", format: "9:16" },
+    { label: "Kutu Açılışı", text: "Minimal masada şık kutu açılışı, doğal sabah ışığı, akıcı ve davetkar sosyal medya videosu", format: "9:16" },
+    { label: "Lansman Hikayesi", text: "Yeni sezon lansman videosu: dinamik ışık geçişleri, modern şehir atmosferi, yüksek enerji", format: "9:16" },
+    { label: "Yaşam Tarzı", text: "Güneşli bir kafede ürünün doğal kullanım anı, samimi ve sıcak renk tonları, sinematik derinlik", format: "9:16" },
   ],
   image: [
-    { label: "📸 Stüdyo Ürün Fotoğrafı", text: "Pastel stüdyo arka planda ürünün yakın çekimi, yumuşak gölgeler, sade ve premium kompozisyon", format: "4:5" },
-    { label: "📱 Story Kapağı (9:16)", text: "Instagram story kapağı: canlı renkler, modern estetik, üstte ve altta başlık yazısı için temiz alan", format: "9:16" },
-    { label: "🌿 Doğal Yaşam Tarzı", text: "Sabah ışığında ahşap masada kahve ve ürün, doğal ve samimi yaşam tarzı fotoğrafı", format: "4:5" },
-    { label: "💎 Lüks Kampanya Afişi", text: "Yeni sezon kampanya çekimi: dramatik kontrast ışık, zarif yansımalar, dergi kapağı kalitesi", format: "1:1" },
+    { label: "Stüdyo Ürün Çekimi", text: "Pastel stüdyo arka planda ürünün yakın çekimi, yumuşak gölgeler, sade ve premium kompozisyon", format: "4:5" },
+    { label: "Story Kapağı (9:16)", text: "Instagram story kapağı: modern estetik, üstte ve altta başlık yazısı için temiz alan", format: "9:16" },
+    { label: "Doğal Yaşam Tarzı", text: "Sabah ışığında ahşap masada kahve ve ürün, doğal ve samimi yaşam tarzı fotoğrafı", format: "4:5" },
+    { label: "Kampanya Afişi", text: "Yeni sezon kampanya çekimi: dramatik kontrast ışık, zarif yansımalar, dergi kapağı kalitesi", format: "1:1" },
   ],
   audio: [
-    { label: "🎙️ Reels Seslendirme", text: "Samimi ve enerjik bir tonla: 'Yeni koleksiyonumuz yayında! Favori parçanı keşfetmek için profildeki linke tıkla.'" },
-    { label: "📢 Kampanya Spotu", text: "Heyecanlı bir tonla: 'Sadece bu hafta sonuna özel tüm seçili ürünlerde sürpriz fırsatları kaçırma!'" },
+    { label: "Reels Seslendirme", text: "Samimi ve enerjik bir tonla: 'Yeni koleksiyonumuz yayında! Favori parçanı keşfetmek için profildeki linke tıkla.'" },
+    { label: "Kampanya Spotu", text: "Heyecanlı bir tonla: 'Sadece bu hafta sonuna özel tüm seçili ürünlerde sürpriz fırsatları kaçırma!'" },
   ],
 };
 
 const PERSONAL_PRESETS: PersonalPreset[] = [
-  { id: "marka-ozel", label: "🎯 Bana Özel (Marka & Profil)", contextPrompt: "Kullanıcıya özel marka kimliğine uygun, profesyonel sosyal medya estetiği, yüksek çözünürlüklü temiz kompozisyon" },
-  { id: "urun-odakli", label: "🛍️ Ürün Odaklı", contextPrompt: "Ürünü merkeze alan, dokuları ve detayları net gösteren ticari çekim kalitesi" },
-  { id: "reels-viral", label: "📱 Reels / TikTok Estetiği", contextPrompt: "Sosyal medya akışında dikkat çeken, canlı renkler ve modern dikey kadraj" },
-  { id: "sinematik-luks", label: "🎬 Sinematik & Lüks", contextPrompt: "Sinematik alan derinliği, sıcak altın saat ışığı, premium reklam filmi atmosferi" },
+  { id: "marka-ozel", label: "Marka & Profil Stili", contextPrompt: "Kullanıcıya özel marka kimliğine uygun, profesyonel sosyal medya estetiği, yüksek çözünürlüklü temiz kompozisyon" },
+  { id: "urun-odakli", label: "Ürün Odaklı", contextPrompt: "Ürünü merkeze alan, dokuları ve detayları net gösteren ticari çekim kalitesi" },
+  { id: "reels-viral", label: "Reels / TikTok", contextPrompt: "Sosyal medya akışında dikkat çeken, modern dikey kadraj" },
+  { id: "sinematik-luks", label: "Sinematik", contextPrompt: "Sinematik alan derinliği, sıcak altın saat ışığı, premium reklam filmi atmosferi" },
 ];
 
 const FORMATS = [
@@ -106,12 +106,8 @@ const FORMATS = [
   { id: "16:9", label: "16:9 Yatay", hint: "YouTube" },
 ];
 
-const STYLES = ["Sinematik", "Minimal", "Doğal ışık", "Stüdyo", "Pastel", "Lüks", "Neon", "Retro"];
+const STYLES = ["Sinematik", "Minimal", "Doğal ışık", "Stüdyo", "Pastel", "Lüks", "Monokrom", "Retro"];
 
-/**
- * Sohbet balonunun içindeki fotoğraf / video kartı.
- * Gerçek medya yüklendiğinde oynatır; demo/mock modunda şık bir görsel önizleme kartı gösterir.
- */
 function ChatMediaCard({
   assetId,
   uploadId,
@@ -142,13 +138,12 @@ function ChatMediaCard({
   const cleanPrompt = prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
 
   return (
-    <div className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-      {/* Medya Görüntüleme Alanı */}
+    <div className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-surface">
       {kind === "audio" ? (
         <div className="flex flex-col gap-2 bg-fg/[0.03] p-4">
           <div className="flex items-center gap-2 text-[12px] font-medium text-fg">
-            <KindIcon kind="audio" size={15} />
-            <span>{tt("AI Seslendirme")}</span>
+            <KindIcon kind="audio" size={14} />
+            <span>{tt("Seslendirme")}</span>
           </div>
           <audio src={src} controls className="w-full" />
         </div>
@@ -176,25 +171,24 @@ function ChatMediaCard({
             )
           ) : (
             <div className="flex flex-col items-center gap-2 p-6 text-center">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-black/25 backdrop-blur">
-                <KindIcon kind={kind} size={26} />
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-black/30 backdrop-blur">
+                <KindIcon kind={kind} size={22} />
               </span>
-              <span className="rounded-full bg-black/30 px-3 py-0.5 text-[11px] font-medium backdrop-blur">
-                {kind === "video" ? tt("AI Video Hazır") : tt("AI Fotoğraf Hazır")}
+              <span className="rounded-full bg-black/35 px-3 py-0.5 text-[11px] font-medium backdrop-blur">
+                {kind === "video" ? tt("Video Hazır") : tt("Fotoğraf Hazır")}
               </span>
               <p className="max-w-md line-clamp-2 text-[13px] font-medium text-white/95">{cleanPrompt}</p>
             </div>
           )}
 
-          {/* Üst Rozetler */}
           <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
               <KindIcon kind={kind} size={12} />
               {KIND_LABEL[kind]}
               {modelKey ? ` · ${modelName(modelKey)}` : ""}
             </span>
             {isSaved ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/90 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+              <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
                 <CheckIcon size={11} />
                 {tt("Kitaplıkta")}
               </span>
@@ -203,7 +197,6 @@ function ChatMediaCard({
         </div>
       )}
 
-      {/* Alt Hızlı Eylem Çubuğu */}
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line bg-bg/60 p-2.5">
         {kind !== "audio" && !isSaved ? (
           <form
@@ -224,77 +217,59 @@ function ChatMediaCard({
           </form>
         ) : null}
 
+        {kind !== "audio" ? (
+          <button
+            type="button"
+            onClick={onOpenPhone}
+            className="rounded-full bg-fg px-3 py-1 text-[11px] font-medium text-bg transition-standard hover:opacity-90"
+          >
+            {tt("Telefonda Gör & Formatla")}
+          </button>
+        ) : null}
+
         {kind === "image" ? (
           <>
             <button
               type="button"
               onClick={() => onConvertToVideo(effectiveRefId, cleanPrompt)}
-              className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
+              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
-              🎬 {tt("Videoya Çevir")}
+              {tt("Videoya Çevir")}
             </button>
             <button
               type="button"
               onClick={() => onUseAsReference(effectiveRefId, `${cleanPrompt}, yeni varyasyon`)}
-              className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
+              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
             >
-              ✨ {tt("Bunu Referans Al")}
-            </button>
-            <button
-              type="button"
-              onClick={() => onUseAsReference(effectiveRefId, "Bu görseli 9:16 Instagram Story ve Reels dikey formatına uyarla", "9:16")}
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
-            >
-              9:16 Story Yap
+              {tt("Varyasyon Üret")}
             </button>
           </>
         ) : null}
 
         {kind !== "audio" ? (
-          <>
-            <form action={openAssetInStudioAction}>
-              <input type="hidden" name="assetId" value={assetId} />
-              <button
-                type="submit"
-                className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
-              >
-                ✂️ {kind === "video" ? tt("Videoyu Düzenle") : tt("Düzenle")}
-              </button>
-            </form>
+          <form action={openAssetInStudioAction}>
+            <input type="hidden" name="assetId" value={assetId} />
             <button
-              type="button"
-              onClick={onOpenPhone}
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
+              type="submit"
+              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
             >
-              📱 {tt("Telefonda Gör")}
+              {tt("Düzenleyici")}
             </button>
-          </>
+          </form>
         ) : null}
-
-        <Link
-          href={`/creative?sekme=metin&asset=${assetId}`}
-          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
-        >
-          ✍️ {tt("Post Metni")}
-        </Link>
 
         <a
           href={src}
           download
           className="ml-auto rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
         >
-          ⬇️ {tt("İndir")}
+          {tt("İndir")}
         </a>
       </div>
     </div>
   );
 }
 
-/**
- * Creative AI Sohbet Stüdyosu:
- * Sade, modern bir AI Chat Video & Fotoğraf oluşturma uygulaması deneyimi.
- * Üretilen tüm video ve fotoğraflar otomatik olarak Kitaplığa kaydedilir ve sohbette anında görüntülenir.
- */
 export function CreativeComposer({
   models,
   library = [],
@@ -347,18 +322,32 @@ export function CreativeComposer({
   const [showLib, setShowLib] = useState(false);
   const [upPct, setUpPct] = useState<number | null>(null);
   const [upMsg, setUpMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [quickCmd, setQuickCmd] = useState("");
 
   const [jobId, setJobId] = useState<string | null>(null);
   const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState("");
-  const [result, setResult] = useState<{ assetId: string; kind: CreativeKind; prompt: string; format: string } | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
 
-  // Geçmiş işleri sohbet mesajlarına dönüştür (en eskiden en yeniye doğru)
+  const latestCompleted = useMemo(() => {
+    const c = initialHistory.find((h) => h.status === "COMPLETED" && h.assetId);
+    if (!c || !c.assetId) return null;
+    const cleanText = c.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
+    return {
+      assetId: c.assetId,
+      uploadId: c.uploadId,
+      kind: c.kind,
+      prompt: cleanText || c.prompt,
+      format: "9:16",
+    };
+  }, [initialHistory]);
+
+  const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
+  const [panelOpen, setPanelOpen] = useState(Boolean(latestCompleted));
+
   const initialTurns = useMemo<ChatTurn[]>(() => {
     const welcome: ChatTurn = {
       id: "welcome",
       from: "bot",
-      text: `Merhaba! Size özel fotoğraf veya video oluşturmak için ne istediğinizi aşağıya yazın. Ürettiğiniz tüm videolar ve fotoğraflar otomatik olarak Kitaplığınıza kaydedilir.`,
+      text: "Nasıl bir fotoğraf, video veya seslendirme üretmek istediğinizi aşağıya yazın. Üretim tamamlandığında sağ taraftaki telefon önizleme panelinden chat komutlarıyla kolayca formatlayabilirsiniz.",
     };
     if (!initialHistory.length) return [welcome];
     const turns: ChatTurn[] = [welcome];
@@ -376,7 +365,7 @@ export function CreativeComposer({
         turns.push({
           id: `hist-b-${h.jobId}`,
           from: "bot",
-          text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığınıza kaydedildi.`,
+          text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığa kaydedildi.`,
           assetId: h.assetId,
           uploadId: h.uploadId,
           kind: h.kind,
@@ -388,7 +377,7 @@ export function CreativeComposer({
         turns.push({
           id: `hist-err-${h.jobId}`,
           from: "bot",
-          text: h.rejectReason ?? "Bu istek tamamlanamadı; bakiyenizden ücret düşülmedi.",
+          text: h.rejectReason ?? "İstek tamamlanamadı; krediniz iade edildi.",
           error: h.rejectReason ?? "Başarısız",
         });
       }
@@ -437,9 +426,9 @@ export function CreativeComposer({
         setLib((l) => [{ id: r.id, kind: r.kind, name: f.name, source: "upload" }, ...l]);
         if (r.kind === "image") {
           setRefs((x) => (x.length < 4 ? [...x, r.id] : x));
-          setUpMsg({ text: "Görsel kitaplığa eklendi ve referans olarak seçildi." });
+          setUpMsg({ text: "Görsel kitaplığa eklendi ve referans seçildi." });
         } else {
-          setUpMsg({ text: "Video kitaplığınıza kaydedildi! Kitaplık veya Düzenleyici sekmesinden kurgulayabilirsiniz." });
+          setUpMsg({ text: "Video kitaplığa kaydedildi." });
         }
       } catch (e) {
         setUpMsg({ text: `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`, isError: true });
@@ -496,22 +485,49 @@ export function CreativeComposer({
     inputRef.current?.focus();
   };
 
+  const applyQuickFormatCommand = (cmdText: string, nextFormat?: string, toVideo?: boolean) => {
+    if (!result) return;
+    const refId = result.uploadId ?? result.assetId;
+    if (toVideo) {
+      pickKind("video");
+    } else if (kind === "audio") {
+      pickKind("image");
+    }
+    if (nextFormat) {
+      setFormat(nextFormat);
+      setResult((r) => (r ? { ...r, format: nextFormat } : r));
+    }
+    if (result.kind === "image" && refId) {
+      setRefs([refId]);
+    }
+    setPrompt(`${result.prompt} — ${cmdText}`);
+    setQuickCmd("");
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 30);
+  };
+
   if (!models.length) {
     return (
       <p className="rounded-3xl border border-dashed border-line p-8 text-center text-sm text-fg-muted">
-        {tt("Şu an kullanılabilir üretim modeli yok. Ajansınız modelleri açtığında burada görünür.")}
+        {tt("Şu an kullanılabilir üretim modeli yok.")}
       </p>
     );
   }
 
   return (
-    <div className={cn("grid grid-cols-1 gap-4", panelOpen ? "lg:grid-cols-[minmax(0,1fr)_360px]" : "")}>
-      {/* Ana AI Sohbet Stüdyosu */}
+    <div
+      className={cn(
+        "grid min-h-[calc(100dvh-9.5rem)] w-full flex-1 grid-cols-1 gap-3",
+        panelOpen && result ? "lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]" : "",
+      )}
+    >
+      {/* Sol / Orta: Tam Ekran AI Sohbet Alanı */}
       <form
         ref={formRef}
         action={action}
         onSubmit={handleSubmit}
-        className="flex min-h-[640px] flex-col justify-between overflow-hidden rounded-3xl border border-line bg-surface shadow-sm"
+        className="flex min-h-[calc(100dvh-9.5rem)] flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface"
       >
         <input type="hidden" name="modelKey" value={m?.key ?? ""} />
         <input type="hidden" name="aspect" value={kind === "audio" ? "" : format} />
@@ -521,24 +537,19 @@ export function CreativeComposer({
         <input type="hidden" name="personalContext" value={kind === "audio" ? "" : (activePreset?.contextPrompt ?? "")} />
         {withRefs ? refs.map((r) => <input key={r} type="hidden" name="refs" value={r} />) : null}
 
-        {/* Üst Sohbet Başlığı */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-bg/40 px-4 py-3">
+        {/* Üst Sohbet Çubuğu */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
           <div className="flex items-center gap-2.5">
-            <span className="bg-neon inline-flex h-8 w-8 items-center justify-center rounded-xl text-black" aria-hidden>
-              <SparkleIcon size={16} />
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg" aria-hidden>
+              <SparkleIcon size={14} />
             </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[14px] font-semibold text-fg">{tt("AI Video & Fotoğraf Sohbeti")}</h2>
-                {profileLabel ? (
-                  <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-fg-muted">
-                    {profileLabel}
-                  </span>
-                ) : null}
-              </div>
-              <p className="text-[11px] text-fg-muted">
-                {tt("Sohbet ederek size özel video ve fotoğraf üretin · Tüm çıktılar otomatik Kitaplığa kaydedilir")}
-              </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[13px] font-semibold text-fg">{tt("AI Üretim Sohbeti")}</h2>
+              {profileLabel ? (
+                <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
+                  {profileLabel}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -557,23 +568,26 @@ export function CreativeComposer({
                 }
                 className="rounded-full border border-line px-3 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
               >
-                {tt("Yeni Sohbet")}
+                {tt("Temizle")}
               </button>
             ) : null}
             {result ? (
               <button
                 type="button"
                 onClick={() => setPanelOpen((v) => !v)}
-                className="rounded-full border border-line px-3 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/40"
+                className={cn(
+                  "rounded-full border px-3 py-1 text-[11px] font-medium transition-standard",
+                  panelOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
+                )}
               >
-                {panelOpen ? tt("Önizlemeyi Gizle") : tt("📱 Telefon Önizleme")}
+                {panelOpen ? tt("Telefon Panelini Kapat") : tt("Telefon Önizleme & Formatla")}
               </button>
             ) : null}
           </div>
         </div>
 
         {/* Sohbet Mesaj Akışı */}
-        <div className="flex max-h-[520px] flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6" role="log" aria-live="polite">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6" role="log" aria-live="polite">
           {chatLog.map((msg) =>
             msg.from === "user" ? (
               <div key={msg.id} className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
@@ -583,8 +597,8 @@ export function CreativeComposer({
                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-fg-passive">
                   <span>{KIND_LABEL[msg.kind]}</span>
                   {msg.kind !== "audio" ? <span>· {msg.format}</span> : null}
-                  {msg.personalized ? <span>· 🎯 {tt("Bana Özel")}</span> : null}
-                  {msg.refCount ? <span>· 📎 {msg.refCount} {tt("referans")}</span> : null}
+                  {msg.personalized ? <span>· {tt("Marka Stili")}</span> : null}
+                  {msg.refCount ? <span>· {msg.refCount} {tt("referans")}</span> : null}
                 </div>
               </div>
             ) : (
@@ -605,6 +619,7 @@ export function CreativeComposer({
                     onOpenPhone={() => {
                       setResult({
                         assetId: msg.assetId!,
+                        uploadId: msg.uploadId,
                         kind: msg.kind!,
                         prompt: msg.prompt ?? msg.text,
                         format: msg.format ?? format,
@@ -627,12 +642,13 @@ export function CreativeComposer({
                   if (assetId) {
                     const submittedText = lastSubmittedPrompt || prompt;
                     setResult({ assetId, kind, prompt: submittedText, format });
+                    setPanelOpen(true);
                     setChatLog((prev) => [
                       ...prev,
                       {
                         id: `done-${Date.now()}`,
                         from: "bot",
-                        text: `${KIND_LABEL[kind]} oluşturuldu ve Kitaplığınıza kaydedildi!`,
+                        text: `${KIND_LABEL[kind]} oluşturuldu. Sağ panelden telefonda önizleyebilir ve chat komutlarıyla formatlayabilirsiniz.`,
                         assetId,
                         kind,
                         format,
@@ -650,7 +666,7 @@ export function CreativeComposer({
           ) : null}
 
           {state.error ? (
-            <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-[13px] text-critical">
+            <p role="alert" className="rounded-xl border border-critical/30 bg-red-500/10 px-3 py-2 text-[13px] text-critical">
               {state.error}
             </p>
           ) : null}
@@ -658,11 +674,10 @@ export function CreativeComposer({
         </div>
 
         {/* Alt Sohbet & Oluşturma Dock'u */}
-        <div className="flex flex-col gap-3 border-t border-line bg-bg/50 p-3.5 sm:p-4">
-          {/* 1. Satır: Mod Seçici (Fotoğraf / Video / Ses) + Oran + Süre + Kişiselleştirme */}
+        <div className="flex flex-col gap-2.5 border-t border-line bg-bg/40 p-3 sm:p-4">
+          {/* 1. Satır: Tür + Kadraj + Süre + Ayarlar */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* Tür Seçimi */}
               <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Üretim türü")}>
                 {kinds.map((k) => (
                   <button
@@ -670,17 +685,16 @@ export function CreativeComposer({
                     type="button"
                     onClick={() => pickKind(k)}
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-semibold transition-standard",
-                      kind === k ? "bg-fg text-bg shadow-xs" : "text-fg-muted hover:text-fg",
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-standard",
+                      kind === k ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
                     )}
                   >
-                    <KindIcon kind={k} size={13} />
+                    <KindIcon kind={k} size={12} />
                     {k === "image" ? tt("Fotoğraf") : k === "video" ? tt("Video") : KIND_LABEL[k]}
                   </button>
                 ))}
               </div>
 
-              {/* Oran / Format Seçimi */}
               {kind !== "audio" ? (
                 <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Kadraj oranı")}>
                   {FORMATS.map((f) => (
@@ -700,7 +714,6 @@ export function CreativeComposer({
                 </div>
               ) : null}
 
-              {/* Video Süresi */}
               {kind === "video" && durations.length > 1 ? (
                 <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Video süresi")}>
                   {durations.map((d) => (
@@ -720,7 +733,6 @@ export function CreativeComposer({
               ) : null}
             </div>
 
-            {/* Model & Stil Çekmecesi Butonu */}
             <button
               type="button"
               onClick={() => setShowOptions((v) => !v)}
@@ -730,54 +742,51 @@ export function CreativeComposer({
                 showOptions ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg-muted hover:text-fg",
               )}
             >
-              ⚙️ {m ? modelName(m.key) : tt("Model")} {style ? `· ${style}` : ""}
+              {m ? modelName(m.key) : tt("Model")} {style ? `· ${style}` : ""}
             </button>
           </div>
 
-          {/* Kişiselleştirme Modu ("Kullanıcıya Özel Video & Fotoğraf") + Hızlı Şablonlar */}
+          {/* Hızlı Fikirler & Stil Çipleri (Renksiz, Sade) */}
           {kind !== "audio" ? (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" aria-label={tt("Kişiselleştirme modu")}>
-                {PERSONAL_PRESETS.map((p) => {
-                  const active = personalPresetId === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPersonalPresetId(active ? "" : p.id)}
-                      className={cn(
-                        "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-standard",
-                        active ? "border-fg bg-fg/10 text-fg" : "border-line bg-surface text-fg-muted hover:text-fg",
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-                <span className="mx-1 text-line">|</span>
-                {QUICK_IDEAS[kind].map((idea) => (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" aria-label={tt("Hızlı şablonlar")}>
+              {PERSONAL_PRESETS.map((p) => {
+                const active = personalPresetId === p.id;
+                return (
                   <button
-                    key={idea.label}
+                    key={p.id}
                     type="button"
-                    onClick={() => {
-                      setPrompt(idea.text);
-                      if (idea.format) setFormat(idea.format);
-                      inputRef.current?.focus();
-                    }}
-                    className="shrink-0 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
+                    onClick={() => setPersonalPresetId(active ? "" : p.id)}
+                    className={cn(
+                      "shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-standard",
+                      active ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg-muted hover:text-fg",
+                    )}
                   >
-                    {idea.label}
+                    {p.label}
                   </button>
-                ))}
-              </div>
+                );
+              })}
+              <span className="mx-1 text-line">|</span>
+              {QUICK_IDEAS[kind].map((idea) => (
+                <button
+                  key={idea.label}
+                  type="button"
+                  onClick={() => {
+                    setPrompt(idea.text);
+                    if (idea.format) setFormat(idea.format);
+                    inputRef.current?.focus();
+                  }}
+                  className="shrink-0 rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
+                >
+                  {idea.label}
+                </button>
+              ))}
             </div>
           ) : null}
 
-          {/* İsteğe Bağlı Model & Stil Ayarları */}
           {showOptions ? (
             <div className="grid grid-cols-1 gap-3 rounded-2xl border border-line bg-surface p-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-[11px] font-medium text-fg-muted">
-                {tt("AI Modeli")}
+                {tt("AI Modeli (fal.ai)")}
                 <select
                   value={m?.key ?? ""}
                   onChange={(e) => setModelKey(e.target.value)}
@@ -811,22 +820,16 @@ export function CreativeComposer({
                   </div>
                 </div>
               ) : null}
-              {!aspectOk ? (
-                <span className="text-[11px] text-amber-600 sm:col-span-2">
-                  {tt("Seçili model")} {format} {tt("oranını desteklemiyor; başka oran veya model seçin.")}
-                </span>
-              ) : null}
             </div>
           ) : null}
 
-          {/* Seçili Referans Görseller (Kullanıcıya Özel Üretim İçin) */}
           {refs.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2">
               <span className="text-[11px] font-medium text-fg">
-                📎 {kind === "video" ? tt("Videoya dönüştürülecek görsel:") : tt("Referans görseller (size özel üretim):")}
+                {kind === "video" ? tt("Videoya dönüştürülecek görsel:") : tt("Seçili referans görseller:")}
               </span>
               {refs.map((r) => (
-                <div key={r} className="relative h-11 w-11 overflow-hidden rounded-xl border border-fg">
+                <div key={r} className="relative h-10 w-10 overflow-hidden rounded-lg border border-fg">
                   {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
                   <img src={`/api/creative/file/${r}`} alt={tt("Referans")} className="h-full w-full object-cover" />
                   <button
@@ -839,37 +842,28 @@ export function CreativeComposer({
                   </button>
                 </div>
               ))}
-              <button
-                type="button"
-                onClick={() => setRefs([])}
-                className="ml-auto text-[11px] text-fg-muted hover:text-fg"
-              >
+              <button type="button" onClick={() => setRefs([])} className="ml-auto text-[11px] text-fg-muted hover:text-fg">
                 {tt("Temizle")}
               </button>
             </div>
           ) : null}
 
-          {/* Kitaplık Seçici Çekmecesi */}
           {showLib ? (
             <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
               <div className="flex items-center justify-between">
                 <span className="text-[12px] font-medium text-fg">
-                  📚 {tt("Kitaplığım")} ({lib.length}) — {tt("Size özel üretim için bir fotoğraf seçin veya videoyu düzenleyin")}
+                  {tt("Kitaplığım")} ({lib.length}) — {tt("Referans fotoğraf seçin veya videoyu düzenleyin")}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowLib(false)}
-                  className="text-[11px] text-fg-muted hover:text-fg"
-                >
+                <button type="button" onClick={() => setShowLib(false)} className="text-[11px] text-fg-muted hover:text-fg">
                   {tt("Kapat")}
                 </button>
               </div>
               {lib.length === 0 ? (
                 <p className="py-3 text-center text-[12px] text-fg-muted">
-                  {tt("Kitaplığınızda henüz dosya yok. Ürettiğiniz veya yüklediğiniz tüm fotoğraf ve videolar burada görünür.")}
+                  {tt("Kitaplığınızda henüz dosya yok.")}
                 </p>
               ) : (
-                <ul className="grid max-h-40 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-8">
+                <ul className="grid max-h-36 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-8">
                   {lib.map((u) => (
                     <li key={u.id} className="relative">
                       {u.kind === "image" ? (
@@ -885,7 +879,7 @@ export function CreativeComposer({
                           {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
                           <img src={`/api/creative/file/${u.id}`} alt={u.name ?? ""} className="h-full w-full object-cover" />
                           <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[9px] text-white">
-                            {refs.includes(u.id) ? "✓ Seçili" : "Fotoğraf"}
+                            {refs.includes(u.id) ? "Seçili" : "Fotoğraf"}
                           </span>
                         </button>
                       ) : (
@@ -896,7 +890,7 @@ export function CreativeComposer({
                         >
                           <video src={`/api/creative/file/${u.id}#t=0.5`} muted preload="metadata" className="h-full w-full object-cover" />
                           <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[9px] text-white">
-                            🎬 Video
+                            Video
                           </span>
                         </Link>
                       )}
@@ -927,9 +921,9 @@ export function CreativeComposer({
               }}
               placeholder={
                 kind === "video"
-                  ? tt("Size özel nasıl bir video oluşturalım? (Örn: Ürünümüzün pastel stüdyoda 9:16 Reels tanıtım videosu…)")
+                  ? tt("Nasıl bir video oluşturmak istediğinizi yazın…")
                   : kind === "image"
-                    ? tt("Size özel nasıl bir fotoğraf oluşturalım? (Örn: Sabah ışığında kahve yanında ürün çekimi…)")
+                    ? tt("Nasıl bir fotoğraf oluşturmak istediğinizi yazın…")
                     : tt("Seslendirilecek metni yazın…")
               }
               className="w-full resize-none bg-transparent px-2 py-1 text-[14px] leading-relaxed text-fg placeholder:text-fg-passive focus:outline-none"
@@ -940,7 +934,7 @@ export function CreativeComposer({
                 {kind !== "audio" ? (
                   <>
                     <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
-                      📎 {tt("Görsel / Video Yükle")}
+                      + {tt("Dosya Yükle")}
                       <input
                         type="file"
                         multiple
@@ -960,13 +954,13 @@ export function CreativeComposer({
                         showLib ? "border-fg bg-fg text-bg" : "border-line bg-bg text-fg-muted hover:border-fg/40 hover:text-fg",
                       )}
                     >
-                      📚 {tt("Kitaplığım")} ({lib.length})
+                      {tt("Kitaplığım")} ({lib.length})
                     </button>
                   </>
                 ) : null}
                 {upPct != null ? <span className="text-[11px] text-fg-muted">%{upPct}</span> : null}
                 {upMsg ? (
-                  <span className={cn("text-[11px]", upMsg.isError ? "text-amber-600" : "text-emerald-600")}>
+                  <span className={cn("text-[11px]", upMsg.isError ? "text-critical" : "text-fg-muted")}>
                     {upMsg.text}
                   </span>
                 ) : null}
@@ -976,7 +970,7 @@ export function CreativeComposer({
                 <div className="text-right leading-tight">
                   <span className="block text-[12px] font-semibold tabular-nums text-fg">{money(cost)}</span>
                   <span className={cn("block text-[10px] tabular-nums", short ? "text-critical" : "text-fg-passive")}>
-                    {short ? tt("Bakiye yetersiz") : `${tt("Kalan:")} ${money(Math.max(0, balance - cost))}`}
+                    {short ? tt("Kredi yetersiz") : `${tt("Kalan:")} ${money(Math.max(0, balance - cost))}`}
                   </span>
                 </div>
                 <button
@@ -984,14 +978,14 @@ export function CreativeComposer({
                   disabled={pending || !ready}
                   className="inline-flex h-9 items-center gap-1.5 rounded-full bg-fg px-5 text-[13px] font-semibold text-bg transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <SparkleIcon size={14} />
+                  <SparkleIcon size={13} />
                   {pending
-                    ? tt("Oluşturuluyor…")
+                    ? tt("Üretiliyor…")
                     : kind === "video"
-                      ? tt("Video Oluştur")
+                      ? tt("Video Üret")
                       : kind === "image"
-                        ? tt("Fotoğraf Oluştur")
-                        : tt("Ses Oluştur")}
+                        ? tt("Fotoğraf Üret")
+                        : tt("Ses Üret")}
                 </button>
               </div>
             </div>
@@ -999,44 +993,112 @@ export function CreativeComposer({
         </div>
       </form>
 
-      {/* Sağ Telefon Önizleme Çekmecesi (İsteğe Bağlı Açılır) */}
+      {/* Sağ Panel: Telefon Önizleme & Chat Komutları ile Hızlı Formatlama */}
       {panelOpen && result ? (
-        <aside className="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-4" aria-label={tt("Telefon önizleme")}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-[14px] font-semibold text-fg">{tt("Telefon Önizleme")}</h2>
-            <button
-              type="button"
-              onClick={() => setPanelOpen(false)}
-              aria-label={tt("Paneli kapat")}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-fg-muted hover:bg-surface-hover hover:text-fg"
-            >
-              <XIcon size={14} />
-            </button>
+        <aside className="flex flex-col justify-between gap-4 rounded-2xl border border-line bg-surface p-4" aria-label={tt("Telefon önizleme ve hızlı formatlama")}>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-line pb-2.5">
+              <div>
+                <h2 className="text-[13px] font-semibold text-fg">{tt("Telefon Önizleme & Formatlama")}</h2>
+                <p className="text-[11px] text-fg-muted">{tt("Telefonda görünümü seçin veya chat komutuyla düzenleyin")}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                aria-label={tt("Paneli kapat")}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-fg-muted hover:bg-surface-hover hover:text-fg"
+              >
+                <XIcon size={14} />
+              </button>
+            </div>
+
+            <div className="flex justify-center py-1">
+              {result.kind === "audio" ? (
+                <audio src={`/api/creative/file/${result.assetId}?t=asset`} controls className="w-full" />
+              ) : (
+                <PhonePreview
+                  src={`/api/creative/file/${result.assetId}?t=asset`}
+                  kind={result.kind === "video" ? "video" : "image"}
+                  username={username}
+                  caption={result.prompt.slice(0, 120)}
+                  initial={
+                    result.format === "9:16"
+                      ? result.kind === "video"
+                        ? "ig-reels"
+                        : "ig-story"
+                      : result.format === "16:9"
+                        ? "yt-video"
+                        : "ig-post"
+                  }
+                />
+              )}
+            </div>
+
+            {/* Chat Komutları ile Formatlama */}
+            {result.kind !== "audio" ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                <span className="text-[11px] font-medium text-fg">{tt("Hızlı Chat Formatlama Komutları")}</span>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
+                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                  >
+                    9:16 Reels / Story
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
+                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                  >
+                    4:5 Instagram Post
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
+                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                  >
+                    1:1 Kare
+                  </button>
+                  {result.kind === "image" ? (
+                    <button
+                      type="button"
+                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür", "9:16", true)}
+                      className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
+                    >
+                      Videoya Çevir
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-1.5 pt-1">
+                  <input
+                    type="text"
+                    value={quickCmd}
+                    onChange={(e) => setQuickCmd(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                      }
+                    }}
+                    placeholder={tt("Komut yazın (örn: arka planı sadeleştir, ışığı ısıt)…")}
+                    className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                    }}
+                    className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90"
+                  >
+                    {tt("Uygula")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex justify-center">
-            {result.kind === "audio" ? (
-              <audio src={`/api/creative/file/${result.assetId}?t=asset`} controls className="w-full" />
-            ) : (
-              <PhonePreview
-                src={`/api/creative/file/${result.assetId}?t=asset`}
-                kind={result.kind === "video" ? "video" : "image"}
-                username={username}
-                caption={result.prompt.slice(0, 120)}
-                initial={
-                  result.format === "9:16"
-                    ? result.kind === "video"
-                      ? "ig-reels"
-                      : "ig-story"
-                    : result.format === "16:9"
-                      ? "yt-video"
-                      : "ig-post"
-                }
-              />
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2 border-t border-line pt-3">
+          <div className="flex flex-col gap-1.5 border-t border-line pt-3">
             {result.kind !== "audio" ? (
               <form action={openAssetInStudioAction}>
                 <input type="hidden" name="assetId" value={result.assetId} />
@@ -1044,7 +1106,7 @@ export function CreativeComposer({
                   type="submit"
                   className="w-full rounded-xl border border-line px-3 py-2 text-center text-[12px] font-medium text-fg hover:border-fg/40"
                 >
-                  ✂️ {result.kind === "video" ? tt("Videoyu Düzenleyicide Aç →") : tt("Fotoğrafı Düzenleyicide Aç →")}
+                  {result.kind === "video" ? tt("Videoyu Düzenleyicide Aç →") : tt("Fotoğrafı Düzenleyicide Aç →")}
                 </button>
               </form>
             ) : null}
@@ -1052,14 +1114,14 @@ export function CreativeComposer({
               href={`/creative?sekme=metin&asset=${result.assetId}`}
               className="rounded-xl border border-line px-3 py-2 text-center text-[12px] text-fg hover:border-fg/40"
             >
-              ✍️ {tt("Post Metni & Hashtag Oluştur →")}
+              {tt("Post Metni & Hashtag Oluştur →")}
             </Link>
             <a
               href={`/api/creative/file/${result.assetId}?t=asset`}
               download
               className="rounded-xl bg-fg px-3 py-2 text-center text-[12px] font-semibold text-bg hover:opacity-90"
             >
-              ⬇️ {tt("İndir")}
+              {tt("İndir")}
             </a>
           </div>
         </aside>

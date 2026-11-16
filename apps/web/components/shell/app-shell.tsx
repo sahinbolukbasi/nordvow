@@ -19,7 +19,7 @@ import { NordvowMark } from "@/components/brand/logo";
  * Uygulama iskeleti: kenar çubuğu (md+) / alt sekme çubuğu (mobil), 64px başlık
  * (admin için arama, bildirim, hesap) ve max 1440px ortalanmış içerik.
  */
-export async function AppShell({ role, children }: { role: Role; children: ReactNode }) {
+export async function AppShell({ role, children, fullBleed = false }: { role: Role; children: ReactNode; fullBleed?: boolean }) {
   const actor = await requireActor(role);
   const user = await getSessionUser();
   const navRole: Role = actor.staffRole ?? role;
@@ -72,7 +72,14 @@ export async function AppShell({ role, children }: { role: Role; children: React
             <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
           </div>
         </header>
-        <main id="icerik" className="mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12">
+        <main
+          id="icerik"
+          className={
+            fullBleed
+              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-16 md:px-4 md:pb-4"
+              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12"
+          }
+        >
           {children}
         </main>
       </div>

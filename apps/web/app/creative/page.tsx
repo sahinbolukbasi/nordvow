@@ -206,23 +206,23 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const profileName = nameOf.get(own) ?? "Stüdyo";
 
   const tabs = [
-    { id: "uret", label: "💬 AI Sohbet", href: "/creative" },
-    { id: "galeri", label: "📚 Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
-    { id: "studyo", label: "✂️ Düzenleyici", href: "/creative?sekme=studyo" },
-    { id: "metin", label: "✍️ Post & Brief", href: "/creative?sekme=metin" },
-    ...(isAdmin ? [{ id: "yonetim", label: "⚙️ Yönetim", href: "/creative?sekme=yonetim" }] : []),
+    { id: "uret", label: "Sohbet Stüdyosu", href: "/creative" },
+    { id: "galeri", label: "Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
+    { id: "studyo", label: "Düzenleyici", href: "/creative?sekme=studyo" },
+    { id: "metin", label: "Post & Brief", href: "/creative?sekme=metin" },
+    ...(isAdmin ? [{ id: "yonetim", label: "Yönetim", href: "/creative?sekme=yonetim" }] : []),
   ];
 
   const initialKind: CreativeKind | undefined =
     sp.tur === "video" || sp.tur === "image" || sp.tur === "audio" ? sp.tur : undefined;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+    <div className="flex min-h-[calc(100dvh-5.5rem)] w-full flex-1 flex-col gap-3">
       {/* Sade Üst Stüdyo Çubuğu */}
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3 sm:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-2.5 sm:px-5">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-fg">{tt("Creative Stüdyo")}</h1>
+            <h1 className="text-sm font-semibold tracking-tight text-fg">{tt("Creative Stüdyo")}</h1>
             <span className="hidden rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted sm:inline-block">
               {profileName}
             </span>
@@ -233,13 +233,13 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         {/* Sağ Bakiye & Açılır Bakiye Yönetimi */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-full border border-line bg-bg px-3 py-1">
-            <span className="text-[11px] text-fg-muted">{tt("Bakiye:")}</span>
+            <span className="text-[11px] text-fg-muted">{tt("Kredi:")}</span>
             <span className="text-[13px] font-semibold tabular-nums text-fg">{money(available)}</span>
           </div>
           {!isAdmin ? (
             <details className="relative">
               <summary className="cursor-pointer list-none rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-medium text-fg hover:border-fg/40">
-                {pendingCreditReq ? tt("⏳ Talep İnceleniyor") : tt("+ Bakiye")}
+                {pendingCreditReq ? tt("Talep İnceleniyor") : tt("+ Kredi Yükle")}
               </summary>
               <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-line bg-surface p-3 shadow-xl sm:w-96">
                 <CreditRequestForm pending={pendingCreditReq} currency={currency} />
@@ -551,9 +551,9 @@ async function UnifiedLibrary({
           active={active}
           items={[
             { id: "hepsi", label: "Tümü", href: "/creative?sekme=galeri", count: items.length },
-            { id: "video", label: "🎬 Videolar", href: "/creative?sekme=galeri&tur=video", count: count("video") },
-            { id: "image", label: "📸 Fotoğraflar", href: "/creative?sekme=galeri&tur=image", count: count("image") },
-            { id: "audio", label: "🎙️ Sesler", href: "/creative?sekme=galeri&tur=audio", count: count("audio") },
+            { id: "video", label: "Videolar", href: "/creative?sekme=galeri&tur=video", count: count("video") },
+            { id: "image", label: "Fotoğraflar", href: "/creative?sekme=galeri&tur=image", count: count("image") },
+            { id: "audio", label: "Sesler", href: "/creative?sekme=galeri&tur=audio", count: count("audio") },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -567,7 +567,7 @@ async function UnifiedLibrary({
             href="/creative"
             className="rounded-full bg-fg px-3.5 py-1.5 text-[12px] font-semibold text-bg hover:opacity-90"
           >
-            ✨ {tt("Yeni Video / Fotoğraf Üret")}
+            {tt("Yeni Video / Fotoğraf Üret")}
           </Link>
         </div>
       </div>
@@ -650,7 +650,7 @@ async function UnifiedLibrary({
                           href={`/creative?sekme=studyo&dosya=${item.uploadId}`}
                           className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
                         >
-                          ✂️ {tt("Düzenle")}
+                          {tt("Düzenle")}
                         </Link>
                       ) : item.assetId ? (
                         <form action={openAssetInStudioAction}>
@@ -659,7 +659,7 @@ async function UnifiedLibrary({
                             type="submit"
                             className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
                           >
-                            ✂️ {tt("Düzenle")}
+                            {tt("Düzenle")}
                           </button>
                         </form>
                       ) : null
@@ -671,7 +671,7 @@ async function UnifiedLibrary({
                         href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&tur=video&prompt=${encodeURIComponent(`${item.title} — bu görseli 5 saniyelik akıcı bir tanıtım videosuna dönüştür`)}`}
                         className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
                       >
-                        🎬 {tt("Videoya Çevir")}
+                        {tt("Videoya Çevir")}
                       </Link>
                     ) : null}
 
@@ -698,7 +698,7 @@ async function UnifiedLibrary({
                       download
                       className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:text-fg"
                     >
-                      ⬇️ {tt("İndir")}
+                      {tt("İndir")}
                     </a>
                   </div>
                 </div>

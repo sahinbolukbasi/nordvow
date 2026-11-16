@@ -1,10 +1,17 @@
+import { randomBytes } from "node:crypto";
 import { prisma } from "@infulancer/core/db";
 import type { Actor } from "@infulancer/core/access/actor";
 import { formatKurus } from "@infulancer/core/domain/labels";
+import { respondOffer } from "@infulancer/core/domain/offers";
+import { computeBalances } from "@infulancer/core/domain/ledger";
+import { submitGeneration } from "@infulancer/core/creative/generate";
+import { ensureStarterCredits } from "@infulancer/core/creative/credits";
+import { createShortLink } from "@infulancer/core/notify/shortlink";
 import { getLlm } from "@infulancer/core/llm/index";
 import { parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
 import { BRAND_NAME } from "@infulancer/core/brand";
+import { ownTenant } from "@/lib/creative-tenant";
 import { allowedActions, COPILOT_ACTIONS, COPILOT_SUGGESTIONS, matchIntent, type CopilotAction, type CopilotForm, type CopilotRole } from "@infulancer/core/copilot/intents";
 
 export type NextStep = { title: string; detail: string; href: string; tone: "critical" | "warn" | "info" | "ok" };
@@ -125,12 +132,271 @@ export async function copilotWelcome(actor: Actor): Promise<CopilotWelcome> {
 
 const ROLE_TR: Record<CopilotRole, string> = { ADMIN: "ajans yöneticisi", BRAND: "marka kullanıcısı", INFLUENCER: "içerik üreticisi" };
 
+const normText = (s: string) =>
+  s
+    .trim()
+    .toLocaleLowerCase("tr")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "i");
+
+async function executeCopilotTool(
+  actor: Actor,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<{ reply: string; actionIds: string[] } | null> {
+  const role = actor.role as CopilotRole;
+  const appBase = envStr("APP_URL", "https://nordvow.com").replace(/\/$/, "");
+  const now = new Date();
+
+  switch (toolName) {
+    case "shorten_link": {
+      const url = String(args.url ?? "").trim();
+      if (!/^https?:\/\/\S+/i.test(url)) return null;
+      const res = await createShortLink(url, { label: "copilot", createdByUserId: actor.userId });
+      return {
+        reply: `Kısa linkiniz oluşturuldu:\n${res.shortUrl}`,
+        actionIds: role === "ADMIN" ? ["shortlinks"] : ["campaigns"],
+      };
+    }
+
+    case "create_creative": {
+      const kind = String(args.kind ?? "image") === "video" ? "video" : "image";
+      const prompt = String(args.prompt ?? "").trim();
+      if (prompt.length < 5) {
+        return {
+          reply: `Ne tür bir ${kind === "video" ? "video" : "görsel"} üretmemi istediğinizi birkaç kelimeyle yazın (örn: "görsel üret: pastel stüdyoda kahve çekimi").`,
+          actionIds: ["creative"],
+        };
+      }
+      const tenantId = ownTenant(actor);
+      if (role !== "ADMIN") await ensureStarterCredits(tenantId);
+      const model = await prisma.modelRegistry.findFirst({
+        where: { status: "active", kind, provider: "fal" },
+        orderBy: { creditsPerUnit: "asc" },
+      });
+      if (!model) {
+        return { reply: "Şu an aktif üretim modeli bulunamadı.", actionIds: ["creative"] };
+      }
+      const aspectRaw = String(args.aspect ?? "9:16");
+      const aspect = (aspectRaw === "1:1" || aspectRaw === "4:5" || aspectRaw === "16:9" ? aspectRaw : "9:16") as "9:16" | "1:1" | "4:5" | "16:9";
+      try {
+        await submitGeneration({
+          tenantId,
+          modelKey: model.key,
+          prompt,
+          aspect,
+          seconds: kind === "video" ? 5 : undefined,
+        });
+        return {
+          reply: `${kind === "video" ? "Video" : "Görsel"} üretiminiz (${model.key}, ${aspect}) başlatıldı ve tamamlandığında otomatik olarak Kitaplığınıza kaydedilecek. Creative Stüdyo'dan takip edip telefonda formatlayabilirsiniz.`,
+          actionIds: ["creative"],
+        };
+      } catch (e) {
+        return {
+          reply: `Üretim başlatılamadı: ${(e as Error).message}`,
+          actionIds: ["creative"],
+        };
+      }
+    }
+
+    case "check_balance": {
+      const tenantId = ownTenant(actor);
+      if (role !== "ADMIN") await ensureStarterCredits(tenantId);
+      const acc = await prisma.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } });
+      const avail = Number(acc?.balanceCredits ?? 0) - Number(acc?.heldCredits ?? 0);
+      const lines = [`Creative Stüdyo Krediniz: ${avail.toLocaleString("tr-TR")} Kredi`];
+      if (role === "INFLUENCER" && actor.influencerId) {
+        const bal = await computeBalances(actor.influencerId, now);
+        lines.push(`Çekilebilir Hakediş Bakiyeniz: ${formatKurus(bal.cekilebilir)}`);
+        if (bal.hakedilen > 0) lines.push(`Hakedilen (Vadesi Bekleyen): ${formatKurus(bal.hakedilen)}`);
+      }
+      return {
+        reply: lines.join("\n"),
+        actionIds: role === "INFLUENCER" ? ["payouts", "creative"] : role === "ADMIN" ? ["credit-requests", "finance", "creative"] : ["creative"],
+      };
+    }
+
+    case "request_credits": {
+      const amount = Math.max(50, Math.min(100_000, Number(args.amount ?? 500) || 500));
+      const tenantId = ownTenant(actor);
+      if (role === "ADMIN") {
+        return {
+          reply: "Yönetici olarak Creative Stüdyo > Yönetim sekmesinden istediğiniz hesaba doğrudan kredi yükleyebilirsiniz.",
+          actionIds: ["creative", "credit-requests"],
+        };
+      }
+      const existing = await prisma.creditRequest.findFirst({ where: { tenantId, status: "BEKLIYOR" }, select: { id: true } });
+      if (existing) {
+        return {
+          reply: "Halihazırda incelenmeyi bekleyen bir kredi talebiniz bulunuyor.",
+          actionIds: ["creative"],
+        };
+      }
+      await prisma.creditRequest.create({
+        data: {
+          tenantId,
+          requestedByUserId: actor.userId,
+          role: actor.role,
+          amountTry: amount,
+          note: "AI Asistan üzerinden talep edildi",
+        },
+      });
+      return {
+        reply: `${amount.toLocaleString("tr-TR")} Kredi yükleme talebiniz oluşturuldu ve yönetici onayına iletildi.`,
+        actionIds: ["creative"],
+      };
+    }
+
+    case "list_offers": {
+      if (role === "INFLUENCER" && actor.influencerId) {
+        const offers = await prisma.offer.findMany({
+          where: { influencerId: actor.influencerId, status: { in: ["GONDERILDI", "KARSI_TEKLIF"] }, expiresAt: { gt: now } },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        });
+        if (!offers.length) return { reply: "Şu an yanıt bekleyen aktif teklifiniz bulunmuyor.", actionIds: ["offers", "applications"] };
+        const list = offers.map((o, i) => `${i + 1}. "${o.title}" — ${formatKurus(o.counterKurus ?? o.totalKurus)} (${o.status})`).join("\n");
+        return {
+          reply: `Bekleyen teklifleriniz:\n${list}\n\nBuradan doğrudan "1. teklifi kabul et" veya "1. teklifi reddet" yazarak yanıtlayabilirsiniz.`,
+          actionIds: ["offers"],
+        };
+      }
+      if (role === "BRAND" && actor.brandId) {
+        const offers = await prisma.offer.findMany({ where: { brandId: actor.brandId }, orderBy: { createdAt: "desc" }, take: 5 });
+        if (!offers.length) return { reply: "Henüz gönderdiğiniz bir teklif yok. Influencer bul sayfasından tek tıkla teklif gönderebilirsiniz.", actionIds: ["discover", "offers"] };
+        const list = offers.map((o, i) => `${i + 1}. "${o.title}" — ${formatKurus(o.counterKurus ?? o.totalKurus)} (${o.status})`).join("\n");
+        return { reply: `Son gönderdiğiniz teklifler:\n${list}`, actionIds: ["offers", "discover"] };
+      }
+      const offers = await prisma.offer.findMany({ orderBy: { createdAt: "desc" }, take: 5 });
+      if (!offers.length) return { reply: "Sistemde henüz kayıtlı teklif yok.", actionIds: ["offers"] };
+      const list = offers.map((o, i) => `${i + 1}. "${o.title}" — ${formatKurus(o.counterKurus ?? o.totalKurus)} (${o.status})`).join("\n");
+      return { reply: `Sistemdeki son teklifler:\n${list}`, actionIds: ["offers"] };
+    }
+
+    case "respond_offer": {
+      if (role !== "INFLUENCER" || !actor.influencerId) return null;
+      const decision = String(args.decision ?? "KABUL").toUpperCase() === "RED" ? "RED" : "KABUL";
+      const idx = Math.max(0, (Number(args.index ?? 1) || 1) - 1);
+      const offers = await prisma.offer.findMany({
+        where: { influencerId: actor.influencerId, status: { in: ["GONDERILDI", "KARSI_TEKLIF"] }, expiresAt: { gt: now } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+      const target = offers[idx];
+      if (!target) return { reply: "Bu sırada bekleyen bir teklif bulunamadı.", actionIds: ["offers"] };
+      await respondOffer(target.id, actor.influencerId, decision, decision === "RED" ? String(args.note ?? "Asistan üzerinden reddedildi") : null, now);
+      return {
+        reply: decision === "KABUL" ? `"${target.title}" teklifi kabul edildi!` : `"${target.title}" teklifi reddedildi.`,
+        actionIds: ["offers", "jobs"],
+      };
+    }
+
+    case "create_invite": {
+      if (role === "BRAND") return null;
+      const targetRole = role === "ADMIN" && String(args.targetRole ?? "").toUpperCase() === "BRAND" ? "BRAND" : "INFLUENCER";
+      const code = randomBytes(4).toString("hex").toUpperCase();
+      await prisma.invite.create({
+        data: {
+          code,
+          targetRole,
+          createdById: actor.userId,
+          inviterInfluencerId: role === "INFLUENCER" ? actor.influencerId : null,
+          maxUses: role === "ADMIN" ? 5 : 3,
+          expiresAt: new Date(Date.now() + 14 * DAY),
+          note: "AI Asistan ile oluşturuldu",
+        },
+      });
+      return {
+        reply: `Yeni ${targetRole === "BRAND" ? "Marka" : "Influencer"} davet kodunuz oluşturuldu: ${code}\nKayıt bağlantısı: ${appBase}/kayit?kod=${code}`,
+        actionIds: role === "ADMIN" ? ["invites"] : ["invite"],
+      };
+    }
+
+    case "approve_deliverable": {
+      if (role === "INFLUENCER") return null;
+      const where =
+        role === "BRAND" && actor.brandId
+          ? { status: "ICERIK_YUKLENDI" as const, assignment: { campaign: { brandId: actor.brandId } } }
+          : { status: "ICERIK_YUKLENDI" as const };
+      const pending = await prisma.deliverable.findFirst({
+        where,
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, platform: true, contentType: true, assignment: { select: { campaign: { select: { name: true } }, influencer: { select: { name: true } } } } },
+      });
+      if (!pending) return { reply: "Şu an onay bekleyen yüklenmiş bir içerik taslağı bulunmuyor.", actionIds: ["campaigns"] };
+      await prisma.$transaction([
+        prisma.deliverableReview.create({
+          data: { deliverableId: pending.id, brandUserId: actor.userId, decision: "ONAY", note: "AI Asistan üzerinden onaylandı." },
+        }),
+        prisma.deliverable.update({ where: { id: pending.id }, data: { status: "ONAYLANDI" } }),
+      ]);
+      return {
+        reply: `${pending.assignment.influencer.name} tarafından "${pending.assignment.campaign.name}" kampanyası için yüklenen ${pending.platform} ${pending.contentType} taslağı onaylandı.`,
+        actionIds: ["campaigns", "calendar"],
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+async function detectAndExecuteCommand(actor: Actor, message: string): Promise<{ reply: string; actionIds: string[] } | null> {
+  const n = normText(message);
+  const url = message.match(/https?:\/\/\S+/i)?.[0];
+  if (url && (n.includes("kisalt") || n.startsWith("link "))) {
+    return executeCopilotTool(actor, "shorten_link", { url });
+  }
+  const creativeMatch = message.match(/^(?:resim|gorsel|görsel|fotograf|fotoğraf|video)\s+(?:uret|üret|olustur|oluştur|yap)\s*[:-]?\s+([\s\S]+)$/i);
+  if (creativeMatch) {
+    const isVideo = /^video/i.test(message.trim());
+    const aspect = message.includes("16:9") ? "16:9" : message.includes("4:5") ? "4:5" : message.includes("1:1") ? "1:1" : "9:16";
+    return executeCopilotTool(actor, "create_creative", { kind: isVideo ? "video" : "image", prompt: creativeMatch[1]!.trim(), aspect });
+  }
+  if (/^(?:bakiye|bakiye sorgula|kredi|kredim|kredi bakiyem|bakiyem ne kadar)/.test(n)) {
+    return executeCopilotTool(actor, "check_balance", {});
+  }
+  const creditReqMatch = n.match(/(\d+)\s*kredi\s*(?:talep|yukle|iste)/);
+  if (creditReqMatch) {
+    return executeCopilotTool(actor, "request_credits", { amount: Number(creditReqMatch[1]) });
+  }
+  if (/^(?:teklifleri listele|tekliflerimi listele|bekleyen tekliflerim|bekleyen tekliflerimi goster|tekliflerim neler)/.test(n)) {
+    return executeCopilotTool(actor, "list_offers", {});
+  }
+  const offerRespondMatch = n.match(/(?:(\d+)\.?\s*)?teklif\w*\s+(kabul|red|onayla)/) ?? n.match(/teklif\s+(kabul|red)\s+(\d+)/);
+  if (offerRespondMatch) {
+    const isFirstNum = /^\d+$/.test(offerRespondMatch[1] ?? "");
+    const idx = isFirstNum ? Number(offerRespondMatch[1]) : Number(offerRespondMatch[2] || 1);
+    const decWord = isFirstNum ? offerRespondMatch[2]! : offerRespondMatch[1]!;
+    return executeCopilotTool(actor, "respond_offer", { index: idx || 1, decision: decWord.startsWith("red") ? "RED" : "KABUL" });
+  }
+  if (/(?:davet kodu uret|davet kodu olustur|influencer daveti olustur|marka daveti olustur|arkadas daveti olustur)/.test(n)) {
+    return executeCopilotTool(actor, "create_invite", { targetRole: n.includes("marka") ? "BRAND" : "INFLUENCER" });
+  }
+  if (/(?:bekleyen taslagi onayla|son taslagi onayla|icerigi onayla)/.test(n)) {
+    return executeCopilotTool(actor, "approve_deliverable", {});
+  }
+  return null;
+}
+
 /**
- * Yanıt: önce kural motoru (her zaman çalışır). LLM_PROVIDER=bedrock ise model, rol bağlamı,
- * anlık özet ve izinli eylem listesiyle daha doğal bir yanıt üretir; eylemler yine katalogla süzülür.
+ * Yanıt: önce doğrudan eylem/komut yürütücü, ardından kural motoru ve Bedrock AI.
+ * LLM_PROVIDER=bedrock ise model hem doğal yanıt üretir hem de gerekirse sistem aracını (`tool`) tetikler.
  */
 export async function copilotAnswer(actor: Actor, message: string, history: { role: "user" | "assistant"; text: string }[]): Promise<CopilotAnswer> {
   const role = actor.role as CopilotRole;
+
+  // 1. Doğrudan komut eşleşmesi varsa anında çalıştır
+  const direct = await detectAndExecuteCommand(actor, message);
+  if (direct) {
+    return {
+      reply: direct.reply,
+      actions: forActor(actor, allowedActions(role, direct.actionIds)),
+      source: "ai",
+    };
+  }
+
   const brandCfg = role === "BRAND" && actor.brandId ? await prisma.brand.findUnique({ where: { id: actor.brandId }, select: { defaultExecutionMode: true } }) : null;
   const isSelfBrand = role === "BRAND" && brandCfg?.defaultExecutionMode === "SELF";
   const rule = matchIntent(role, message);
@@ -159,15 +425,35 @@ export async function copilotAnswer(actor: Actor, message: string, history: { ro
       .map((h) => `${h.role === "user" ? "Kullanıcı" : "Asistan"}: ${h.text.slice(0, 500)}`)
       .join("\n");
     const res = await getLlm().completeText({
-      promptVersion: "copilot-v1",
+      promptVersion: "copilot-v2",
       system:
-        `Sen ${BRAND_NAME} influencer marketing platformunun Türkçe asistanısın. Kullanıcı bir ${ROLE_TR[role]}. ` +
-        "Kısa, net ve adım adım yanıt ver (en fazla 6 cümle). Yalnız platformdaki özellikleri anlat; bilmediğin bir şeyi uydurma; hukuki/mali tavsiye verme. " +
-        "Yanıtı yalnız şu JSON olarak döndür: {\"reply\": string, \"actions\": string[] (en fazla 3, yalnız listedeki kimlikler), \"form\": \"campaign-start\" | \"campaign-request\" | null}. " +
+        `Sen ${BRAND_NAME} influencer & creative AI platformunun tam yetkili Türkçe asistanısın. Kullanıcı bir ${ROLE_TR[role]}. ` +
+        "Kısa, net ve samimi yanıt ver (en fazla 5 cümle). Kullanıcının istediği işlemi doğrudan yapabiliyorsan `tool` alanını doldur:\n" +
+        "- shorten_link: {\"url\": \"https://...\"}\n" +
+        "- create_creative: {\"kind\": \"image\"|\"video\", \"prompt\": \"...\", \"aspect\": \"9:16\"|\"4:5\"|\"1:1\"|\"16:9\"}\n" +
+        "- check_balance: {}\n" +
+        "- request_credits: {\"amount\": 500}\n" +
+        "- list_offers: {}\n" +
+        "- respond_offer: {\"index\": 1, \"decision\": \"KABUL\"|\"RED\", \"note\": \"...\"}\n" +
+        "- create_invite: {\"targetRole\": \"INFLUENCER\"|\"BRAND\"}\n" +
+        "- approve_deliverable: {}\n" +
+        "Yanıtı yalnız şu JSON olarak döndür: {\"reply\": string, \"actions\": string[] (en fazla 4, yalnız listedeki kimlikler), \"form\": \"campaign-start\" | \"campaign-request\" | null, \"tool\": {\"name\": string, \"args\": object} | null}. " +
         `campaign-start yalnız ajans yöneticisi, campaign-request yalnız marka için geçerlidir.`,
       prompt: `Kullanıcının anlık durumu:\n${context}\n\nİzinli eylemler:\n${catalog}\n\nÖnceki konuşma:\n${convo}\n\nYeni mesaj: ${message.slice(0, 1000)}`,
     });
     const json = parseJsonObject(res.text);
+    const toolObj = json?.tool && typeof json.tool === "object" ? (json.tool as { name?: string; args?: Record<string, unknown> }) : null;
+    if (toolObj?.name) {
+      const executed = await executeCopilotTool(actor, toolObj.name, toolObj.args ?? {});
+      if (executed) {
+        const mergedActions = forActor(actor, allowedActions(role, [...executed.actionIds, ...(Array.isArray(json?.actions) ? json.actions : [])]));
+        return {
+          reply: executed.reply,
+          actions: mergedActions.length ? mergedActions : base.actions,
+          source: "ai",
+        };
+      }
+    }
     const reply = typeof json?.reply === "string" ? json.reply.trim().slice(0, 1500) : "";
     if (!reply) return base;
     const form = json?.form === "campaign-start" && role === "ADMIN" ? "campaign-start" : json?.form === "campaign-request" && role === "BRAND" ? "campaign-request" : base.form;
