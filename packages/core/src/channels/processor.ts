@@ -27,6 +27,8 @@ export async function processRawWebhook(rawId: string, bodyOverride?: string) {
   const body = bodyOverride ?? rawBodies.get(rawId);
   rawBodies.delete(rawId);
   if (!body) {
+    const { botLog } = await import("../bot/trace");
+    botLog("warn", "skipped", { reason: "body_missing" });
     await prisma.rawWebhook.update({ where: { id: rawId }, data: { error: "gövde bulunamadı (S3'ten yeniden okunmalı)" } });
     return { skipped: true };
   }
@@ -64,6 +66,8 @@ async function tenantByExternal(provider: ChannelProvider, key: string, value: s
   if (provider === "INSTAGRAM" && globalIgId && value === globalIgId) return defaultSystemTenant();
   return null;
 }
+
+export const PLATFORM_TENANT_ID = "nordvow-platform";
 
 async function dispatch(p: Any): Promise<string | null> {
   if (p.object === "whatsapp_business_account") {
@@ -108,14 +112,18 @@ async function dispatch(p: Any): Promise<string | null> {
     }
     return tenant;
   }
+  botLog("warn", "skipped", { reason: "unknown_object" });
   return null;
 }
 
-async function handleWhatsAppChange(tenantId: string, field: string, v: Any) {
+async function handleWhatsAppChange(tenantId: string, field: string, v: Any, platformBot = false) {
   if (field === "messages") {
     const contacts = new Map<string, string>((v.contacts ?? []).map((c: Any) => [c.wa_id, c.profile?.name]));
     for (const m of v.messages ?? []) {
-      if (!(await firstSeen(m.id, "whatsapp"))) continue;
+      if (!(await firstSeen(m.id, "whatsapp"))) {
+        botLog("info", "deduped", { channel: "WHATSAPP" });
+        continue;
+      }
       const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null;
       await handleInbound(tenantId, "WHATSAPP", {
         externalMessageId: m.id,
@@ -123,11 +131,11 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any) {
         phoneE164: `+${m.from}`,
         name: contacts.get(m.from) ?? null,
         text,
-        at: new Date(Number(m.timestamp) * 1000),
+        at: metaEventDate(m.timestamp),
         fromAd: m.referral?.source_type === "ad" || !!m.referral?.ctwa_clid,
-      });
+      }, { platformBot });
     }
-    for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, new Date(Number(s.timestamp) * 1000));
+    for (const s of v.statuses ?? []) await applyMessageStatus(tenantId, s.id, s.status, metaEventDate(s.timestamp));
     return;
   }
   if (field === "message_template_status_update" || field === "template_category_update") {
@@ -172,7 +180,7 @@ export async function applyMessageStatus(tenantId: string, externalId: string, s
   });
 }
 
-async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any) {
+async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any, platformBot = false) {
   const msg = m.message ?? {};
   if (msg.is_deleted || m.message_deletes) {
     const mid = msg.mid ?? m.message_deletes?.mid;
@@ -187,10 +195,10 @@ async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, 
     phoneE164: null,
     name: null,
     text: msg.text ?? null,
-    at: new Date(Number(m.timestamp ?? Date.now())),
+    at: metaEventDate(m.timestamp),
     fromAd: !!m.referral?.ad_id || m.referral?.source === "ADS",
     mediaUrl: msg.attachments?.[0]?.payload?.url ?? null,
-  });
+  }, { platformBot });
 }
 
 export type InboundInput = {
@@ -204,7 +212,7 @@ export type InboundInput = {
   mediaUrl?: string | null;
 };
 
-export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput) {
+export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput, opts: { platformBot?: boolean } = {}) {
   const cfg = {
     serviceWindowHours: await getConfig("whatsapp.serviceWindowHours"),
     fepWindowDays: await getConfig("whatsapp.fepWindowDays"),
@@ -257,6 +265,19 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
   if (input.text && OPT_OUT_RE.test(input.text) && contact.phoneE164) {
     await captureOptOut(tenantId, contact.phoneE164, "MESAJ", `${channel.toLowerCase()}_opt_out`, input.at).catch(() => undefined);
     return { conversationId: conv.id, optOut: true };
+  }
+  if (input.text && opts.platformBot && (channel === "WHATSAPP" || channel === "INSTAGRAM" || channel === "MESSENGER")) {
+    await handlePlatformBot({
+      tenantId,
+      conversationId: conv.id,
+      channel,
+      externalId: channel === "WHATSAPP" ? canonicalPhone(input.phoneE164 ?? input.from) : input.from,
+      phone: input.phoneE164,
+      text: input.text,
+      windowOpen: isOpen(conv.serviceWindowExpiresAt, input.at),
+      now: input.at,
+    }).catch((e) => console.error("[bot]", e));
+    return { conversationId: conv.id, optOut: false };
   }
   if (input.text) {
     if (channel === "WHATSAPP" && waToken && waPhoneId) {

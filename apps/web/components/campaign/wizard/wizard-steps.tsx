@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import type { ContentType, Platform } from "@infulancer/core/enums";
 import { COUNTRIES, GENDERS, OBJECTIVES, type ContentPlanItem, type DraftCheck } from "@infulancer/core/domain/campaign-plan";
+import { MAX_CAMPAIGN_AMOUNT_LABEL } from "@infulancer/core/domain/money";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import { formatDualMinor } from "@infulancer/core/i18n/regions";

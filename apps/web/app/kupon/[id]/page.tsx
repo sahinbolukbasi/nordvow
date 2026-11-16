@@ -6,6 +6,7 @@ import { couponValueLabel } from "@infulancer/core/coupons/service";
 import { buildWalletLinks } from "@infulancer/core/wallet/passes";
 import { CouponCard } from "@/components/luma/pass-cards";
 import { QrImage, WalletButtons } from "@/components/wallet/pass-card";
+import { loadCouponPass } from "@/lib/coupon-pass";
 import { dateLong } from "@/lib/event-format";
 import { mediaSrc } from "@/lib/media";
 
@@ -15,18 +16,19 @@ export const dynamic = "force-dynamic";
 const grantStatus: Record<string, string> = { GONDERILDI: "Kullanılabilir", GORULDU: "Kullanılabilir", KULLANILDI: "Kullanıldı", IPTAL: "İptal" };
 
 /**
- * Herkese açık kupon kartı. id bir gönderim (kişiye özel) ya da kupon şablonu (önizleme) olabilir.
- * Gösterilen kod: ortak kod varsa o, yoksa kişiye özel kod. QR her zaman takip kodunu taşır.
+ * Kupon kartı. Gönderim bağlantısı alıcıya açıktır. Şablon kimliği paylaşılan kodu yalnız
+ * marka veya yönetici oturumunda gösterir; aksi halde kod, QR ve PDF boş kalır.
  */
 export default async function CouponPage({ params }: { params: Promise<{ id: string }> }) {
   const tt = await getTT();
   const { id } = await params;
-  const grant = await prisma.couponGrant.findUnique({ where: { id }, include: { coupon: true } });
-  const coupon = grant?.coupon ?? (await prisma.coupon.findUnique({ where: { id } }));
+  const pass = await loadCouponPass(id);
+  const { coupon, grant } = pass;
   if (!coupon) notFound();
+  const allowed = pass.decision.allow;
   const brand = await prisma.brand.findUnique({ where: { id: coupon.tenantId }, select: { name: true } });
-  const code = coupon.sharedCode ?? grant?.code ?? "ÖNİZLEME";
-  const qrContent = grant?.code ?? coupon.sharedCode ?? id;
+  const code = allowed ? (pass.sharedCode ?? grant?.code ?? "ÖNİZLEME") : "••••";
+  const qrContent = allowed ? (grant?.code ?? pass.sharedCode ?? id) : "onizleme";
   const links = await buildWalletLinks("coupon", id, qrContent);
   const expired = !!coupon.validUntil && coupon.validUntil < new Date();
   const kind = coupon.kind === "HEDIYE_CEKI" ? "Hediye çeki" : "Kupon";
@@ -40,14 +42,14 @@ export default async function CouponPage({ params }: { params: Promise<{ id: str
           brandName={brand?.name ?? "Marka"}
           valueLabel={couponValueLabel(coupon.valueType, coupon.value)}
           code={code}
-          codeHint={grant ? "Ödeme sırasında bu kodu girin veya QR'ı okutun" : "Önizleme: alıcılar kendi kodunu görür"}
+          codeHint={allowed ? (grant ? "Ödeme sırasında bu kodu girin veya QR'ı okutun" : "Önizleme: alıcılar kendi kodunu görür") : "Paylaşılan kod bu bağlantıda gösterilmez"}
           validLabel={coupon.validUntil ? `Son kullanım: ${dateLong(coupon.validUntil)}` : "Süresiz"}
           expired={expired}
           statusLabel={grant ? grantStatus[grant.status] : "Önizleme"}
           logoSrc={mediaSrc(coupon.logoKey)}
           heroSrc={mediaSrc(coupon.heroImageKey)}
           accent={coupon.brandColor ?? "#ff2bd6"}
-          qr={<QrImage dataUrl={links.qrDataUrl} alt={`Kupon QR kodu ${code}`} />}
+          qr={<QrImage dataUrl={links.qrDataUrl} alt={allowed ? `Kupon QR kodu ${code}` : tt("Kupon önizleme")} />}
         />
 
         <section className="w-full rounded-2xl border border-line bg-surface p-4" aria-label={tt("Cüzdana ekle")}>

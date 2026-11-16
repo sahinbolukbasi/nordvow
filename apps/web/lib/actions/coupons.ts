@@ -96,14 +96,15 @@ export async function grantCouponAction(_p: ActionState, fd: FormData): Promise<
   const actor = await requireActor("ADMIN", "BRAND");
   return attempt(async () => {
     const couponId = str(fd, "couponId");
-    const tenantId = actor.role === "BRAND" ? actor.brandId! : (await prisma.coupon.findUnique({ where: { id: couponId }, select: { tenantId: true } }))?.tenantId;
-    if (!tenantId) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+    const row = await prisma.coupon.findUnique({ where: { id: couponId }, select: { tenantId: true } });
+    if (!row || (actor.role === "BRAND" && row.tenantId !== actor.brandId)) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+    const tenantId = row.tenantId;
     let ids = fd.getAll("influencerId").map(String).filter(Boolean);
     if (str(fd, "all") === "true") {
       ids = (await prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, select: { id: true } })).map((x) => x.id);
     }
     if (!ids.length) throw new DomainError("DOGRULAMA", "En az bir influencer seçin veya 'tümü'nü işaretleyin.");
-    const r = await grantCouponMany(couponId, ids);
+    const r = await grantCouponMany(couponId, ids, tenantId);
     await audit.append({ actor: toAuditActor(actor), action: "COUPON_GRANTED", entityType: "Coupon", entityId: couponId, data: { count: r.length } });
     try {
       const coupon = await prisma.coupon.findUnique({ where: { id: couponId }, select: { title: true, valueType: true, value: true } });

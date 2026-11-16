@@ -6,7 +6,7 @@ import { Button, Field, Input } from "@/components/ui/form";
 import { changePasswordAction, updateProfileAction } from "@/lib/actions/profile";
 
 /** Kişisel bilgiler: varsayılan salt-okunur; "Düzenle" ile form açılır, kaydedince kapanır. */
-export function ProfileForm({ name, phone }: { name: string; phone: string | null }) {
+export function ProfileForm({ name, phone, instagram }: { name: string; phone: string | null; instagram: string | null }) {
   const tt = useTT();
   const [editing, setEditing] = useState(false);
 
@@ -21,6 +21,10 @@ export function ProfileForm({ name, phone }: { name: string; phone: string | nul
           <div className="flex flex-col gap-0.5">
             <dt className="text-[12px] text-fg-muted">{tt("Telefon")}</dt>
             <dd className="text-sm">{phone || "—"}</dd>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <dt className="text-[12px] text-fg-muted">{tt("Instagram")}</dt>
+            <dd className="text-sm">{instagram ? `@${instagram}` : "—"}</dd>
           </div>
         </dl>
         <Button type="button" variant="secondary" size="sm" className="w-fit" onClick={() => setEditing(true)}>{tt("Düzenle")}</Button>
@@ -41,6 +45,7 @@ export function ProfileForm({ name, phone }: { name: string; phone: string | nul
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" required defaultValue={name} autoComplete="name" />}</Field>
         <Field label={tt("Telefon")}>{(p) => <Input {...p} name="phone" type="tel" defaultValue={phone ?? ""} autoComplete="tel" placeholder="+90 5__ ___ __ __" />}</Field>
+        <Field label={tt("Instagram kullanıcı adı")} hint={tt("Başındaki @ olmadan. Bot eşleştirmesi için kullanılır.")}>{(p) => <Input {...p} name="instagram" defaultValue={instagram ?? ""} autoComplete="off" placeholder="kullanici" />}</Field>
       </div>
     </ActionForm>
   );

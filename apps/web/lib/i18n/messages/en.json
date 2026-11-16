@@ -2653,5 +2653,20 @@
  "Zorunlu": "Required",
  "Zorunlu çerezler, hizmetin sunulması ve güvenliği için gereklidir ve KVKK md. 5/2-c ile 5/2-f kapsamında rıza aranmadan kullanılır. İşlevsel çerezler yalnız tercihlerinizi hatırlar. İleride analitik veya pazarlama çerezi eklenirse yalnız açık rızanızla etkinleşir.": "Essential cookies are required for service delivery and security and are used without consent under KVKK art. 5/2-c and 5/2-f. Functional cookies only remember your preferences. If analytics or marketing cookies are added in the future, they will only be enabled with your explicit consent.",
  "Zorunlu değil": "Not required",
- "Zorunlu ifadeler": "Required phrases"
+ "Zorunlu ifadeler": "Required phrases",
+ "Platform Kullanım Sözleşmesi": "Platform Terms of Use",
+ "Marka Sözleşmesi": "Brand Terms",
+ "Influencer Sözleşmesi": "Influencer Terms",
+ "Gizlilik Politikası": "Privacy Policy",
+ "KVKK Aydınlatma Metni": "KVKK clarification text",
+ "'ni okudum. Sözleşmeleri kabul ediyorum. Aydınlatma metninin bilgilendirme olduğunu ve rıza yerine geçmediğini biliyorum.": " I have read them. I accept the contracts. I understand the clarification text is information and is not consent.",
+ "İsteğe bağlı:": "Optional:",
+ "Açık Rıza Metni": "Explicit consent text",
+ " kapsamında yurt dışı aktarım ve yapay zekâ işlemeye onay veriyorum. Onay vermezsem üyeliğim bundan etkilenmez.": " I consent to transfers abroad and AI processing. Refusing does not affect my membership.",
+ "ticari elektronik ileti onayı": "commercial electronic message consent",
+ "nı veriyorum. Onay vermezsem üyeliğim bundan etkilenmez.": " I give it. Refusing does not affect my membership.",
+ "Kullanım şartlarının": "the terms of use",
+ "güncel sürümünü kabul ediyorum.": "I accept the current version.",
+ "Gizlilik": "Privacy",
+ "KVKK": "KVKK"
 }

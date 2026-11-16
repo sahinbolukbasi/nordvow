@@ -9,6 +9,8 @@ const DOCS = [
   { href: "/kvkk", label: "KVKK Aydınlatma Metni" },
   { href: "/cerez-politikasi", label: "Çerez Politikası" },
   { href: "/kullanim-kosullari", label: "Kullanım Koşulları" },
+  { href: "/kullanim-sartlari", label: "Kullanım Şartları" },
+  { href: "/veri-silme", label: "Veri silme" },
 ];
 
 /** Yasal belge şablonu: başlık, sürüm, içindekiler ve numaralı bölümler. */

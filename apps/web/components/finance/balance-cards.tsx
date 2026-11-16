@@ -5,7 +5,10 @@ import { MetricCard } from "@/components/ui/metric-card";
 /** Üç ayrı bakiye: Hakedilen / Çekilebilir / İşlemde (ledger'dan türetilir, saklanmaz). */
 export async function BalanceCards({ balances, holdDays, currency = "TRY" }: { balances: Balances; holdDays: number; currency?: string }) {
   const tt = await getTT();
+  const cekilebilir = Math.max(balances.cekilebilir, 0);
+  const negative = balances.cekilebilir < 0;
   return (
+    <div className="flex flex-col gap-2">
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <MetricCard
         label={tt("Hakedilen")}
@@ -16,7 +19,7 @@ export async function BalanceCards({ balances, holdDays, currency = "TRY" }: { b
       />
       <MetricCard
         label={tt("Çekilebilir")}
-        value={Math.max(balances.cekilebilir, 0)}
+        value={cekilebilir}
         format="currency-kurus"
         currency={currency}
         hint={holdDays > 0 ? `Kampanya bittikten ${holdDays} gün sonra otomatik geçer; hemen çekim talebi oluşturabilirsiniz.` : tt("Kampanya bitince otomatik geçer; hemen çekim talebi oluşturabilirsiniz.")}
@@ -28,6 +31,8 @@ export async function BalanceCards({ balances, holdDays, currency = "TRY" }: { b
         currency={currency}
         hint={tt("Açık çekim talepleri: onay, ödeme listesi veya banka transferi bekliyor.")}
       />
+    </div>
+    {negative ? <p role="status" className="text-[13px] text-critical">{tt("Çekilebilir bakiye eksi görünüyordu; kartta 0 gösterildi. Düzeltme için ajansla görüşün.")}</p> : null}
     </div>
   );
 }

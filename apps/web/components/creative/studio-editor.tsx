@@ -222,8 +222,10 @@ function DeleteButton({ id }: { id: string }) {
 function ImageEditor({ upload, tenantId, available, prices, isAdmin, onSaved }: { upload: StudioUpload; tenantId?: string; available: number; prices: StudioPrices; isAdmin: boolean; onSaved: (id: string) => void }) {
   const tt = useTT();
   const [edits, setEdits] = useState<ImageEdits>(DEFAULT_EDITS);
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
-  const [loadErr, setLoadErr] = useState(false);
+  const [loaded, setLoaded] = useState<{ id: string; img: HTMLImageElement } | null>(null);
+  const [errId, setErrId] = useState<string | null>(null);
+  const img = loaded?.id === upload.id ? loaded.img : null;
+  const loadErr = errId === upload.id;
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -231,11 +233,27 @@ function ImageEditor({ upload, tenantId, available, prices, isAdmin, onSaved }: 
   const set = <K extends keyof ImageEdits>(k: K, v: ImageEdits[K]) => setEdits((e) => ({ ...e, [k]: v }));
   useEffect(() => {
     const el = new Image();
-    // Canvas'a çizip dışa aktarabilmek için CORS'lu yükleme (S3 CORS uygulama alanına izin verir).
-    el.crossOrigin = "anonymous";
-    el.onload = () => setImg(el);
-    el.onerror = () => setLoadErr(true);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) setErrId(upload.id);
+    }, 12_000);
+    el.onload = () => {
+      if (cancelled) return;
+      window.clearTimeout(timer);
+      setErrId((cur) => (cur === upload.id ? null : cur));
+      setLoaded({ id: upload.id, img: el });
+    };
+    el.onerror = () => {
+      if (cancelled) return;
+      window.clearTimeout(timer);
+      setErrId(upload.id);
+    };
+    // ?cors=1 same-origin akıştır (S3'e yönlendirmez); tuval kirlenmez.
     el.src = `${fileUrl(upload.id)}?cors=1`;
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [upload.id]);
   useEffect(() => {
     if (img && canvasRef.current) renderEdits(img, edits, canvasRef.current, 900);

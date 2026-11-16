@@ -1,6 +1,7 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { createHash, createHmac } from "node:crypto";
 import { envStr } from "../env";
+import { metaClient } from "../channels/meta-client";
 
 /**
  * Bildirim kanal adapterleri. Anahtar/konfig yoksa MOCK: gerçek gönderim yapılmaz, çağrı
@@ -95,9 +96,13 @@ export async function sendEmail(to: string, subject: string, body: string, html?
 }
 
 export async function sendWhatsAppNotify(toPhone: string, body: string): Promise<ChannelSendResult> {
-  if (!whatsappNotifyConfigured()) return { status: "MOCKED" };
+  if (envStr("META_API_MODE", "mock") !== "http") return { status: "MOCKED" };
+  const token = envStr("WHATSAPP_ACCESS_TOKEN", "").trim() || envStr("META_WABA_TOKEN", "").trim();
+  const phoneNumberId = envStr("WHATSAPP_PHONE_NUMBER_ID", "").trim();
+  if (!token || !phoneNumberId) return { status: "FAILED", error: "META_API_MODE=http ama WhatsApp token veya WHATSAPP_PHONE_NUMBER_ID eksik." };
   try {
-    void toPhone; void body;
+    const to = toPhone.replace(/[^\d]/g, "");
+    await metaClient().sendWhatsApp(phoneNumberId, token, { kind: "text", to, body });
     return { status: "SENT" };
   } catch (e) {
     return { status: "FAILED", error: (e as Error).message };
@@ -105,9 +110,12 @@ export async function sendWhatsAppNotify(toPhone: string, body: string): Promise
 }
 
 export async function sendInstagramNotify(toHandle: string, body: string): Promise<ChannelSendResult> {
-  if (!instagramNotifyConfigured()) return { status: "MOCKED" };
+  if (envStr("META_API_MODE", "mock") !== "http") return { status: "MOCKED" };
+  const token = envStr("INSTAGRAM_ACCESS_TOKEN", "").trim() || envStr("META_IG_TOKEN", "").trim();
+  const igUserId = envStr("INSTAGRAM_IG_USER_ID", "").trim() || envStr("META_IG_USER_ID", "").trim();
+  if (!token || !igUserId) return { status: "FAILED", error: "META_API_MODE=http ama Instagram token veya IG kullanıcı kimliği eksik." };
   try {
-    void toHandle; void body;
+    await metaClient().sendInstagram(igUserId, token, toHandle, body);
     return { status: "SENT" };
   } catch (e) {
     return { status: "FAILED", error: (e as Error).message };

@@ -19,10 +19,15 @@ export const dynamic = "force-dynamic";
 const statusLabels = { open: "Bot aktif", awaiting_human: "Temsilci bekliyor", assigned: "Temsilcide", closed: "Kapalı" } as const;
 
 function countdown(min: number | null) {
-  if (min == null) return "—";
-  if (min <= 0) return "Kapandı";
+  if (min == null || min <= 0) return null;
   const h = Math.floor(min / 60);
   return h ? `${h} sa ${min % 60} dk` : `${min} dk`;
+}
+/** Konuşma durumu (Açık) ile yanıt penceresi ayrıdır. İkisi birden "Kapandı" demez. */
+function windowLabel(min: number | null, status: string) {
+  if (status === "closed") return "Konuşma kapalı";
+  const left = countdown(min);
+  return left ? `Yanıt penceresi ${left}` : "Yanıt penceresi kapalı";
 }
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ kanal?: string }> }) {
@@ -160,7 +165,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
                         {statusLabels[c.status]}
                         {c.handoffReason ? ` · ${handoffReasonLabels[c.handoffReason as HandoffReason] ?? c.handoffReason}` : ""}
                       </StatusDot>
-                      <span className={min != null && min > 0 && min <= 15 ? "text-critical" : "text-fg-muted"} aria-label={tt("Servis penceresi kalan süre")}>{tt("Pencere:")}{" "}{countdown(min)}
+                      <span className={min != null && min > 0 && min <= 15 ? "text-critical" : "text-fg-muted"} aria-label={tt("Servis penceresi kalan süre")}>{windowLabel(min, c.status)}
                       </span>
                       {fep ? <span className="text-fg">{tt("Reklam trafiği · 7 gün ücretsiz konuşma (kalan")}{" "}{countdown(minutesLeft(c.fepWindowExpiresAt, now))})</span> : null}
                     </div>

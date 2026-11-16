@@ -75,6 +75,17 @@ variable "enable_agent_schedules" {
   default     = true
 }
 
+variable "fal_mode" {
+  description = "mock | http. http için FAL_KEY (integrations sırrı) tanımlı olmalı. Varsayılan mock; canlı üretim için http yapın."
+  type        = string
+  default     = "mock"
+
+  validation {
+    condition     = contains(["mock", "http"], var.fal_mode)
+    error_message = "fal_mode mock veya http olmalı."
+  }
+}
+
 variable "meta_api_mode" {
   description = "mock | http. http için META_APP_ID/META_APP_SECRET Secrets Manager'a eklenmeli ve App Review tamamlanmış olmalı."
   type        = string

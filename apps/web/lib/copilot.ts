@@ -34,12 +34,12 @@ export async function nextSteps(actor: Actor): Promise<NextStep[]> {
       prisma.deliverable.count({ where: { status: "ICERIK_YUKLENDI", assignment: { contractStatus: { not: "RED" } } } }),
       prisma.deliverable.count({ where: { status: { in: [...OPEN_DELIVERABLE] }, plannedAt: { lt: now }, assignment: { contractStatus: { not: "RED" } } } }),
       prisma.payoutRequest.aggregate({ where: { status: "TALEP_EDILDI" }, _count: true, _sum: { amountKurus: true } }),
-      prisma.agentRun.count({ where: { status: "ACIK", severity: { in: ["KRITIK", "UYARI"] } } }),
+      countOpenFindings(),
       prisma.campaign.findMany({ where: { status: "TASLAK" }, select: { id: true, name: true, _count: { select: { assignments: true, briefs: true } } }, take: 20 }),
       prisma.campaign.count({ where: { status: "KAPANDI", brandPaymentReceivedAt: null } }),
     ]);
     if (late) steps.push({ title: `${late} geciken yayın`, detail: "Planlanan tarihi geçmiş işler; influencer'la iletişime geçin veya yeniden planlayın.", href: "/admin/takvim", tone: "critical" });
-    if (findings) steps.push({ title: `${findings} açık agent uyarısı`, detail: "Uyum, çakışma veya metrik tutarsızlığı bulguları.", href: "/admin/agent", tone: "critical" });
+    if (findings.uyarilar) steps.push({ title: `${findings.uyarilar} açık uyarı`, detail: `Kritik ${findings.kritik}, uyarı ${findings.uyari}. Bilgi düzeyinde ${findings.bilgi} kayıt daha var; toplam ${findings.total} açık bulgu.`, href: "/admin/agent?bolum=bulgular", tone: "critical" });
     if (drafts) steps.push({ title: `${drafts} taslak onay bekliyor`, detail: "Yüklenen içerikleri inceleyin, onaylayın veya revizyon isteyin.", href: "/admin", tone: "warn" });
     const accepted = await prisma.offer.count({ where: { status: "KABUL" } });
     if (accepted) steps.push({ title: `${accepted} kabul edilen teklif`, detail: "Kampanyaya ekleyin.", href: "/admin/teklifler", tone: "warn" });

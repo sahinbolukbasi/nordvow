@@ -6,6 +6,8 @@ import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
+import { LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
+import { assertUniqueInstagramHandle } from "../social/handles";
 
 /**
  * Davetle kayıt. Kayıt yalnız geçerli bir davet koduyla (özel link: /kayit?kod=...) yapılır; kayıt olan
@@ -131,6 +133,14 @@ export async function registerWithInvite(input: RegisterInput) {
     if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw new DomainError("DOGRULAMA", "Bu e-posta ile kayıtlı bir hesap var.");
     const u = await tx.user.create({ data: { email, name, phone, passwordHash, role: inv.targetRole, status: "PENDING" } });
     await tx.signupApplication.create({ data: { userId: u.id, inviteId: inv.id, targetRole: inv.targetRole, data: a as object } });
+    const docs = [
+      ...requiredAcceptanceDocs(inv.targetRole === "BRAND" ? "BRAND" : "INFLUENCER"),
+      ...(input.acceptOpenConsent ? ["acik-riza"] : []),
+      ...(input.acceptCommercial ? ["ileti-izni"] : []),
+    ];
+    await tx.legalAcceptance.createMany({
+      data: docs.map((document) => ({ userId: u.id, email, document, version: LEGAL_VERSION })),
+    });
     const admins = await tx.user.findMany({ where: { role: { in: ["ADMIN", "AGENCY"] }, status: "ACTIVE" }, select: { id: true } });
     await tx.notification.createMany({
       data: admins.map((x) => ({ userId: x.id, title: "Yeni üyelik başvurusu", body: `${name} (${a.kind === "BRAND" ? "marka" : "influencer"}) onayınızı bekliyor.`, href: "/admin/davetler?bolum=basvurular" })),
@@ -162,7 +172,9 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
       });
       if (cats.length) await setInfluencerCategories(tx, inf.id, cats.map((c) => c.id), cats[0]!.id);
       for (const [platform, h] of [["INSTAGRAM", data.instagram], ["TIKTOK", data.tiktok], ["YOUTUBE", data.youtube]] as const) {
-        if (h?.trim()) await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: cleanHandle(h), followers: 0, engagementRate: 0, demographics: {} } });
+        if (!h?.trim()) continue;
+        if (platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, h, inf.id);
+        await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: cleanHandle(h), followers: 0, engagementRate: 0, demographics: {} } });
       }
       // Vergi durumu belirlenene kadar ödeme kilitli.
       await tx.influencerTaxProfile.create({ data: { influencerId: inf.id, status: "diger" } });

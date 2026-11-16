@@ -1,5 +1,7 @@
 import { envStr } from "../env";
 import { getConfig } from "../config/store";
+import { falRuntimeMode } from "../creative/fal";
+import { emailConfigured } from "../notify/channels";
 
 /**
  * Entegrasyon durumu: hangi dış servisin canlı (anahtar/erişim var) hangisinin mock (anahtar
@@ -28,14 +30,19 @@ export async function integrationStatuses(): Promise<IntegrationStatus[]> {
 
   const out: IntegrationStatus[] = [];
 
-  // Creative — fal.ai
-  const falLive = keyPresent("FAL_KEY") || keyPresent("FAL_API_KEY");
+  // Creative — fal.ai (FAL_MODE=http ve anahtar birlikte gerekir; fal() ile aynı kural)
+  const falKey = keyPresent("FAL_KEY") || keyPresent("FAL_API_KEY");
+  const falLive = falRuntimeMode() === "http";
   out.push({
     key: "fal",
     name: "Creative görsel/video (fal.ai)",
     mode: falLive ? "canli" : "mock",
-    detail: falLive ? "fal.ai anahtarı tanımlı; gerçek üretim açık." : "Anahtar yok; üretimler mock (örnek çıktı) olarak çalışır.",
-    nextStep: falLive ? undefined : "FAL_KEY değerini infulancer-prod/integrations secret'ına ekleyin.",
+    detail: falLive
+      ? "FAL_MODE=http ve anahtar tanımlı; gerçek üretim açık."
+      : falKey
+        ? "Anahtar var ama FAL_MODE=http değil; üretim mock kalır."
+        : "Anahtar yok veya FAL_MODE=mock; üretimler örnek çıktıdır.",
+    nextStep: falLive ? undefined : falKey ? "FAL_MODE=http yapın." : "FAL_KEY ekleyin ve FAL_MODE=http yapın.",
   });
 
   // LLM / Asistan — Bedrock Converse
@@ -86,14 +93,33 @@ export async function integrationStatuses(): Promise<IntegrationStatus[]> {
     nextStep: tiktokLive ? undefined : "TIKTOK_ACCESS_TOKEN ekleyin ve uygulama denetimini tamamlayın.",
   });
 
-  // WhatsApp / Instagram (kanal webhook)
-  const waLive = keyPresent("WHATSAPP_ACCESS_TOKEN") || keyPresent("META_WABA_TOKEN");
+  // WhatsApp / Instagram: metaClient yalnız META_API_MODE=http iken gerçek çağrı yapar.
+  const metaHttp = envStr("META_API_MODE", "mock") === "http";
+  const waToken = keyPresent("WHATSAPP_ACCESS_TOKEN") || keyPresent("META_WABA_TOKEN");
+  const igToken = keyPresent("INSTAGRAM_ACCESS_TOKEN") || keyPresent("META_IG_TOKEN");
+  const waLive = metaHttp && (waToken || igToken);
   out.push({
     key: "whatsapp",
     name: "WhatsApp / Instagram mesajlaşma",
     mode: waLive ? "canli" : "mock",
-    detail: waLive ? "Meta mesajlaşma anahtarı tanımlı." : "Anahtar yok; mesajlar gerçek alıcılara gitmez (deneme modu).",
-    nextStep: waLive ? undefined : "Meta Embedded Signup ile numara/sayfa bağlanınca anahtar oluşur.",
+    detail: waLive
+      ? "META_API_MODE=http ve mesajlaşma anahtarı tanımlı."
+      : metaHttp
+        ? "META_API_MODE=http ama WhatsApp/Instagram token yok."
+        : waToken || igToken
+          ? "Token var ama META_API_MODE=http değil; gönderim mock."
+          : "Anahtar yok; mesajlar gerçek alıcılara gitmez.",
+    nextStep: waLive ? undefined : "META_API_MODE=http ve WHATSAPP_ACCESS_TOKEN veya META_IG_TOKEN ekleyin.",
+  });
+
+  out.push({
+    key: "email",
+    name: "E-posta bildirimleri",
+    mode: "mock",
+    detail: emailConfigured()
+      ? "EMAIL_PROVIDER ve EMAIL_FROM tanımlı; SES/SMTP çağrısı yok, gönderim FAILED/MOCKED kalır (sahte SENT yok)."
+      : "E-posta taşıyıcısı yok; bildirimler MOCKED.",
+    nextStep: "SES veya SMTP gönderimini bağlayın (EMAIL_PROVIDER, EMAIL_FROM).",
   });
 
   return out;

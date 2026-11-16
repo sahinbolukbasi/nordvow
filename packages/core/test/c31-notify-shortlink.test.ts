@@ -44,10 +44,10 @@ describe("K31 link kısaltma", () => {
     await resetDb();
   });
   it("kısa link oluşturur ve tıklamayı sayar", async () => {
-    const link = await createShortLink("https://infulancer.example/kampanya/yaz", { label: "Yaz" });
+    const link = await createShortLink("https://nordvow.com/kampanya/yaz", { label: "Yaz" });
     expect(link.slug).toMatch(/^[A-Za-z0-9]+$/);
     const t1 = await resolveAndCount(link.slug);
-    expect(t1).toBe("https://infulancer.example/kampanya/yaz");
+    expect(t1).toBe("https://nordvow.com/kampanya/yaz");
     await resolveAndCount(link.slug);
     const row = await prisma.shortLink.findUnique({ where: { slug: link.slug } });
     expect(row?.clicks).toBe(2);

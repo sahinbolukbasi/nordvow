@@ -10,6 +10,7 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import { platformLabels } from "@infulancer/core/domain/labels";
 import { publish } from "@infulancer/core/events";
 import { setInfluencerCategories } from "@infulancer/core/domain/categories";
+import { assertUniqueInstagramHandle } from "@infulancer/core/social/handles";
 import { readCategorySelection } from "@/lib/categories";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, intOrNull, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
@@ -168,6 +169,7 @@ export async function saveInfluencer(_prev: ActionState, fd: FormData): Promise<
       const existing = await tx.socialAccount.findMany({ where: { influencerId } });
       const now = new Date();
       for (const acc of accounts) {
+        if (acc.platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, acc.handle, influencerId);
         const prev = existing.find((e) => e.platform === acc.platform);
         const values = {
           handle: acc.handle,

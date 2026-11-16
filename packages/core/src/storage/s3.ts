@@ -108,6 +108,18 @@ export async function presignGet(key: string, fileName: string): Promise<string>
   );
 }
 
+/** Same-origin önizleme (tuval) için nesneyi sunucu üzerinden okur. */
+export async function readObject(key: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  try {
+    const res = await s3().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    if (!res.Body) return null;
+    const bytes = await res.Body.transformToByteArray();
+    return { bytes, mime: res.ContentType ?? "application/octet-stream" };
+  } catch {
+    return null;
+  }
+}
+
 export async function headObject(key: string): Promise<{ size: number; mime: string | undefined } | null> {
   try {
     const res = await s3().send(new HeadObjectCommand({ Bucket: bucket(), Key: key }));
