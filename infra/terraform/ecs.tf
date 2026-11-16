@@ -94,6 +94,11 @@ resource "aws_iam_role_policy" "task" {
         Action   = ["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeAgentRuntimeForUser", "bedrock:InvokeAgent"]
         Resource = ["*"]
       },
+      {
+        Effect   = "Allow"
+        Action   = ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail"]
+        Resource = ["*"]
+      },
     ]
   })
 }

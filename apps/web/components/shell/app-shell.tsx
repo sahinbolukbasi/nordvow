@@ -14,6 +14,8 @@ import { BRAND_NAME } from "@/lib/brand";
 import { getT } from "@/lib/i18n/server";
 import { RegionSwitcher } from "@/components/i18n/region-switcher";
 import { NordvowMark } from "@/components/brand/logo";
+import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
+import { prisma } from "@infulancer/core/db";
 
 /**
  * Uygulama iskeleti: kenar çubuğu (md+) / alt sekme çubuğu (mobil), 64px başlık
@@ -29,6 +31,17 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
   const perms: PagePermissionRow[] = await loadPagePermissions(permRole, actor.userId);
   const permCtx = { perms, role: permRole, userId: actor.userId };
   const t = await getT();
+  const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
+  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  const userEmail = (user?.email ?? "").toLowerCase();
+  const popups = allPopups.filter(
+    (p) =>
+      p.audience === "all" ||
+      (p.audience === "influencers" && navRole === "INFLUENCER") ||
+      (p.audience === "brands" && navRole === "BRAND") ||
+      (p.audience === "agency" && (navRole === "ADMIN" || navRole === "AGENCY")) ||
+      (p.audience === "single" && p.targetEmail?.toLowerCase() === userEmail),
+  );
 
   return (
     <div className="relative isolate flex min-h-dvh bg-bg text-fg">
@@ -85,6 +98,7 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
       </div>
       <MobileTabBar role={navRole} perm={permCtx} />
       <CopilotLauncher />
+      <AnnouncementPopup items={popups} userId={actor.userId} />
     </div>
   );
 }
