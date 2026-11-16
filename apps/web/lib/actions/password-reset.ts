@@ -89,7 +89,10 @@ export async function requestPasswordResetAction(_prev: ActionState, fd: FormDat
         ctaLabel: "Yeni Şifre Belirle",
         locale: "tr",
       });
-      await sendEmail(user.email, subject, body, html);
+      const sendRes = await sendEmail(user.email, subject, body, html);
+      if (sendRes.status !== "SENT") {
+        console.warn("[password-reset] sendEmail status:", sendRes.status, sendRes.error ?? "");
+      }
       await audit.append({
         actor: { id: user.id, role: user.role },
         action: "PASSWORD_RESET_REQUESTED",
