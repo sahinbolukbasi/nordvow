@@ -12,6 +12,7 @@ import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent }
 import { readLimitFromEvent } from "../messaging/tiers";
 import { onInbound } from "../messaging/windows";
 import { fetchIgSenderProfile, showTyping } from "./meta-client";
+import { vault } from "./vault";
 import { firstSeen, rawBodies } from "./webhook";
 
 /**
@@ -85,7 +86,14 @@ async function dispatch(p: Any): Promise<string | null> {
     const provider: ChannelProvider = p.object === "instagram" ? "INSTAGRAM" : "MESSENGER";
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
-      const t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
+      let t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
+      if (!t && provider === "INSTAGRAM") {
+        t = await tenantByExternal("INSTAGRAM", "page_id", String(entry.id));
+        if (!t) {
+          const recId = entry.messaging?.[0]?.recipient?.id;
+          if (recId) t = await tenantByExternal("INSTAGRAM", "ig_user_id", String(recId));
+        }
+      }
       tenant ??= t;
       if (!t) {
         console.warn(`[processor] ${provider} tenant bulunamadı (entry.id=${entry.id})`);
@@ -210,8 +218,21 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
   const globalIgToken = envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
   const globalIgUserId = envStr("INSTAGRAM_IG_USER_ID", "");
 
-  if (channel === "INSTAGRAM" && input.from && globalIgToken && globalIgUserId) {
-    const prof = await fetchIgSenderProfile(input.from, globalIgUserId, globalIgToken).catch(() => null);
+  const conn = await prisma.channelConnection.findFirst({
+    where: { tenantId, provider: channel, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    include: { phoneNumbers: true },
+  });
+  const useTenantConn = !!conn && !conn.tokenRef.startsWith("env:");
+  const tenantToken = useTenantConn ? await vault().get(conn.tokenRef).catch(() => "") : "";
+  const extIds = (conn?.externalIds ?? {}) as Record<string, unknown>;
+  const waToken = tenantToken || globalWaToken;
+  const waPhoneId = (useTenantConn ? conn?.phoneNumbers[0]?.phoneNumberId : undefined) ?? globalWaPhoneId;
+  const igToken = tenantToken || globalIgToken;
+  const igUserId = String(extIds.ig_user_id ?? extIds.page_id ?? "") || globalIgUserId;
+
+  if (channel === "INSTAGRAM" && input.from && igToken && igUserId) {
+    const prof = await fetchIgSenderProfile(input.from, igUserId, igToken).catch(() => null);
     if (prof) {
       igUsername = prof.username;
       resolvedName ??= prof.name ?? (prof.username ? `@${prof.username}` : null);
@@ -238,15 +259,19 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     return { conversationId: conv.id, optOut: true };
   }
   if (input.text) {
-    if (channel === "WHATSAPP" && globalWaToken && globalWaPhoneId) {
-      void showTyping({ channel: "WHATSAPP", token: globalWaToken, phoneNumberId: globalWaPhoneId, inboundMessageId: input.externalMessageId });
-    } else if (channel === "INSTAGRAM" && globalIgToken && globalIgUserId) {
-      void showTyping({ channel: "INSTAGRAM", token: globalIgToken, igId: globalIgUserId, recipientId: input.from });
+    if (channel === "WHATSAPP" && waToken && waPhoneId) {
+      void showTyping({ channel: "WHATSAPP", token: waToken, phoneNumberId: waPhoneId, inboundMessageId: input.externalMessageId });
+    } else if (channel === "INSTAGRAM" && igToken && igUserId) {
+      void showTyping({ channel: "INSTAGRAM", token: igToken, igId: igUserId, recipientId: input.from });
     }
-    const pre = await prescreenCreator(tenantId, conv.id, input.text);
-    if (!pre.handled) {
-      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername });
-      if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+    const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { enabled: true } });
+    const botDisabledByFirm = agentRows.length > 0 && agentRows.every((a) => !a.enabled);
+    if (!botDisabledByFirm) {
+      const pre = await prescreenCreator(tenantId, conv.id, input.text);
+      if (!pre.handled) {
+        const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername });
+        if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+      }
     }
   }
   return { conversationId: conv.id, optOut: false };

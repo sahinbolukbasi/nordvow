@@ -347,7 +347,7 @@ export function CreativeComposer({
     const welcome: ChatTurn = {
       id: "welcome",
       from: "bot",
-      text: "Nasıl bir fotoğraf, video veya seslendirme üretmek istediğinizi aşağıya yazın. Üretim tamamlandığında sağ taraftaki telefon önizleme panelinden chat komutlarıyla kolayca formatlayabilirsiniz.",
+      text: "Nasıl yardımcı olabilirim? İstediğiniz fotoğraf, video veya seslendirmeyi aşağıya yazın; sağ panelde telefonda önizleyip chat komutlarıyla anında formatlayabilirsiniz.",
     };
     if (!initialHistory.length) return [welcome];
     const turns: ChatTurn[] = [welcome];

@@ -337,6 +337,68 @@ async function executeCopilotTool(
       };
     }
 
+    case "list_campaigns": {
+      const where = role === "BRAND" && actor.brandId ? { brandId: actor.brandId } : role === "INFLUENCER" && actor.influencerId ? { assignments: { some: { influencerId: actor.influencerId } } } : {};
+      const rows = await prisma.campaign.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        take: 6,
+        select: { name: true, status: true, startsAt: true, endsAt: true },
+      });
+      if (!rows.length) return { reply: "Henüz kayıtlı bir kampanya bulunmuyor.", actionIds: ["campaigns"] };
+      const list = rows.map((c, i) => `${i + 1}. "${c.name}" — ${c.status} (${c.startsAt.toLocaleDateString("tr-TR")} – ${c.endsAt.toLocaleDateString("tr-TR")})`).join("\n");
+      return { reply: `Kampanyalar:\n${list}`, actionIds: ["campaigns", "calendar"] };
+    }
+
+    case "list_influencers": {
+      if (role === "INFLUENCER") return null;
+      const rows = await prisma.influencer.findMany({
+        where: { user: { status: "ACTIVE" } },
+        orderBy: { name: "asc" },
+        take: 6,
+        select: { name: true, category: true, city: true, socialAccounts: { select: { platform: true, followers: true } } },
+      });
+      if (!rows.length) return { reply: "Sistemde aktif influencer bulunmuyor.", actionIds: role === "ADMIN" ? ["influencers"] : ["discover"] };
+      const list = rows
+        .map((inf, i) => {
+          const total = inf.socialAccounts.reduce((s, a) => s + a.followers, 0);
+          return `${i + 1}. ${inf.name} (${inf.category}${inf.city ? `, ${inf.city}` : ""}) — ${total.toLocaleString("tr-TR")} takipçi`;
+        })
+        .join("\n");
+      return { reply: `Öne çıkan influencerlar:\n${list}`, actionIds: role === "ADMIN" ? ["influencers"] : ["discover"] };
+    }
+
+    case "list_jobs": {
+      const where =
+        role === "INFLUENCER" && actor.influencerId
+          ? { assignment: { influencerId: actor.influencerId }, status: { notIn: ["TAMAMLANDI", "IPTAL"] as ("TAMAMLANDI" | "IPTAL")[] } }
+          : role === "BRAND" && actor.brandId
+            ? { assignment: { campaign: { brandId: actor.brandId } }, status: { notIn: ["TAMAMLANDI", "IPTAL"] as ("TAMAMLANDI" | "IPTAL")[] } }
+            : { status: { notIn: ["TAMAMLANDI", "IPTAL"] as ("TAMAMLANDI" | "IPTAL")[] } };
+      const rows = await prisma.deliverable.findMany({
+        where,
+        orderBy: { plannedAt: "asc" },
+        take: 6,
+        select: { platform: true, contentType: true, status: true, plannedAt: true, assignment: { select: { campaign: { select: { name: true } } } } },
+      });
+      if (!rows.length) return { reply: "Bekleyen aktif iş veya teslim bulunmuyor.", actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns"] };
+      const list = rows.map((d, i) => `${i + 1}. ${d.assignment.campaign.name} — ${d.platform} ${d.contentType} (${d.status}, ${d.plannedAt.toLocaleDateString("tr-TR")})`).join("\n");
+      return { reply: `Aktif işler ve teslimler:\n${list}`, actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns", "calendar"] };
+    }
+
+    case "list_creative": {
+      const tenantId = ownTenant(actor);
+      const assets = await prisma.generatedAsset.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { modelKey: true, createdAt: true },
+      });
+      if (!assets.length) return { reply: "Creative Stüdyo'da henüz üretilmiş bir görsel veya video yok. Doğrudan buradan \"görsel üret: ...\" yazarak başlayabilirsiniz.", actionIds: ["creative"] };
+      const list = assets.map((a, i) => `${i + 1}. ${a.modelKey} (${a.createdAt.toLocaleDateString("tr-TR")})`).join("\n");
+      return { reply: `Son Creative Stüdyo üretimleriniz:\n${list}`, actionIds: ["creative"] };
+    }
+
     default:
       return null;
   }
@@ -376,6 +438,18 @@ async function detectAndExecuteCommand(actor: Actor, message: string): Promise<{
   }
   if (/(?:bekleyen taslagi onayla|son taslagi onayla|icerigi onayla)/.test(n)) {
     return executeCopilotTool(actor, "approve_deliverable", {});
+  }
+  if (/^(?:kampanyalar|kampanyalarim|kampanyalari listele|aktif kampanyalar)$/.test(n)) {
+    return executeCopilotTool(actor, "list_campaigns", {});
+  }
+  if (/^(?:influencerlar|influencerlari listele|influencer listesi)$/.test(n)) {
+    return executeCopilotTool(actor, "list_influencers", {});
+  }
+  if (/^(?:isler|islerim|teslimler|islerimi listele)$/.test(n)) {
+    return executeCopilotTool(actor, "list_jobs", {});
+  }
+  if (/^(?:creative|uretimlerim|galerim|kitapligim)$/.test(n)) {
+    return executeCopilotTool(actor, "list_creative", {});
   }
   return null;
 }
@@ -433,6 +507,10 @@ export async function copilotAnswer(actor: Actor, message: string, history: { ro
         "- create_creative: {\"kind\": \"image\"|\"video\", \"prompt\": \"...\", \"aspect\": \"9:16\"|\"4:5\"|\"1:1\"|\"16:9\"}\n" +
         "- check_balance: {}\n" +
         "- request_credits: {\"amount\": 500}\n" +
+        "- list_campaigns: {}\n" +
+        "- list_influencers: {}\n" +
+        "- list_jobs: {}\n" +
+        "- list_creative: {}\n" +
         "- list_offers: {}\n" +
         "- respond_offer: {\"index\": 1, \"decision\": \"KABUL\"|\"RED\", \"note\": \"...\"}\n" +
         "- create_invite: {\"targetRole\": \"INFLUENCER\"|\"BRAND\"}\n" +

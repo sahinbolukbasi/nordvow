@@ -141,6 +141,21 @@ export function httpMetaClient(): MetaClient {
         const r = await call<{ message_id: string }>(`/${page.pageId}/messages`, { method: "POST", token: page.pageToken, body });
         return { messageId: r.message_id };
       }
+      // Instagram Login (IGAA…) token'larında graph.instagram.com ucu kullanılır.
+      if (!token.startsWith("EAA")) {
+        const version = await getConfig("whatsapp.graphApiVersion");
+        const res = await fetch(`https://graph.instagram.com/${version}/${igId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body,
+          signal: AbortSignal.timeout(15_000),
+        });
+        const json = (await res.json().catch(() => ({}))) as { message_id?: string; error?: { message: string; code: number; type?: string } };
+        if (!res.ok || json.error || !json.message_id) {
+          throw new MetaApiError(json.error?.message ?? `IG HTTP ${res.status}`, json.error?.code ?? res.status, undefined, json.error?.type, res.status);
+        }
+        return { messageId: json.message_id };
+      }
       const r = await call<{ message_id: string }>(`/${igId}/messages`, { method: "POST", token, body });
       return { messageId: r.message_id };
     },
@@ -179,7 +194,7 @@ export async function resolveIgPage(igId: string, token: string): Promise<IgPage
     `/me/accounts?fields=id,access_token,instagram_business_account&limit=100`,
     token,
   );
-  const p = (r.data ?? []).find((x) => x.instagram_business_account?.id === igId);
+  const p = (r.data ?? []).find((x) => x.instagram_business_account?.id === igId || x.id === igId);
   const page = p?.access_token ? { pageId: p.id, pageToken: p.access_token } : null;
   igPageCache.set(key, { page, at: Date.now() });
   return page;

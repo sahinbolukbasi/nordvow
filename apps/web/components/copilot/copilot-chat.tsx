@@ -123,7 +123,14 @@ function CampaignRequestForm({ executionMode }: { executionMode?: "SELF" | "AJAN
 export function CopilotChat({ welcome, compact = false, onClose }: { welcome: CopilotWelcome; compact?: boolean; onClose?: () => void }) {
   const tt = useTT();
   const storeKey = `infl-copilot:${welcome.userId}`;
-  const [messages, setMessages] = useState<Msg[]>(() => [{ id: "w", from: "bot", text: welcome.greeting, steps: welcome.steps }]);
+  const [messages, setMessages] = useState<Msg[]>(() => [
+    { id: "w", from: "bot", text: welcome.greeting, steps: welcome.steps },
+    {
+      id: "help",
+      from: "bot",
+      text: "Size nasıl yardımcı olabilirim? Aşağıdaki hızlı komutlardan birini seçebilir veya kampanya, teklif, listeleme, kısa link ve Creative görsel/video üretimi için doğrudan yazabilirsiniz.",
+    },
+  ]);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
