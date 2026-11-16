@@ -73,6 +73,78 @@ export async function converseChat(opts: { system: string; turns: ChatTurn[]; ma
   throw lastErr instanceof Error ? lastErr : new Error("LLM çağrısı başarısız");
 }
 
+/**
+ * AWS Bedrock Converse API + Structured Outputs (outputConfig.textFormat JSON Schema)
+ * Çok turlu konuşma geçmişini (`turns`) korur ve yanıtı kesinlikle verilen JSON şemasına uygun döndürür.
+ */
+export async function converseStructured<T = Record<string, unknown>>(opts: {
+  system: string;
+  turns: ChatTurn[];
+  schemaName: string;
+  schemaDescription?: string;
+  schema: Record<string, unknown>;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<{ data: T | null; rawText: string; model: string }> {
+  const merged: ChatTurn[] = [];
+  for (const t of opts.turns) {
+    if (!t.text.trim()) continue;
+    const last = merged[merged.length - 1];
+    if (last && last.role === t.role) last.text += `\n${t.text}`;
+    else merged.push({ ...t });
+  }
+  while (merged.length && merged[0]!.role !== "user") merged.shift();
+  if (!merged.length) merged.push({ role: "user", text: "Merhaba" });
+
+  const structuredModels = [
+    envStr("BEDROCK_TEXT_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+  ].filter((m, i, a) => m && a.indexOf(m) === i);
+
+  for (const modelId of structuredModels) {
+    try {
+      const res = await bedrock().send(
+        new ConverseCommand({
+          modelId,
+          system: [{ text: opts.system }],
+          messages: merged.map((t) => ({ role: t.role, content: [{ text: t.text }] })),
+          inferenceConfig: { maxTokens: opts.maxTokens ?? 700, temperature: opts.temperature ?? 0.3 },
+          outputConfig: {
+            textFormat: {
+              type: "json_schema",
+              structure: {
+                jsonSchema: {
+                  name: opts.schemaName,
+                  description: opts.schemaDescription ?? opts.schemaName,
+                  schema: JSON.stringify(opts.schema),
+                },
+              },
+            },
+          },
+        }),
+      );
+      const rawText = textOf(res.output);
+      const parsed = parseJsonObject(rawText) as T | null;
+      if (parsed) return { data: parsed, rawText, model: modelId };
+    } catch {
+      // Structured output desteklemeyen model/bölge durumunda standart Converse JSON ayrıştırmaya düş
+    }
+  }
+
+  const fallback = await converseChat({
+    system: `${opts.system}\n\nSADECE şu JSON şemasına uygun geçerli bir JSON nesnesi döndür:\n${JSON.stringify(opts.schema)}`,
+    turns: merged,
+    maxTokens: opts.maxTokens ?? 700,
+    temperature: opts.temperature ?? 0.3,
+  });
+  return {
+    data: parseJsonObject(fallback.text) as T | null,
+    rawText: fallback.text,
+    model: fallback.model,
+  };
+}
+
 export const bedrockProvider: LlmProvider = {
   name: "bedrock",
   async completeText(req: TextRequest) {

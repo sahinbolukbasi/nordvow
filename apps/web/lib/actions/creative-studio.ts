@@ -28,7 +28,14 @@ import { chargeIn, creativePricing } from "@infulancer/core/creative/pricing";
 import { tenantCurrency } from "@infulancer/core/creative/tenant";
 import { embedC2pa } from "@infulancer/core/creative/c2pa";
 import { objectStore } from "@infulancer/core/channels/raw-store";
-import { ModelUnavailableError, resolveModel } from "@infulancer/core/creative/registry";
+import { ModelUnavailableError, resolveModel, seedModelRegistry } from "@infulancer/core/creative/registry";
+import {
+  endpointToModelKey,
+  FAL_ORCHESTRATOR_CATALOG,
+  getComboPresetForTier,
+  runStoryChatbotConverse,
+  type StoryChatbotPayload,
+} from "@infulancer/core/creative/orchestrator";
 import { converseChat, parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
 import { enqueueVideoEdit } from "@infulancer/core/creative/video-edit";
@@ -241,6 +248,21 @@ export type PromptIdeaItem = {
   prompt: string;
 };
 
+export type OrchestratorMeta = {
+  status: "needs_info" | "ready";
+  missingSlots: string[];
+  endpoint: string;
+  unitCostLabel: string;
+  falPayload: Record<string, unknown>;
+  comboPreset: {
+    label: string;
+    image: string;
+    video: string;
+    tts: string;
+    music: string;
+  };
+};
+
 export type CreativeDirectorResponse = {
   ok: boolean;
   error?: string;
@@ -255,6 +277,7 @@ export type CreativeDirectorResponse = {
   jobId?: string | null;
   assetId?: string | null;
   availableCredits?: number;
+  orchestrator?: OrchestratorMeta | null;
   suggestions: PromptIdeaItem[];
 };
 
@@ -265,31 +288,55 @@ function pickFalModelKey(
   promptText: string,
 ): string {
   const p = promptText.toLocaleLowerCase("tr");
+  const hasKey = (k: string) => models.some((m) => m.key === k);
   const list = models
     .filter((m) => m.kind === kind)
     .sort((a, b) => Number(a.creditsPerUnit) - Number(b.creditsPerUnit));
 
   if (kind === "image") {
-    if (tier === "economy") return list.find((m) => m.key === "flux-schnell")?.key ?? list[0]?.key ?? "flux-schnell";
-    if (tier === "standard") {
-      if (/(yazı|afiş|poster|tipografi|başlık|logo)/.test(p)) return list.find((m) => m.key === "ideogram-v3")?.key ?? "flux-schnell";
-      if (/(illüstrasyon|vektör|çizim|ikon)/.test(p)) return list.find((m) => m.key === "recraft-v3")?.key ?? "flux-schnell";
-      return list.find((m) => m.key === "nano-banana-2" || m.key === "recraft-v3")?.key ?? list[Math.min(1, list.length - 1)]?.key ?? "flux-schnell";
+    if (/(yazı|afiş|poster|tipografi|başlık|logo|reading|typography)/.test(p)) {
+      if (hasKey("nano-banana-2")) return "nano-banana-2";
+      if (hasKey("ideogram-v3")) return "ideogram-v3";
     }
-    if (/(yazı|afiş|poster|tipografi)/.test(p)) return list.find((m) => m.key === "ideogram-4" || m.key === "ideogram-v3")?.key ?? "flux-schnell";
-    if (/(illüstrasyon|vektör)/.test(p)) return list.find((m) => m.key === "recraft-v4-pro" || m.key === "recraft-v3")?.key ?? "flux-schnell";
-    return list.find((m) => m.key === "nano-banana-pro")?.key ?? list[list.length - 1]?.key ?? "flux-schnell";
+    if (tier === "economy") return hasKey("flux-schnell") ? "flux-schnell" : (list[0]?.key ?? "flux-schnell");
+    if (tier === "standard") {
+      if (/(moda|portre|estetik|kozmetik)/.test(p) && hasKey("seedream-v4-5")) return "seedream-v4-5";
+      if (hasKey("flux-dev")) return "flux-dev";
+      return hasKey("nano-banana-2") ? "nano-banana-2" : (list[Math.min(1, list.length - 1)]?.key ?? "flux-schnell");
+    }
+    if (/(katalog|stüdyo reklam)/.test(p) && hasKey("seedream-v5-pro")) return "seedream-v5-pro";
+    if (hasKey("nano-banana-pro")) return "nano-banana-pro";
+    return hasKey("nano-banana-2") ? "nano-banana-2" : (list[list.length - 1]?.key ?? "flux-schnell");
   }
 
   if (kind === "video") {
-    if (tier === "economy") return list.find((m) => m.key === "ltxv-distilled")?.key ?? list[0]?.key ?? "ltxv-distilled";
-    if (tier === "standard") return list.find((m) => m.key === "hailuo-02-standard" || m.key === "kling-v2-5-turbo-pro")?.key ?? list[Math.min(1, list.length - 1)]?.key ?? "ltxv-distilled";
-    return list.find((m) => m.key === "kling-v3-pro" || m.key === "seedance-2")?.key ?? list[list.length - 1]?.key ?? "ltxv-distilled";
+    if (tier === "economy") {
+      if (hasKey("minimax-h3-max-turbo")) return "minimax-h3-max-turbo";
+      return hasKey("ltxv-distilled") ? "ltxv-distilled" : (list[0]?.key ?? "ltxv-distilled");
+    }
+    if (tier === "standard") {
+      if (/(dinamik|kamera hareketi|wan)/.test(p) && hasKey("wan-v3")) return "wan-v3";
+      if (hasKey("minimax-h3-max")) return "minimax-h3-max";
+      return hasKey("hailuo-02-standard") ? "hailuo-02-standard" : (list[Math.min(1, list.length - 1)]?.key ?? "ltxv-distilled");
+    }
+    if (/(ses efekt|veo)/.test(p) && hasKey("veo-3-1")) return "veo-3-1";
+    if (/(1080p|yüksek çözünürlük)/.test(p) && hasKey("wan-v3-1080p")) return "wan-v3-1080p";
+    return hasKey("kling-v3-pro") ? "kling-v3-pro" : (list[list.length - 1]?.key ?? "ltxv-distilled");
   }
 
-  if (tier === "economy") return list.find((m) => m.key === "minimax-speech-2-8-turbo")?.key ?? list[0]?.key ?? "minimax-speech-2-8-turbo";
-  if (tier === "standard") return list.find((m) => m.key === "elevenlabs-turbo-2-5")?.key ?? list[0]?.key ?? "minimax-speech-2-8-turbo";
-  return list.find((m) => m.key === "elevenlabs-multilingual-v2")?.key ?? list[list.length - 1]?.key ?? "minimax-speech-2-8-turbo";
+  // Seslendirme (TTS) veya Arka Plan Müziği
+  const isMusic = /(müzik|muzik|fon müziği|beat|şarkı|enstrümantal|melodi)/.test(p);
+  if (isMusic) {
+    if (tier === "economy" && hasKey("ace-step")) return "ace-step";
+    if (tier === "standard" && hasKey("cassetteai-music")) return "cassetteai-music";
+    if (/(vokal|sözlü)/.test(p) && hasKey("minimax-music-2-6")) return "minimax-music-2-6";
+    if (hasKey("lyria-3")) return "lyria-3";
+  }
+  if (/(diyalog|\[s1\]|iki kişi|podcast)/i.test(p) && hasKey("dia-tts")) return "dia-tts";
+  if (tier === "economy") return hasKey("elevenlabs-turbo-2-5") ? "elevenlabs-turbo-2-5" : (list[0]?.key ?? "minimax-speech-2-8-turbo");
+  if (tier === "standard") return hasKey("elevenlabs-turbo-2-5") ? "elevenlabs-turbo-2-5" : (list[0]?.key ?? "minimax-speech-2-8-turbo");
+  if (hasKey("elevenlabs-v3")) return "elevenlabs-v3";
+  return hasKey("elevenlabs-multilingual-v2") ? "elevenlabs-multilingual-v2" : (list[list.length - 1]?.key ?? "minimax-speech-2-8-turbo");
 }
 
 const DEFAULT_PROMPT_IDEAS: PromptIdeaItem[] = [
@@ -626,6 +673,13 @@ export async function chatCreativeDirectorAction(input: {
 
   const wantsVoiceWithVideo = /(sesli video|seslendirme|konuşmalı|anlatımlı|ses ekle|ses de olsun|sesli reels)/.test(norm);
 
+  const isVideoReq = /(video|reels|hareketli|klip|b-roll|canlandır)/.test(norm);
+  const isAudioReq = !isVideoReq && /(ses|seslendir|konusma|konuşma|anons|spot|müzik|muzik|fon müziği|beat|şarkı|tts|diyalog)/.test(norm);
+  const turns = [
+    ...input.history.slice(-6).map((h) => ({ role: h.role, text: h.text.slice(0, 600) })),
+    { role: "user" as const, text: msg },
+  ];
+
   let decision: {
     action: "ask" | "generate";
     kind: "image" | "video" | "audio";
@@ -634,28 +688,47 @@ export async function chatCreativeDirectorAction(input: {
     enhancedPrompt: string;
     postBrief: string;
     voiceoverScript: string;
+    storyPayload?: StoryChatbotPayload;
     suggestions: PromptIdeaItem[];
   } | null = null;
 
-  if (envStr("LLM_PROVIDER", "mock") === "bedrock") {
+  // Görsel / Story / Post isteklerinde doğrudan AWS Bedrock Converse API + Structured Outputs (JSON Schema) çalıştır
+  if (!isVideoReq && !isAudioReq) {
+    const storyOut = await runStoryChatbotConverse({
+      messages: turns,
+      tier: input.tier,
+      forceReady: explicitGen,
+    });
+    const f = storyOut.fal_payload.aspect_ratio;
+    decision = {
+      action: storyOut.status === "ready" ? "generate" : "ask",
+      kind: "image",
+      format: f,
+      reply: storyOut.assistant_reply,
+      enhancedPrompt: storyOut.fal_payload.prompt,
+      postBrief:
+        storyOut.status === "ready"
+          ? `✨ ${msg}\n\nYeni sezonun en özel detaylarını keşfetmeye hazır mısınız? Yorumlarda buluşalım, profildeki bağlantıdan hemen inceleyin!\n\n#reklam #işbirliği #nordvow #story #kesfet`
+          : "",
+      voiceoverScript: "",
+      storyPayload: storyOut,
+      suggestions: DEFAULT_PROMPT_IDEAS,
+    };
+  } else if (envStr("LLM_PROVIDER", "mock") === "bedrock") {
     try {
-      const turns = [
-        ...input.history.slice(-6).map((h) => ({ role: h.role, text: h.text.slice(0, 600) })),
-        { role: "user" as const, text: msg },
-      ];
       const out = await converseChat({
         system: [
-          "Sen Nordvow Creative AI'sın. Kullanıcıyla samimi, yaratıcı Türkçe sohbet ederek Instagram/sosyal medya fotoğrafı, videosu, sesli videosu, seslendirmesi ve Post Brief'i üretirsin.",
+          "Sen Nordvow Creative AI Medya Orkestratörüsün. Kullanıcıyla samimi, yaratıcı Türkçe sohbet ederek Instagram Reels videosu, sesli video, seslendirme (TTS) veya arka plan müziği üretirsin.",
           explicitGen
             ? "Kullanıcı üretim yapılmasını istiyor veya yeterli detay verdi: KESİNLİKLE action='generate' seç!"
-            : "Kullanıcının mesajı henüz kısa bir fikir aşamasındaysa (örn. 'kahve postu atmak istiyorum') action='ask' seç; samimi şekilde 2-3 yaratıcı fikir öner, formatı (4:5 post mu, 9:16 sesli Reels videosu mu) ve ışık/atmosfer tercihini sor.",
+            : "Kullanıcının mesajı henüz kısa bir fikir aşamasındaysa action='ask' seç; samimi şekilde 1-2 kısa soru sor.",
           "action='generate' olduğunda:",
-          "- kind: 'image' (fotoğraf), 'video' (Reels/video) veya 'audio' (yalnız seslendirme).",
-          "- enhancedPrompt: kullanıcının isteğini çok detaylı, sinematik ışık, kadraj ve doku içeren profesyonel bir prompta dönüştür.",
-          "- postBrief: dikkat çekici açılış cümlesi (Hook), samimi açıklama, CTA, #reklam #işbirliği ve 5 ilgili hashtag içeren hazır bir Instagram Post Metni & Brief yaz.",
-          "- voiceoverScript: eğer video veya ses üretilecekse 1-2 cümlelik doğal Türkçe reklam seslendirme metni yaz.",
+          "- kind: 'video' (Reels/video) veya 'audio' (seslendirme / arka plan müziği).",
+          "- enhancedPrompt: fal.ai video/ses modeli için zengin İNGİLİZCE prompt yaz (Reels için 'vertical 9:16 composition, cinematic motion').",
+          "- postBrief: dikkat çekici açılış cümlesi (Hook), açıklama, #reklam #işbirliği ve 5 ilgili hashtag içeren hazır bir Instagram Post Metni yaz.",
+          "- voiceoverScript: 1-2 cümlelik doğal Türkçe reklam seslendirme metni yaz.",
           "SADECE şu JSON formatında yanıt döndür:",
-          '{"action":"ask"|"generate","kind":"image"|"video"|"audio","format":"9:16"|"4:5"|"1:1"|"16:9","reply":"<kullanıcıya mesajın>","enhancedPrompt":"<detaylı prompt>","postBrief":"<Instagram post metni ve hashtagler>","voiceoverScript":"<Türkçe seslendirme metni>"}',
+          '{"action":"ask"|"generate","kind":"video"|"audio","format":"9:16"|"4:5"|"1:1"|"16:9","reply":"<kullanıcıya mesajın>","enhancedPrompt":"<detaylı İngilizce prompt>","postBrief":"<Instagram post metni ve hashtagler>","voiceoverScript":"<Türkçe seslendirme metni>"}',
         ].join("\n"),
         turns,
         maxTokens: 600,
@@ -663,7 +736,7 @@ export async function chatCreativeDirectorAction(input: {
       });
       const parsed = parseJsonObject(out.text);
       if (parsed && typeof parsed.reply === "string") {
-        const k = parsed.kind === "video" || parsed.kind === "audio" ? parsed.kind : "image";
+        const k = parsed.kind === "audio" ? "audio" : "video";
         const f = parsed.format === "4:5" || parsed.format === "1:1" || parsed.format === "16:9" ? parsed.format : "9:16";
         decision = {
           action: explicitGen ? "generate" : parsed.action === "ask" ? "ask" : "generate",
@@ -737,14 +810,30 @@ export async function chatCreativeDirectorAction(input: {
 
   if (decision.action === "ask") {
     const topic = msg.slice(0, 36);
+    const sp = decision.storyPayload;
+    const ep = sp?.fal_payload.model_endpoint ?? (input.tier === "economy" ? "fal-ai/flux/schnell" : "fal-ai/flux/dev");
+    const spec = FAL_ORCHESTRATOR_CATALOG.find((x) => x.endpoint === ep);
     return {
       ok: true,
       action: "ask",
       reply: decision.reply,
       postBrief: decision.postBrief || null,
+      orchestrator: {
+        status: "needs_info",
+        missingSlots: sp?.missing_slots ?? ["style_mood", "text_overlay"],
+        endpoint: ep,
+        unitCostLabel: spec?.unitLabel ?? "$0.003/MP",
+        falPayload: sp?.fal_payload ?? { model_endpoint: ep, prompt: decision.enhancedPrompt, aspect_ratio: decision.format },
+        comboPreset: getComboPresetForTier(input.tier),
+      },
       suggestions: [
         {
-          title: `${topic} (4:5 Fotoğraf + Brief)`,
+          title: `${topic} (9:16 Story · Üstte Yazı Alanı Boş)`,
+          category: "9:16 Story",
+          prompt: `Şimdi üret: ${msg} — doğal sinematik ışıkta, üst kısımda yazı için temiz boş alan bırakarak 9:16 Instagram Story üret.`,
+        },
+        {
+          title: `${topic} (4:5 Post Fotoğrafı + Brief)`,
           category: "4:5 Fotoğraf",
           prompt: `Şimdi üret: ${msg} — 4:5 Instagram gönderi formatında, doğal ve sıcak stüdyo ışığında yüksek çözünürlüklü fotoğraf ve Post Brief üret.`,
         },
@@ -753,17 +842,50 @@ export async function chatCreativeDirectorAction(input: {
           category: "9:16 Sesli Video",
           prompt: `Şimdi üret: ${msg} — 9:16 dikey Reels formatında 5 saniyelik sinematik video ve üzerine Türkçe reklam seslendirmesi üret.`,
         },
-        ...DEFAULT_PROMPT_IDEAS.slice(0, 4),
+        ...DEFAULT_PROMPT_IDEAS.slice(0, 3),
       ],
     };
   }
 
   // action === "generate" -> fal.ai / Studio Engine gönderimi + kredi hesabı
-  const activeModels = await prisma.modelRegistry.findMany({
+  let activeModels = await prisma.modelRegistry.findMany({
     where: { status: "active", licenseStatus: "cleared", provider: "fal" },
     select: { key: true, kind: true, creditsPerUnit: true },
   });
-  const modelKey = pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
+
+  const preferredKey = decision.storyPayload
+    ? endpointToModelKey(decision.storyPayload.fal_payload.model_endpoint)
+    : pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
+
+  if (!activeModels.some((m) => m.key === preferredKey)) {
+    await seedModelRegistry().catch(() => undefined);
+    activeModels = await prisma.modelRegistry.findMany({
+      where: { status: "active", licenseStatus: "cleared", provider: "fal" },
+      select: { key: true, kind: true, creditsPerUnit: true },
+    });
+  }
+
+  const modelKey = activeModels.some((m) => m.key === preferredKey)
+    ? preferredKey
+    : pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
+
+  const catalogItem = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
+  const selectedEndpoint = decision.storyPayload?.fal_payload.model_endpoint ?? catalogItem?.endpoint ?? `fal-ai/${modelKey}`;
+  const orchestratorMeta: OrchestratorMeta = {
+    status: "ready",
+    missingSlots: [],
+    endpoint: selectedEndpoint,
+    unitCostLabel: catalogItem?.unitLabel ?? "$0.003/MP",
+    falPayload:
+      decision.storyPayload?.fal_payload ??
+      (decision.kind === "video"
+        ? { model_endpoint: selectedEndpoint, prompt: decision.enhancedPrompt, aspect_ratio: decision.format, duration: "5" }
+        : decision.kind === "audio"
+          ? { model_endpoint: selectedEndpoint, text: decision.voiceoverScript || msg, language_code: "tr" }
+          : { model_endpoint: selectedEndpoint, prompt: decision.enhancedPrompt, aspect_ratio: decision.format }),
+    comboPreset: getComboPresetForTier(input.tier),
+  };
+
   const refs = (input.referenceUploadIds ?? []).filter(Boolean).slice(0, 4);
   const voiceScriptForVideo =
     decision.kind === "video" && (wantsVoiceWithVideo || decision.voiceoverScript)
@@ -801,7 +923,7 @@ export async function chatCreativeDirectorAction(input: {
       action: "CREATIVE_DIRECTOR_SUBMITTED",
       entityType: "CreativeJob",
       entityId: job.id,
-      data: { tenantId, modelKey: job.modelKey, tier: input.tier, format: decision.format },
+      data: { tenantId, modelKey: job.modelKey, endpoint: selectedEndpoint, tier: input.tier, format: decision.format },
     });
     revalidateAll();
 
@@ -818,6 +940,7 @@ export async function chatCreativeDirectorAction(input: {
       jobId: asset ? null : job.id,
       assetId: asset?.id ?? null,
       availableCredits: avail,
+      orchestrator: orchestratorMeta,
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
   } catch (e) {

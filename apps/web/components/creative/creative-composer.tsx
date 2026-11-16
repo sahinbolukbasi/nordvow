@@ -10,6 +10,7 @@ import {
   saveAssetToLibraryAction,
   saveCreativePromptAction,
   type CreditTier,
+  type OrchestratorMeta,
   type PromptIdeaItem,
   type SavedPromptItem,
 } from "@/lib/actions/creative-studio";
@@ -74,6 +75,7 @@ type ChatTurn =
       modelKey?: string;
       prompt?: string;
       savedToLibrary?: boolean;
+      orchestrator?: OrchestratorMeta | null;
       error?: string | null;
       isHistorical?: boolean;
     };
@@ -706,6 +708,7 @@ export function CreativeComposer({
             from: "bot",
             text: res.reply,
             postBrief: res.postBrief,
+            orchestrator: res.orchestrator,
           },
         ]);
         return;
@@ -731,6 +734,7 @@ export function CreativeComposer({
             modelKey: res.modelKey,
             prompt: res.enhancedPrompt ?? trimmed,
             savedToLibrary: true,
+            orchestrator: res.orchestrator,
           },
         ]);
         router.refresh();
@@ -752,6 +756,7 @@ export function CreativeComposer({
             postBrief: res.postBrief,
             enhancedPrompt: res.enhancedPrompt,
             voiceoverScript: res.voiceoverScript,
+            orchestrator: res.orchestrator,
           },
         ]);
       }
@@ -929,6 +934,48 @@ export function CreativeComposer({
                 <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-fg">
                   {msg.text}
                 </div>
+
+                {/* fal.ai Medya Orkestratörü & Bedrock Structured Output JSON Özeti */}
+                {msg.orchestrator ? (
+                  <details className="max-w-xl rounded-2xl border border-line bg-surface/80 px-3.5 py-2 text-[11px]">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-medium text-fg">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
+                          {msg.orchestrator.status === "ready" ? "READY" : "NEEDS_INFO"}
+                        </span>
+                        <code className="font-mono text-[11px] text-fg">{msg.orchestrator.endpoint}</code>
+                      </span>
+                      <span className="text-fg-muted">
+                        {tt("Tahmini Maliyet:")} <strong>{msg.orchestrator.unitCostLabel}</strong> · {tt("JSON Payload Gör")}
+                      </span>
+                    </summary>
+                    <div className="mt-2.5 flex flex-col gap-2 border-t border-line pt-2 text-[11px] text-fg-muted">
+                      {msg.orchestrator.missingSlots.length > 0 ? (
+                        <div>
+                          <strong>{tt("Beklenen Bilgiler (missing_slots):")}</strong>{" "}
+                          <code className="font-mono">{msg.orchestrator.missingSlots.join(", ")}</code>
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-1 gap-1 rounded-xl border border-line/60 bg-bg/60 p-2 sm:grid-cols-2">
+                        <span><strong>{tt("Görsel:")}</strong> {msg.orchestrator.comboPreset.image}</span>
+                        <span><strong>{tt("Video:")}</strong> {msg.orchestrator.comboPreset.video}</span>
+                        <span><strong>{tt("Ses (TTS):")}</strong> {msg.orchestrator.comboPreset.tts}</span>
+                        <span><strong>{tt("Müzik:")}</strong> {msg.orchestrator.comboPreset.music}</span>
+                      </div>
+                      <pre className="max-h-36 overflow-auto rounded-xl border border-line bg-bg p-2 font-mono text-[10px] text-fg">
+                        {JSON.stringify(
+                          {
+                            status: msg.orchestrator.status,
+                            missing_slots: msg.orchestrator.missingSlots,
+                            fal_payload: msg.orchestrator.falPayload,
+                          },
+                          null,
+                          2,
+                        )}
+                      </pre>
+                    </div>
+                  </details>
+                ) : null}
 
                 {/* Hazır Instagram Post Metni & Brief Kartı */}
                 {msg.postBrief ? (
