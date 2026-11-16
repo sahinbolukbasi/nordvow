@@ -53,6 +53,27 @@ export function clearFalKeyCache(): void {
   cachedDbFalKey = null;
 }
 
+/** fal.ai API anahtarının geçerli ve aktif olduğunu fal.ai sunucusuna sorarak doğrular. */
+export async function verifyFalKeyConnection(candidateKey?: string): Promise<{ ok: boolean; status: number; message: string }> {
+  const key = (candidateKey ?? (await resolveFalKey())).trim().replace(/^Key\s+/i, "");
+  if (!key) {
+    return { ok: false, status: 0, message: "FAL_KEY tanımlı değil. Lütfen geçerli bir fal.ai API anahtarı (key_id:key_secret) girin." };
+  }
+  try {
+    const res = await fetch("https://queue.fal.run/fal-ai/flux/schnell/requests/healthcheck-nonexistent", {
+      method: "GET",
+      headers: { authorization: `Key ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, message: `fal.ai API anahtarı geçersiz (HTTP ${res.status}).` };
+    }
+    return { ok: true, status: res.status, message: "fal.ai API bağlantısı doğrulandı ve aktif." };
+  } catch (err) {
+    return { ok: false, status: 0, message: `fal.ai bağlantı hatası: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 type StudioJobMeta = {
   appPath: string;
   input: Record<string, unknown>;
@@ -618,9 +639,9 @@ export function httpFal(): FalClient {
     async submit(appPath, input, webhookUrl) {
       const key = await resolveFalKey();
       if (!key) {
-        const requestId = `req_studio_${Date.now()}_${++n}`;
-        studioJobCache.set(requestId, { appPath, input });
-        return { requestId };
+        throw new CreativeRejectedError(
+          "fal.ai API anahtarı (FAL_KEY) tanımlı değil. Sahte görsel yerine gerçek fal.ai üretimi için lütfen Yönetim → fal.ai API Bağlantısı bölümünden geçerli FAL_KEY girin.",
+        );
       }
 
       const authHeader = `Key ${key}`;
@@ -628,14 +649,14 @@ export function httpFal(): FalClient {
       delete cleanInput.voiceText;
 
       // Hızlı görsel/ses modellerinde önce senkron fal.run uç noktasını dene (webhook beklemeden anında sonuç)
-      const isFastSyncCandidate = !appPath.includes("kling") && !appPath.includes("hailuo") && !appPath.includes("seedance");
+      const isFastSyncCandidate = !appPath.includes("kling") && !appPath.includes("hailuo") && !appPath.includes("seedance") && !appPath.includes("minimax") && !appPath.includes("wan") && !appPath.includes("veo");
       if (isFastSyncCandidate) {
         try {
           const syncRes = await fetch(`https://fal.run/${appPath}`, {
             method: "POST",
             headers: { authorization: authHeader, "content-type": "application/json" },
             body: JSON.stringify(cleanInput),
-            signal: AbortSignal.timeout(22_000),
+            signal: AbortSignal.timeout(35_000),
           });
           if (syncRes.ok) {
             const payload = (await syncRes.json()) as FalWebhook["payload"];
@@ -646,12 +667,10 @@ export function httpFal(): FalClient {
               return { requestId };
             }
           } else if (syncRes.status === 401 || syncRes.status === 403) {
-            console.warn(`[fal] HTTP ${syncRes.status} (FAL_KEY geçersiz); stüdyo motoru ile tamamlanıyor.`);
-            const requestId = `req_studio_${Date.now()}_${++n}`;
-            studioJobCache.set(requestId, { appPath, input });
-            return { requestId };
+            throw new CreativeRejectedError(`fal.ai API anahtarı geçersiz veya yetkisiz (HTTP ${syncRes.status}). Lütfen FAL_KEY değerini kontrol edin.`);
           }
-        } catch {
+        } catch (err) {
+          if (err instanceof CreativeRejectedError) throw err;
           // Senkron çağrı zaman aşımına uğrarsa queue.fal.run ile devam et
         }
       }
@@ -660,15 +679,15 @@ export function httpFal(): FalClient {
         method: "POST",
         headers: { authorization: authHeader, "content-type": "application/json" },
         body: JSON.stringify(cleanInput),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(25_000),
       });
       if (res.status === 401 || res.status === 403) {
-        console.warn(`[fal] HTTP ${res.status} (FAL_KEY geçersiz/eksik); stüdyo motoru ile tamamlanıyor.`);
-        const requestId = `req_studio_${Date.now()}_${++n}`;
-        studioJobCache.set(requestId, { appPath, input });
-        return { requestId };
+        throw new CreativeRejectedError(`fal.ai API anahtarı geçersiz veya yetkisiz (HTTP ${res.status}). Lütfen FAL_KEY değerini kontrol edin.`);
       }
-      if (!res.ok) throw new Error(`fal submit HTTP ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`fal.ai üretim hatası (HTTP ${res.status}): ${errBody.slice(0, 200)}`);
+      }
       const j = (await res.json()) as { request_id: string };
       studioJobCache.set(j.request_id, { appPath, input });
       return { requestId: j.request_id };

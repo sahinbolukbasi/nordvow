@@ -64,11 +64,13 @@ export async function POST(req: Request) {
       aspect: structured.fal_payload.aspect_ratio as Aspect,
     });
 
-    if ((process.env.FAL_MODE ?? "mock") === "mock" && job.requestId) {
+    if ((process.env.FAL_MODE ?? "http") === "mock" && job.requestId) {
       await handleFalWebhook({
         request_id: job.requestId,
         status: "OK",
-        payload: { images: [{ url: `studio://image/${job.requestId}` }] },
+        payload: spec?.category === "video"
+          ? { video: { url: `studio://video/${job.requestId}` } }
+          : { images: [{ url: `studio://image/${job.requestId}` }] },
         metrics: { inference_time: 1.0 },
       }).catch(() => undefined);
     }

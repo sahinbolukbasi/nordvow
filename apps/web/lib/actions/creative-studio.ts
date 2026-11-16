@@ -16,6 +16,7 @@ import {
   handleFalWebhook,
   mergeVoiceoverOntoVideoBytes,
   renderStudioVideoMp4,
+  verifyFalKeyConnection,
 } from "@infulancer/core/creative/fal";
 import {
   chargeHold,
@@ -143,11 +144,17 @@ export async function openAssetInStudioAction(fd: FormData): Promise<void> {
   redirect(target);
 }
 
-/** Admin tarafından fal.ai API anahtarını (FAL_KEY) kaydetme. */
+/** Admin tarafından fal.ai API anahtarını (FAL_KEY) canlı doğrulayarak kaydetme. */
 export async function saveFalKeyAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireAdmin();
   return attempt(async () => {
     const falKey = str(fd, "falKey").trim().replace(/^Key\s+/i, "");
+    if (falKey) {
+      const check = await verifyFalKeyConnection(falKey);
+      if (!check.ok) {
+        return { ok: false, error: check.message };
+      }
+    }
     await prisma.configValue.upsert({
       where: { key: "creative.falKey" },
       create: { key: "creative.falKey", value: falKey, verified: Boolean(falKey), note: "fal.ai API anahtarı" },
@@ -159,12 +166,14 @@ export async function saveFalKeyAction(_p: ActionState, fd: FormData): Promise<A
       action: "FAL_KEY_UPDATED",
       entityType: "ConfigValue",
       entityId: "creative.falKey",
-      data: { configured: Boolean(falKey) },
+      data: { configured: Boolean(falKey), verified: Boolean(falKey) },
     });
     revalidateAll();
     return {
       ok: true,
-      message: falKey ? "fal.ai API anahtarı kaydedildi ve aktif edildi." : "fal.ai anahtarı temizlendi; stüdyo motoru aktif.",
+      message: falKey
+        ? "fal.ai API anahtarı canlı bağlantı ile doğrulandı, kaydedildi ve aktif edildi."
+        : "fal.ai anahtarı temizlendi.",
     };
   });
 }

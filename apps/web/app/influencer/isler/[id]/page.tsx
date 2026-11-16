@@ -163,10 +163,8 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
                 <dt className="text-fg-passive">{tt("Anlaşılan Hakediş")}</dt>
                 <dd className="font-semibold tabular-nums text-fg">
                   {formatDualMinor(assignment.feeKurus, campCur, {
-                    viewerCurrency: myCur !== campCur ? myCur : "EUR",
-                    perspective: myCur !== campCur ? "influencer" : "brand",
+                    viewerCurrency: myCur,
                     fx: pricing.fx,
-                    showGlobalEquivalents: true,
                   })}
                 </dd>
               </>

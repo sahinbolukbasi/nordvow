@@ -292,8 +292,8 @@ export function ScheduleStep({
           </Field>
           {minorPreview > 0 ? (
             <div className="rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-[12px] text-fg-muted">
-              <span className="font-medium text-fg">{tt("Çift Taraflı Kur Önizlemesi:")}</span>{" "}
-              {formatDualMinor(minorPreview, baseCur, { showGlobalEquivalents: true })}
+              <span className="font-medium text-fg">{tt("Seçili Para Birimi Tutarı:")}</span>{" "}
+              {formatDualMinor(minorPreview, baseCur, { viewerCurrency: baseCur })}
             </div>
           ) : null}
         </div>

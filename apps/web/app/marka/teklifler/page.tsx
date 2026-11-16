@@ -69,7 +69,7 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
                 {o.status === "KARSI_TEKLIF" && o.counterKurus ? (
                   <span className="text-[12px] text-amber-600 dark:text-amber-400">
                     {o.counterByRole === "BRAND" ? tt("Markanın fiyat talebi:") : tt("Influencer'ın karşı fiyatı:")}{" "}
-                    <strong>{formatDualMinor(o.counterKurus, brandCur, { viewerCurrency: infCur !== brandCur ? infCur : undefined, perspective: "brand", fx: pricing.fx, showGlobalEquivalents: true })}</strong>
+                    <strong>{formatDualMinor(o.counterKurus, brandCur, { viewerCurrency: brandCur, fx: pricing.fx })}</strong>
                     {o.counterNote ? ` · ${o.counterNote}` : ""}
                   </span>
                 ) : null}
@@ -77,10 +77,8 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
               <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-1">
                 <span className="text-[17px] font-semibold tabular-nums text-fg">
                   {formatDualMinor(o.totalKurus, brandCur, {
-                    viewerCurrency: infCur !== brandCur ? infCur : undefined,
-                    perspective: "brand",
+                    viewerCurrency: brandCur,
                     fx: pricing.fx,
-                    showGlobalEquivalents: true,
                   })}
                 </span>
                 <Pill tone={o.status === "KARSI_TEKLIF" ? "amber" : p.tone}>{o.status === "KARSI_TEKLIF" ? tt("Karşı fiyat") : p.label}</Pill>

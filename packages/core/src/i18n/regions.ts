@@ -108,10 +108,8 @@ export function convertMinor(
 }
 
 /**
- * Çift Taraflı Para Birimi Gösterimi (Two-Sided Display):
- * - Marka (Brand) perspektifinde: Yerel para birimi ana tutar, yanında dönüştürülmüş karşılığı (örn. `₺10.000 (≈ €172)`).
- * - Influencer perspektifinde: Influencer'ın kendi yerel/global para birimi ana tutar, parantez içinde orijinal tutar (örn. `€172 (₺10.000)`).
- * - `showGlobalEquivalents: true` ise aynı para biriminde bile global karşılığını gösterir (`₺10.000 (≈ €172 · $199)`).
+ * Seçili/izleyici para birimine göre otomatik kur çevrimi yapar ve TEK FİYAT olarak biçimlendirir.
+ * Parantez içinde ikinci bir kur/fiyat göstermez; para birimi değiştiğinde kuru otomatik çevirir.
  */
 export function formatDualMinor(
   minor: number | bigint,
@@ -124,30 +122,15 @@ export function formatDualMinor(
   },
 ): string {
   const orig = normalizeCurrency(originalCurrency);
-  const viewer = normalizeCurrency(options?.viewerCurrency ?? orig);
+  const target = normalizeCurrency(options?.viewerCurrency ?? orig);
   const fx = options?.fx ?? DEFAULT_FX_RATES;
-  const origFormatted = formatMinor(minor, orig);
 
-  if (orig !== viewer) {
-    const convertedMinor = convertMinor(minor, orig, viewer, fx);
-    const convertedFormatted = formatMinor(convertedMinor, viewer);
-    if (options?.perspective === "influencer") {
-      return `${convertedFormatted} (${origFormatted})`;
-    }
-    return `${origFormatted} (≈ ${convertedFormatted})`;
+  if (orig !== target) {
+    const convertedMinor = convertMinor(minor, orig, target, fx);
+    return formatMinor(convertedMinor, target);
   }
 
-  if (options?.showGlobalEquivalents) {
-    if (orig === "TRY") {
-      const eur = formatMinor(convertMinor(minor, "TRY", "EUR", fx), "EUR");
-      const usd = formatMinor(convertMinor(minor, "TRY", "USD", fx), "USD");
-      return `${origFormatted} (≈ ${eur} · ${usd})`;
-    }
-    const tryEq = formatMinor(convertMinor(minor, orig, "TRY", fx), "TRY");
-    return `${origFormatted} (≈ ${tryEq})`;
-  }
-
-  return origFormatted;
+  return formatMinor(minor, orig);
 }
 
 

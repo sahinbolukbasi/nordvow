@@ -35,8 +35,8 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
     creativePricing(),
   ]);
   const myCur = currencyOf(me?.country);
-  // Global veya yabancı influencer panelinde kendi yerel para birimi veya global baz para birimi (EUR/USD) dönüşümü gösterilir.
-  const viewerCur = myCur === "TRY" ? "EUR" : myCur;
+  // Influencer panelinde tutarlar kullanıcının kayıtlı/seçili para birimine çevrilip tek fiyat olarak gösterilir.
+  const viewerCur = myCur;
   const brands = new Map(
     (await prisma.brand.findMany({ where: { id: { in: [...new Set([...offers.map((o) => o.brandId), ...open.map((c) => c.tenantId), ...mine.map((m) => m.openCall.tenantId)])] } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]),
   );

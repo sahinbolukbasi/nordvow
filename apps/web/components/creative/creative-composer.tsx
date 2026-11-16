@@ -188,7 +188,7 @@ function ChatMediaCard({
           <audio src={src} controls className="w-full" />
         </div>
       ) : (
-        <div className={cn("relative flex aspect-[16/10] max-h-72 w-full items-center justify-center overflow-hidden bg-gradient-to-br text-white", toneFor(kind, assetId))}>
+        <div className="relative w-full overflow-hidden bg-black/5">
           {mediaOk ? (
             kind === "video" ? (
               <video
@@ -197,38 +197,36 @@ function ChatMediaCard({
                 playsInline
                 preload="metadata"
                 onError={() => setMediaOk(false)}
-                className="h-full w-full bg-black object-contain"
+                className="block w-full max-h-[640px] bg-black"
                 aria-label={cleanPrompt}
               />
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i
+              // eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i kendi doğal çerçevesinde
               <img
                 src={src}
                 alt={cleanPrompt}
                 onError={() => setMediaOk(false)}
-                className="h-full w-full object-contain"
+                className="block h-auto w-full max-h-[640px] object-contain"
               />
             )
           ) : (
-            <div className="flex flex-col items-center gap-2 p-6 text-center">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-black/30 backdrop-blur">
-                <KindIcon kind={kind} size={22} />
+            <div className="flex flex-col items-center gap-2 p-8 text-center text-fg-muted">
+              <KindIcon kind={kind} size={24} />
+              <span className="text-[12px] font-medium">
+                {kind === "video" ? tt("Video yüklenemedi") : tt("Görsel yüklenemedi")}
               </span>
-              <span className="rounded-full bg-black/35 px-3 py-0.5 text-[11px] font-medium backdrop-blur">
-                {kind === "video" ? tt("Video Hazır") : tt("Fotoğraf Hazır")}
-              </span>
-              <p className="max-w-md line-clamp-2 text-[13px] font-medium text-white/95">{cleanPrompt}</p>
+              <p className="max-w-md text-[12px]">{cleanPrompt}</p>
             </div>
           )}
 
-          <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+          <div className="flex items-center justify-between gap-2 border-t border-line bg-surface px-3 py-1.5 text-[11px] text-fg-muted">
+            <span className="inline-flex items-center gap-1.5 font-medium text-fg">
               <KindIcon kind={kind} size={12} />
               {KIND_LABEL[kind]}
               {modelKey ? ` · ${modelName(modelKey)}` : ""}
             </span>
             {isSaved ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+              <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                 <CheckIcon size={11} />
                 {tt("Kitaplıkta")}
               </span>

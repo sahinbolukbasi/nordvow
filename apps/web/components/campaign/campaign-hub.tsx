@@ -210,7 +210,7 @@ export function CampaignHub({
                 <tr className="border-b border-line text-[11px] uppercase tracking-[0.08em] text-fg-muted">
                   <th className="py-2.5 pr-3 font-medium">{tt("Influencer")}</th>
                   <th className="px-3 py-2.5 font-medium">{tt("Onay / Teklif Durumu")}</th>
-                  <th className="px-3 py-2.5 font-medium">{tt("Tutar (Çift Taraflı Kur)")}</th>
+                  <th className="px-3 py-2.5 font-medium">{tt("Tutar")}</th>
                   <th className="px-3 py-2.5 font-medium">{tt("Görev & İçerik Senkronu")}</th>
                   <th className="py-2.5 pl-3 text-right font-medium">{tt("Hızlı Aksiyonlar")}</th>
                 </tr>
@@ -253,31 +253,29 @@ export function CampaignHub({
                       </td>
 
                       <td className="px-3 py-3.5 tabular-nums">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-semibold text-fg">
-                            {r.feeMinor > 0
-                              ? formatDualMinor(r.feeMinor, r.feeCurrency || campaignCurrency, {
-                                  viewerCurrency:
-                                    r.influencerCurrency !== (r.feeCurrency || campaignCurrency)
-                                      ? r.influencerCurrency
-                                      : undefined,
-                                  perspective: "brand",
-                                  fx,
-                                  showGlobalEquivalents: true,
-                                })
-                              : "—"}
-                          </span>
-                          {r.counterFeeMinor && r.counterFeeMinor > 0 ? (
-                            <span className="text-[12px] text-amber-600 dark:text-amber-400">
-                              {tt("Karşı teklif:")}{" "}
-                              {formatDualMinor(r.counterFeeMinor, r.feeCurrency || campaignCurrency, {
-                                viewerCurrency: r.influencerCurrency,
-                                perspective: "brand",
-                                fx,
-                              })}
+                        {viewerRole === "BRAND" && r.kind === "ASSIGNMENT" ? (
+                          <span className="text-fg-passive">—</span>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-fg">
+                              {r.feeMinor > 0
+                                ? formatDualMinor(r.feeMinor, r.feeCurrency || campaignCurrency, {
+                                    viewerCurrency: campaignCurrency,
+                                    fx,
+                                  })
+                                : "—"}
                             </span>
-                          ) : null}
-                        </div>
+                            {r.counterFeeMinor && r.counterFeeMinor > 0 ? (
+                              <span className="text-[12px] text-amber-600 dark:text-amber-400">
+                                {tt("Karşı teklif:")}{" "}
+                                {formatDualMinor(r.counterFeeMinor, r.feeCurrency || campaignCurrency, {
+                                  viewerCurrency: campaignCurrency,
+                                  fx,
+                                })}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-3 py-3.5">
