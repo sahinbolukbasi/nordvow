@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma, type Prisma } from "@infulancer/core/db";
 import { roleLabels } from "@infulancer/core/domain/labels";
-import { DirectUserForm, StaffRoleButton, UserStatusButton } from "@/components/forms/user-status-button";
+import { DirectUserForm, StaffRoleButton, UserDeleteButton, UserStatusButton } from "@/components/forms/user-status-button";
 import { SearchIcon } from "@/components/icons";
 import { DataTable } from "@/components/ui/data-table";
 import { ButtonLink, Input } from "@/components/ui/form";
@@ -74,6 +74,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         description={tt("Admin, ajans, marka ve influencer hesapları.")}
         actions={
           <div className="flex gap-2">
+            <ButtonLink href="/admin/krediler" variant="secondary">{" "}{tt("Kredi yönetimi")}</ButtonLink>
             <ButtonLink href="/admin/yetkiler" variant="secondary">{" "}{tt("Rol ve yetkiler")}</ButtonLink>
             <ButtonLink href="/admin/davetler">{tt("Davet oluştur")}</ButtonLink>
           </div>
@@ -151,9 +152,13 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     <span className="inline-flex flex-wrap items-center gap-1">
                       <UserStatusButton userId={u.id} status={u.status} name={u.name} />
                       {u.role === "ADMIN" || u.role === "AGENCY" ? <StaffRoleButton userId={u.id} role={u.role} name={u.name} /> : null}
+                      <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
                     </span>
                   ) : (
-                    <Link href="/admin/davetler" className="text-[13px] text-fg-muted hover:text-fg">{" "}{tt("Başvuruyu incele →")}</Link>
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <Link href="/admin/davetler" className="text-[13px] text-fg-muted hover:text-fg">{" "}{tt("Başvuruyu incele →")}</Link>
+                      <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
+                    </span>
                   ),
               },
             },

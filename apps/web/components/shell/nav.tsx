@@ -35,6 +35,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kanallar", label: "Mesajlar ve asistan", icon: LinkIcon, section: "Taraflar" },
     { href: "/admin/reklam", label: "Reklam", icon: MegaphoneIcon, section: "İçerik ve AI" },
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "İçerik ve AI" },
+    { href: "/admin/krediler", label: "Kredi yönetimi", icon: WalletIcon, section: "İçerik ve AI" },
     { href: "/admin/bakiye-talepleri", label: "Bakiye talepleri", icon: WalletIcon, section: "İçerik ve AI" },
     { href: "/admin/ai", label: "AI sağlayıcıları", icon: SparkleIcon, section: "İçerik ve AI" },
     { href: "/admin/bildirimler", label: "Bildirimler", icon: BellIcon, section: "İçerik ve AI" },
@@ -82,7 +83,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/destek", label: "Destek", icon: AlertIcon },
   ],
 };
-navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai"].includes(i.href));
+navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai", "/admin/krediler"].includes(i.href));
 
 /** Rolün varsayılan olarak açık gelen ekranları (PagePermission kaydı yoksa). */
 export function isDefaultOpenForRole(role: Role, href: string): boolean {

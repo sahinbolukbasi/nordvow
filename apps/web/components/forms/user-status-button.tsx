@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
-import { Field, Input, Select } from "@/components/ui/form";
-import { createDirectUserAction, createStaffUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
+import { Button, Field, Input, Select } from "@/components/ui/form";
+import { createDirectUserAction, createStaffUserAction, deleteUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
 
 /** Satır içi askıya al / etkinleştir düğmesi. */
 export function UserStatusButton({ userId, status, name }: { userId: string; status: "ACTIVE" | "SUSPENDED"; name: string }) {
@@ -82,6 +82,11 @@ export function DirectUserForm({ brands = [] }: { brands?: { id: string; name: s
         {role === "INFLUENCER" ? (
           <Field label={tt("Kategori (opsiyonel)")}>{(p) => <Input {...p} name="category" placeholder={tt("Örn. Moda, Teknoloji, Yaşam")} />}</Field>
         ) : null}
+        {role === "INFLUENCER" || role === "BRAND" ? (
+          <Field label={tt("Başlangıç kredisi (TL, opsiyonel)")}>
+            {(p) => <Input {...p} name="initialCredits" type="number" min="0" step="1" placeholder={tt("Boş bırakılırsa varsayılan")} />}
+          </Field>
+        ) : null}
         {role === "BRAND" ? (
           <>
             <Field label={tt("Mevcut markaya bağla (opsiyonel)")}>
@@ -99,5 +104,40 @@ export function DirectUserForm({ brands = [] }: { brands?: { id: string; name: s
         ) : null}
       </div>
     </ActionForm>
+  );
+}
+
+/** 2 adımlı onaylı kullanıcı silme butonu. */
+export function UserDeleteButton({ userId, name, email }: { userId: string; name: string; email: string }) {
+  const tt = useTT();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setConfirming(true)}
+        aria-label={`${name}: ${tt("Sil")}`}
+        className="text-critical hover:bg-critical/10 hover:text-critical"
+      >
+        {tt("Sil")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-critical/40 bg-critical/5 px-2.5 py-1.5">
+      <span className="text-[12px] font-medium text-critical">
+        {name} ({email}) {tt("kalıcı olarak silinsin mi?")}
+      </span>
+      <ActionForm action={deleteUserAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary" className="gap-1">
+        <input type="hidden" name="userId" value={userId} />
+      </ActionForm>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        {tt("Vazgeç")}
+      </Button>
+    </div>
   );
 }

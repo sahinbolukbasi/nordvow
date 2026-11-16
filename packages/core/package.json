@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx scripts/seed.ts",
+    "db:clean-prod": "tsx scripts/clean-for-prod.ts",
     "audit:migrate": "tsx scripts/audit-migrate.ts",
     "storage:init": "tsx scripts/storage-init.ts",
     "agents:run": "tsx scripts/agents-run.ts",

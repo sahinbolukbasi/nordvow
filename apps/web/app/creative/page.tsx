@@ -65,8 +65,9 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
   void reconcileStaleJobs().catch(() => {});
 
-  const [pricing, ledger] = await Promise.all([
+  const [pricing, starterCreditsTry, ledger] = await Promise.all([
     creativePricing(),
+    getConfig("creative.starterCreditsTry"),
     prisma.creditLedger.findMany({
       where: isAdmin ? {} : { tenantId: own },
       orderBy: { createdAt: "desc" },
@@ -376,7 +377,8 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
               />
               <p className="text-[12px] text-fg-passive">
                 {tt("Tutarlar Kredi cinsindendir. Yeni marka/influencer ilk girişte")}{" "}
-                {fmtTl(Number(process.env.CREATIVE_STARTER_CREDITS ?? "250"))} {tt("hoş geldin kredisi alır.")}
+                {fmtTl(starterCreditsTry)} {tt("hoş geldin kredisi alır.")}{" "}
+                <Link href="/admin/krediler" className="underline hover:text-fg">{tt("Kredi yönetiminden düzenle →")}</Link>
               </p>
             </div>
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">

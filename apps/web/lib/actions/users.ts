@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
+import { ensureStarterCredits, topUp } from "@infulancer/core/creative/credits";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
@@ -106,12 +107,15 @@ const directUserSchema = z.object({
   brandId: z.string().trim().max(64).optional(),
   companyName: z.string().trim().max(120).optional(),
   category: z.string().trim().max(80).optional(),
+  initialCredits: z.number().min(0, { error: "Başlangıç kredisi negatif olamaz." }).max(1_000_000).optional(),
 });
 
 /** Admin: davet linki beklemeden doğrudan Influencer, Marka, Ajans veya Admin kullanıcısı ekler. */
 export async function createDirectUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN");
   return attempt(async () => {
+    const rawCredits = optStr(fd, "initialCredits");
+    const parsedCredits = rawCredits !== null && rawCredits !== "" ? Number(rawCredits.replace(",", ".")) : undefined;
     const input = parseInput(
       directUserSchema,
       {
@@ -123,8 +127,9 @@ export async function createDirectUserAction(_p: ActionState, fd: FormData): Pro
         brandId: optStr(fd, "brandId") ?? undefined,
         companyName: optStr(fd, "companyName") ?? undefined,
         category: optStr(fd, "category") ?? undefined,
+        initialCredits: parsedCredits,
       },
-      { name: "Ad soyad", email: "E-posta", password: "Şifre", role: "Rol" },
+      { name: "Ad soyad", email: "E-posta", password: "Şifre", role: "Rol", initialCredits: "Başlangıç kredisi" },
     );
     if (input.role === "ADMIN" || input.role === "AGENCY") assertPlatformAdmin(actor);
     if (await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
@@ -182,18 +187,78 @@ export async function createDirectUserAction(_p: ActionState, fd: FormData): Pro
           brandId,
           influencerId,
         },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, brandId: true, influencerId: true },
       });
     });
+
+    const tenantId = created.brandId ?? created.influencerId;
+    if (tenantId) {
+      const hadAccount = input.brandId ? await prisma.creditAccount.findUnique({ where: { tenantId }, select: { tenantId: true } }) : null;
+      if (hadAccount && input.initialCredits && input.initialCredits > 0) {
+        await topUp(tenantId, input.initialCredits, "Yeni kullanıcı başlangıç kredisi");
+      } else {
+        await ensureStarterCredits(tenantId, input.initialCredits);
+      }
+    }
 
     await audit.append({
       actor: toAuditActor(actor),
       action: "USER_CREATED_DIRECT",
       entityType: "User",
       entityId: created.id,
-      data: { role: created.role, email: created.email },
+      data: { role: created.role, email: created.email, initialCredits: input.initialCredits ?? null },
     });
     revalidateAll();
     return { ok: true, message: `${created.email} (${created.role}) doğrudan eklendi ve aktifleştirildi.` };
+  });
+}
+
+const deleteUserSchema = z.object({ userId: z.string().min(1).max(64) });
+
+/** Admin: kullanıcıyı kalıcı olarak siler (bağlı kilitli kayıtlar varsa engeller). */
+export async function deleteUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(deleteUserSchema, { userId: str(fd, "userId") }, { userId: "Kullanıcı" });
+    if (input.userId === actor.userId) {
+      throw new DomainError("KURAL_IHLALI", "Kendi hesabınızı silemezsiniz.");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, name: true, role: true, status: true },
+    });
+    if (!user) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
+
+    if (user.role === "ADMIN" && user.status === "ACTIVE") {
+      const activeAdmins = await prisma.user.count({ where: { role: "ADMIN", status: "ACTIVE" } });
+      if (activeAdmins <= 1) {
+        throw new DomainError("KURAL_IHLALI", "Son aktif admin silinemez.");
+      }
+    }
+
+    try {
+      await prisma.user.delete({ where: { id: user.id } });
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2003") {
+        throw new DomainError(
+          "KURAL_IHLALI",
+          "Bu kullanıcıya bağlı geçmiş kampanya briefi, dosya, inceleme veya ödeme kayıtları bulunduğu için silinemiyor. Bunun yerine kullanıcıyı askıya alabilirsiniz.",
+        );
+      }
+      throw e;
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "USER_DELETED",
+      entityType: "User",
+      entityId: user.id,
+      data: { email: user.email, name: user.name, role: user.role },
+    });
+    revalidateAll();
+    return { ok: true, message: `${user.email} silindi.` };
   });
 }
