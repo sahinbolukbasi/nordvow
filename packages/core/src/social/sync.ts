@@ -79,9 +79,13 @@ export const httpSocial: SocialProvider = {
   async fetch(platform, rawHandle, ctx) {
     const handle = cleanHandle(rawHandle);
     if (platform === "INSTAGRAM") {
-      const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "");
-      const token = envStr("IG_GRAPH_TOKEN", "");
-      if (!igUser || !token) throw new SyncError("Instagram senkronu yapılandırılmadı (IG_BUSINESS_ACCOUNT_ID / IG_GRAPH_TOKEN).", "NOT_CONFIGURED");
+      const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
+      const token =
+        envStr("IG_GRAPH_TOKEN", "") ||
+        envStr("INSTAGRAM_ACCESS_TOKEN", "") ||
+        envStr("META_IG_TOKEN", "") ||
+        envStr("META_SYSTEM_USER_TOKEN", "");
+      if (!igUser || !token) throw new SyncError("Instagram senkronu yapılandırılmadı (INSTAGRAM_IG_USER_ID / INSTAGRAM_ACCESS_TOKEN).", "NOT_CONFIGURED");
       const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,followers_count,media_count,profile_picture_url,media.limit(12){like_count,comments_count}}`;
       const j = (await getJson(`https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`)) as {
         business_discovery?: { id: string; followers_count: number; media_count: number; profile_picture_url?: string; media?: { data: { like_count?: number; comments_count?: number }[] } };
@@ -220,11 +224,22 @@ export async function syncSocialAccount(accountId: string, now = new Date()): Pr
   }
 }
 
-export async function syncInfluencer(influencerId: string) {
-  const accounts = await prisma.socialAccount.findMany({ where: { influencerId }, select: { id: true } });
+export async function syncInfluencer(influencerId: string, onlyPlatform?: Platform) {
+  const accounts = await prisma.socialAccount.findMany({
+    where: { influencerId, ...(onlyPlatform ? { platform: onlyPlatform } : {}) },
+    select: { id: true },
+  });
   const out: SyncResult[] = [];
   for (const a of accounts) out.push(await syncSocialAccount(a.id));
   return out;
+}
+
+/** Nordvow Meta token'larıyla herhangi bir Instagram Business/Creator hesabını anlık inceler (DB yazmadan). */
+export async function inspectInstagramHandle(rawHandle: string): Promise<ProfileStats & { handle: string }> {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) throw new SyncError("Geçerli bir Instagram kullanıcı adı girin.", "NOT_FOUND");
+  const data = await socialProvider().fetch("INSTAGRAM", handle, { tokenRef: null });
+  return { ...data, handle };
 }
 
 /** Zamanlanmış job: 12 saatten eski hesaplar (en fazla `limit` hesap; API kotası için). */
