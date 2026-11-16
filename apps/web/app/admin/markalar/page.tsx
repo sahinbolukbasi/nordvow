@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { DataTable } from "@/components/ui/data-table";
+import { BrandDeleteButton } from "@/components/forms/brand-forms";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader, Stagger } from "@/components/ui/layout";
 import { requireActor } from "@/lib/auth-guard";
@@ -38,6 +39,7 @@ export default async function BrandsPage() {
           { key: "competitors", header: "Rakip", align: "right", sortable: true },
           { key: "campaigns", header: "Kampanya", align: "right", sortable: true },
           { key: "users", header: "Kullanıcı", align: "right", sortable: true },
+          { key: "delete", header: "Sil" },
         ]}
         rows={brands.map((b) => ({
           id: b.id,
@@ -60,6 +62,7 @@ export default async function BrandsPage() {
             competitors: { display: b.competitorBrandIds.length, sort: b.competitorBrandIds.length },
             campaigns: { display: b._count.campaigns, sort: b._count.campaigns },
             users: { display: b._count.users, sort: b._count.users },
+            delete: { display: <BrandDeleteButton brandId={b.id} name={b.name} /> },
           },
           label: b.name,
           actions: [

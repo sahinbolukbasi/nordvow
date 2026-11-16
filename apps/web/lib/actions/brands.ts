@@ -12,7 +12,7 @@ import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { readCategorySelection } from "@/lib/categories";
 import { setBrandCategories } from "@infulancer/core/domain/categories";
-import { requireActor } from "@/lib/auth-guard";
+import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
 import { AGENCY_TZ, isDay, zonedToUtc } from "@/lib/time";
 
 const brandSchema = z.object({
@@ -129,5 +129,44 @@ export async function createBrandUser(_prev: ActionState, fd: FormData): Promise
     });
     revalidateAll();
     return { ok: true, message: `${input.email} oluşturuldu. Geçici şifreyi kullanıcıyla güvenli bir kanaldan paylaşın.` };
+  });
+}
+
+const deleteBrandSchema = z.object({ brandId: z.string().min(1).max(64) });
+
+/** Admin: markayı kalıcı olarak siler (bağlı kampanyası varsa engeller). */
+export async function deleteBrandAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(deleteBrandSchema, { brandId: str(fd, "brandId") }, { brandId: "Marka" });
+    const brand = await prisma.brand.findUnique({
+      where: { id: input.brandId },
+      select: { id: true, name: true, _count: { select: { campaigns: true } } },
+    });
+    if (!brand) throw new DomainError("BULUNAMADI", "Marka bulunamadı.");
+    if (brand._count.campaigns > 0) {
+      throw new DomainError("KURAL_IHLALI", `Bu markaya bağlı ${brand._count.campaigns} kampanya bulunduğu için silinemiyor. Önce kampanyaları silin.`);
+    }
+
+    try {
+      await prisma.brand.delete({ where: { id: brand.id } });
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2003") {
+        throw new DomainError("KURAL_IHLALI", "Bu markaya bağlı kayıtlar (kampanya veya İYS kaydı) bulunduğu için silinemiyor.");
+      }
+      throw e;
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "BRAND_DELETED",
+      entityType: "Brand",
+      entityId: brand.id,
+      data: { name: brand.name },
+    });
+    revalidateAll();
+    return { ok: true, message: `${brand.name} silindi.` };
   });
 }

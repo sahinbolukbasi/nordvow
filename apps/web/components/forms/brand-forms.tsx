@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
-import { Field, Input, Select } from "@/components/ui/form";
-import { createBrandUser, saveBrand } from "@/lib/actions/brands";
+import { Button, Field, Input, Select } from "@/components/ui/form";
+import { createBrandUser, deleteBrandAction, saveBrand } from "@/lib/actions/brands";
 import type { CategoryNode } from "@infulancer/core/domain/categories";
 import { CategoryPicker } from "@/components/forms/category-picker";
 import { REGIONS } from "@infulancer/core/i18n/regions";
@@ -99,5 +100,40 @@ export function BrandUserForm({ brandId }: { brandId: string }) {
         </Field>
       </div>
     </ActionForm>
+  );
+}
+
+/** 2 adımlı onaylı marka silme butonu. */
+export function BrandDeleteButton({ brandId, name }: { brandId: string; name: string }) {
+  const tt = useTT();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setConfirming(true)}
+        aria-label={`${name}: ${tt("Sil")}`}
+        className="text-critical hover:bg-critical/10 hover:text-critical"
+      >
+        {tt("Sil")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-critical/40 bg-critical/5 px-2.5 py-1.5">
+      <span className="text-[12px] font-medium text-critical">
+        {name} {tt("kalıcı olarak silinsin mi?")}
+      </span>
+      <ActionForm action={deleteBrandAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary" className="gap-1">
+        <input type="hidden" name="brandId" value={brandId} />
+      </ActionForm>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        {tt("Vazgeç")}
+      </Button>
+    </div>
   );
 }

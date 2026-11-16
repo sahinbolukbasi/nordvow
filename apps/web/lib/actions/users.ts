@@ -262,3 +262,67 @@ export async function deleteUserAction(_p: ActionState, fd: FormData): Promise<A
     return { ok: true, message: `${user.email} silindi.` };
   });
 }
+
+const updateUserSchema = z.object({
+  userId: z.string().min(1).max(64),
+  name: z.string().trim().min(2).max(120),
+  email: z.email().max(200),
+  phone: z.string().trim().max(40).nullable(),
+  password: z.string().min(8, { error: "Şifre en az 8 karakter olmalı." }).max(200).optional(),
+});
+
+/** Admin: kullanıcının ad, e-posta, telefon ve opsiyonel şifre bilgisini günceller. */
+export async function updateUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const rawPassword = optStr(fd, "password");
+    const input = parseInput(
+      updateUserSchema,
+      {
+        userId: str(fd, "userId"),
+        name: str(fd, "name"),
+        email: str(fd, "email").toLowerCase(),
+        phone: optStr(fd, "phone"),
+        password: rawPassword || undefined,
+      },
+      { userId: "Kullanıcı", name: "Ad soyad", email: "E-posta", phone: "Telefon", password: "Yeni şifre" },
+    );
+
+    const existing = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, name: true, phone: true },
+    });
+    if (!existing) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
+
+    if (input.email !== existing.email) {
+      const taken = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
+      if (taken) throw new DomainError("DOGRULAMA", "Bu e-posta başka bir kullanıcıda kayıtlı.");
+    }
+
+    const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : undefined;
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: input.name,
+        email: input.email,
+        phone: input.phone || null,
+        ...(passwordHash ? { passwordHash } : {}),
+      },
+    });
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "USER_UPDATED",
+      entityType: "User",
+      entityId: existing.id,
+      data: {
+        from: { name: existing.name, email: existing.email, phone: existing.phone },
+        to: { name: input.name, email: input.email, phone: input.phone },
+        passwordChanged: !!passwordHash,
+      },
+    });
+    revalidateAll();
+    return { ok: true, message: `${input.name} güncellendi.` };
+  });
+}

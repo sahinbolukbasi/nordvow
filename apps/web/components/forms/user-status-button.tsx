@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
 import { Button, Field, Input, Select } from "@/components/ui/form";
-import { createDirectUserAction, createStaffUserAction, deleteUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
+import { createDirectUserAction, createStaffUserAction, deleteUserAction, setStaffRoleAction, setUserStatusAction, updateUserAction } from "@/lib/actions/users";
 
 /** Satır içi askıya al / etkinleştir düğmesi. */
 export function UserStatusButton({ userId, status, name }: { userId: string; status: "ACTIVE" | "SUSPENDED"; name: string }) {
@@ -139,5 +139,51 @@ export function UserDeleteButton({ userId, name, email }: { userId: string; name
         {tt("Vazgeç")}
       </Button>
     </div>
+  );
+}
+
+/** Satır içi kullanıcı bilgisi düzenleme (ad, e-posta, telefon, opsiyonel şifre). */
+export function UserEditButton({
+  userId,
+  name,
+  email,
+  phone,
+}: {
+  userId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+}) {
+  const tt = useTT();
+  const [editing, setEditing] = useState(false);
+
+  if (!editing) {
+    return (
+      <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)} aria-label={`${name}: ${tt("Düzenle")}`}>
+        {tt("Düzenle")}
+      </Button>
+    );
+  }
+
+  return (
+    <ActionForm
+      action={updateUserAction}
+      submitLabel={tt("Kaydet")}
+      submitSize="sm"
+      onSuccess={() => setEditing(false)}
+      className="min-w-[280px] gap-2 rounded-xl border border-line bg-surface p-3"
+      aria-label={`${name}: ${tt("Bilgileri düzenle")}`}
+      footer={
+        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          {tt("İptal")}
+        </Button>
+      }
+    >
+      <input type="hidden" name="userId" value={userId} />
+      <Input name="name" defaultValue={name} required placeholder={tt("Ad soyad")} aria-label={tt("Ad soyad")} />
+      <Input name="email" type="email" defaultValue={email} required placeholder={tt("E-posta")} aria-label={tt("E-posta")} />
+      <Input name="phone" type="tel" defaultValue={phone ?? ""} placeholder={tt("Telefon (opsiyonel)")} aria-label={tt("Telefon")} />
+      <Input name="password" type="text" minLength={8} autoComplete="new-password" placeholder={tt("Yeni şifre (boş = değişmez)")} aria-label={tt("Yeni şifre")} />
+    </ActionForm>
   );
 }

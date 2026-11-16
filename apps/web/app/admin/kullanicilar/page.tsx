@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma, type Prisma } from "@infulancer/core/db";
 import { roleLabels } from "@infulancer/core/domain/labels";
-import { DirectUserForm, StaffRoleButton, UserDeleteButton, UserStatusButton } from "@/components/forms/user-status-button";
+import { DirectUserForm, StaffRoleButton, UserDeleteButton, UserEditButton, UserStatusButton } from "@/components/forms/user-status-button";
 import { SearchIcon } from "@/components/icons";
 import { DataTable } from "@/components/ui/data-table";
 import { ButtonLink, Input } from "@/components/ui/form";
@@ -147,19 +147,23 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
               },
               created: { display: fmtDate(u.createdAt), sort: u.createdAt.getTime() },
               manage: {
-                display:
-                  u.id === actor.userId ? null : u.status === "ACTIVE" || u.status === "SUSPENDED" ? (
-                    <span className="inline-flex flex-wrap items-center gap-1">
-                      <UserStatusButton userId={u.id} status={u.status} name={u.name} />
-                      {u.role === "ADMIN" || u.role === "AGENCY" ? <StaffRoleButton userId={u.id} role={u.role} name={u.name} /> : null}
-                      <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
-                    </span>
-                  ) : (
-                    <span className="inline-flex flex-wrap items-center gap-2">
-                      <Link href="/admin/davetler" className="text-[13px] text-fg-muted hover:text-fg">{" "}{tt("Başvuruyu incele →")}</Link>
-                      <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
-                    </span>
-                  ),
+                display: (
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    <UserEditButton userId={u.id} name={u.name} email={u.email} phone={u.phone} />
+                    {u.id === actor.userId ? null : u.status === "ACTIVE" || u.status === "SUSPENDED" ? (
+                      <>
+                        <UserStatusButton userId={u.id} status={u.status} name={u.name} />
+                        {u.role === "ADMIN" || u.role === "AGENCY" ? <StaffRoleButton userId={u.id} role={u.role} name={u.name} /> : null}
+                        <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
+                      </>
+                    ) : (
+                      <>
+                        <Link href="/admin/davetler" className="text-[13px] text-fg-muted hover:text-fg">{" "}{tt("Başvuruyu incele →")}</Link>
+                        <UserDeleteButton userId={u.id} name={u.name} email={u.email} />
+                      </>
+                    )}
+                  </span>
+                ),
               },
             },
             actions: linkHref ? [{ label: u.brand ? "Marka profili" : "Influencer profili", href: linkHref, icon: "open" as const }] : undefined,
