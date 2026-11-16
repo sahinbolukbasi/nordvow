@@ -41,6 +41,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     qrDataUrl: links.qrDataUrl,
     statusLabel: expired ? "Süresi doldu" : grant ? "Kullanılabilir" : "Önizleme",
     statusColor: expired ? "#dc2626" : "#16a34a",
+    accentColor: coupon.brandColor ?? "#ffffff",
     sections,
   });
   const day = new Date().toISOString().slice(0, 10);

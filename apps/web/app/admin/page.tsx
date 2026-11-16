@@ -496,13 +496,14 @@ export default async function AdminHomePage({ searchParams }: { searchParams: Pr
       </Card>
     ),
   };
-  const widgets: BoardWidget[] = DASHBOARD_WIDGETS.filter((w) => !(actor.staffRole && w.id === "finance")).map((w) => ({ id: w.id, title: w.title, description: w.description, size: w.size, content: content[w.id] }));
+  const widgets: BoardWidget[] = DASHBOARD_WIDGETS.filter((w) => w.id !== "copilot" && !(actor.staffRole && w.id === "finance")).map((w) => ({ id: w.id, title: w.title, description: w.description, size: w.size, content: content[w.id] }));
   return (
     <Stagger className="flex flex-col gap-6">
       {yetki === "yok" ? (
         <p role="alert" className="rounded-2xl border border-neon-amber/50 bg-neon-amber/10 px-4 py-3 text-sm">{" "}{tt("Bu bölüm yalnız platform yöneticisine açık.")}</p>
       ) : null}
       <PageHeader title={tt("Genel bakış")} description={tt("Panonuzu düzenleyebilirsiniz: alanları sıralayın, gizleyin veya geri ekleyin.")} />
+      <CopilotHome actor={actor} />
       <DashboardBoard widgets={widgets} initial={layout} defaults={normalizeLayout(null)} />
     </Stagger>
   );
