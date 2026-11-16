@@ -492,6 +492,7 @@ export function InfluencerStep({
   selected: initial,
   note,
   campaignSummary,
+  profileBaseHref = "/marka/kesfet",
 }: {
   id: string;
   backHref: string;
@@ -499,6 +500,7 @@ export function InfluencerStep({
   selected: string[];
   note: string;
   campaignSummary?: WizardCampaignSummary;
+  profileBaseHref?: string;
 }) {
   const tt = useTT();
   const [selected, setSelected] = useState<Set<string>>(new Set(initial));
@@ -627,11 +629,22 @@ export function InfluencerStep({
                           </span>
                         ) : null}
                       </div>
-                      <span className="flex gap-1.5 text-fg-muted">
-                        {i.platforms.map((p) => (
-                          <PlatformIcon key={p} platform={p} size={14} title={platformLabels[p]} />
-                        ))}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="flex gap-1.5 text-fg-muted">
+                          {i.platforms.map((p) => (
+                            <PlatformIcon key={p} platform={p} size={14} title={platformLabels[p]} />
+                          ))}
+                        </span>
+                        <a
+                          href={`${profileBaseHref}/${i.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="rounded-full border border-line bg-surface-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-fg hover:border-fg/40"
+                        >
+                          {tt("Profili Gör ↗")}
+                        </a>
+                      </div>
                     </div>
                   </label>
                 </li>

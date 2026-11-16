@@ -666,10 +666,10 @@ export function CampaignDeleteButton({ campaignId, campaignName }: { campaignId:
     return (
       <Button
         type="button"
-        variant="ghost"
+        variant="secondary"
         size="sm"
         onClick={() => setConfirming(true)}
-        className="text-critical hover:bg-critical/10"
+        className="border-critical/40 text-critical hover:border-critical hover:bg-critical/10"
       >
         {tt("Kampanyayı Sil")}
       </Button>

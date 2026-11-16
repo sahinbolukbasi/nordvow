@@ -8,6 +8,7 @@ import { campaignStatusLabels } from "@infulancer/core/domain/labels";
 import { creativePricing } from "@infulancer/core/creative/pricing";
 import { formatDualMinor } from "@infulancer/core/i18n/regions";
 import { Card } from "@/components/ui/card";
+import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
@@ -134,10 +135,10 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
                 : `/marka/kampanyalar/${c.id}`;
             return (
               <li key={c.id}>
-                <Link href={cardHref} className="block h-full rounded-[8px] focus-visible:outline-offset-4">
-                  <Card className="flex h-full flex-col gap-4">
+                <Card className="flex h-full flex-col gap-4">
+                  <Link href={cardHref} className="flex flex-1 flex-col gap-4 rounded-[8px] focus-visible:outline-offset-4">
                     <div className="flex items-start justify-between gap-4">
-                      <h2 className="text-section">{c.name}</h2>
+                      <h2 className="text-section hover:underline">{c.name}</h2>
                       <StatusDot tone={campaignTone(raw.status)}>{draft && raw.submittedAt ? tt("Kaydedildi") : campaignStatusLabels[raw.status]}</StatusDot>
                     </div>
                     {draft ? (
@@ -171,15 +172,18 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
                       <dt className="text-fg-passive">{tt("Influencer")}</dt>
                       <dd className="text-fg-muted tabular-nums">{c.influencers.length || (raw.shortlistInfluencerIds.length ? `${raw.shortlistInfluencerIds.length} önerildi` : 0)}</dd>
                     </dl>
-                    <span className="mt-auto text-[13px] font-medium">
+                  </Link>
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+                    <Link href={cardHref} className="text-[13px] font-medium hover:underline">
                       {isAgencyManaged
                         ? tt("Süreci Takip Et →")
                         : draft && !raw.submittedAt
                           ? tt("Adımları Tamamla →")
                           : tt("Kampanyayı Yönet →")}
-                    </span>
-                  </Card>
-                </Link>
+                    </Link>
+                    <CampaignDeleteButton campaignId={c.id} campaignName={c.name} />
+                  </div>
+                </Card>
               </li>
             );
           })}

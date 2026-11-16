@@ -7,6 +7,7 @@ import { assertCanEditDraft, draftStatus } from "@infulancer/core/domain/campaig
 import { isWizardStep, prevStep, WIZARD_STEPS, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
 import { isDomainError } from "@infulancer/core/domain/errors";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
+import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { CheckIcon } from "@/components/icons";
 import { pickAvatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -198,6 +199,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         influencers={list}
         selected={c.shortlistInfluencerIds}
         campaignSummary={campaignSummary}
+        profileBaseHref={isBrand ? "/marka/kesfet" : "/admin/influencerlar"}
         note={
           isBrand
             ? "Influencer Bul ekranındaki gibi filtreleyip seçim yapın; seçtiğiniz influencerlara kampanya kaydedildiğinde otomatik teklif iletilir ve Influencer Teklifler sayfasında görünür."
@@ -223,6 +225,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
       <PageHeader
         title={c.name}
         description={`${isBrand ? "" : `${brand.name} · `}${c.status === "AKTIF" ? "Aktif" : "Taslak"}${c.submittedAt ? " · kaydedildi" : ""}. Her adımın altındaki “Kaydet ve devam” bilgileri kaydeder.`}
+        actions={<CampaignDeleteButton campaignId={c.id} campaignName={c.name} />}
       />
       <Steps base={base} active={step} done={done} />
       <Card interactive={false} className="flex flex-col gap-2">

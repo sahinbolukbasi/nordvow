@@ -5,6 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { campaignStatusLabels } from "@infulancer/core/domain/labels";
 import { formatMinor } from "@infulancer/core/i18n/regions";
 import { DataTable } from "@/components/ui/data-table";
+import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader, Stagger } from "@/components/ui/layout";
 import { StatusDot } from "@/components/ui/status";
@@ -89,6 +90,7 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
           { key: "budget", header: "Bütçe", align: "right", sortable: true },
           { key: "progress", header: "Süre", align: "right", sortable: true },
           { key: "payment", header: "Tahsilat", sortable: true },
+          { key: "delete", header: "Sil" },
         ]}
         rows={campaigns.map((c) => {
           const score = scores.get(c.id)?.score ?? null;
@@ -142,6 +144,9 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
                     <StatusDot tone={c.status === "KAPANDI" ? "critical" : "muted"}>{c.status === "KAPANDI" ? tt("Bekliyor") : tt("Açık")}</StatusDot>
                   ),
                 sort: c.brandPaymentReceivedAt ? 2 : c.status === "KAPANDI" ? 0 : 1,
+              },
+              delete: {
+                display: <CampaignDeleteButton campaignId={c.id} campaignName={c.name} />,
               },
             },
             actions: [
