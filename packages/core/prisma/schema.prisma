@@ -2155,3 +2155,91 @@ model MediaJob {
   @@index([alias, status])
   @@map("media_jobs")
 }
+
+/// Fotoğraftan video ve AI video edit boru hattı işi.
+/// Durumlar: queued | planning | generating | rendering | done | failed
+model VideoPipelineJob {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  kind            String   // "photo_to_video" | "ai_video_edit"
+  status          String   @default("queued")
+  progress        Int      @default(0)
+  aspect          String   @default("9:16")
+  modelKey        String   @default("hailuo") @map("model_key")
+  sourceUploadIds Json     @map("source_upload_ids")
+  storyboard      Json?
+  editPlan        Json?    @map("edit_plan")
+  sceneJobs       Json?    @map("scene_jobs")
+  voiceoverAudio  String?  @map("voiceover_audio")
+  musicAudio      String?  @map("music_audio")
+  logoUploadId    String?  @map("logo_upload_id")
+  outputUploadId  String?  @map("output_upload_id")
+  rootJobId       String?  @map("root_job_id")
+  versionNumber   Int      @default(1) @map("version_number")
+  creditHoldId    String?  @map("credit_hold_id")
+  costUsd         Decimal  @default(0) @map("cost_usd") @db.Decimal(10, 4)
+  durationMs      Int?     @map("duration_ms")
+  error           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  versions        VideoVersion[]
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([rootJobId, versionNumber])
+  @@map("video_pipeline_jobs")
+}
+
+/// AI Video Edit versiyon geçmişi — her edit yeni bir versiyon oluşturur; geri dönüş desteklenir.
+model VideoVersion {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  pipelineJobId   String           @map("pipeline_job_id")
+  rootJobId       String           @map("root_job_id")
+  versionNumber   Int              @map("version_number")
+  uploadId        String           @map("upload_id")
+  editCommand     String?          @map("edit_command")
+  editPlan        Json?            @map("edit_plan")
+  parentVersionId String?          @map("parent_version_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  pipelineJob     VideoPipelineJob @relation(fields: [pipelineJobId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rootJobId, versionNumber])
+  @@map("video_versions")
+}
+
+/// Kullanıcı profili ↔ WhatsApp AI Asistan kalıcı eşleştirme kaydı.
+model WhatsAppLink {
+  id          String    @id @default(cuid())
+  userId      String    @unique @map("user_id")
+  waPhone     String?   @unique @map("wa_phone")
+  pairingCode String    @unique @map("pairing_code")
+  verified    Boolean   @default(false)
+  verifiedAt  DateTime? @map("verified_at")
+  history     Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([waPhone, verified])
+  @@map("whatsapp_links")
+}
+
+/// Tüm AI sağlayıcıları (Bedrock LLM, fal.ai, vb.) kullanım & maliyet logu.
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  provider     String   // "bedrock" | "fal" | "polly" | "ffmpeg"
+  modelId      String   @map("model_id")
+  operation    String   // "chat" | "structured" | "vision" | "image" | "video" | "audio"
+  tenantId     String?  @map("tenant_id")
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  costUsd      Decimal  @default(0) @map("cost_usd") @db.Decimal(10, 6)
+  durationMs   Int      @default(0) @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([provider, createdAt])
+  @@index([createdAt])
+  @@map("ai_usage_logs")
+}

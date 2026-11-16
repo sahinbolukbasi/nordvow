@@ -146,6 +146,7 @@ export async function CouponsIndex({
                   used: c.grants.filter((g) => g.status === "KULLANILDI").length,
                   validLabel: c.validUntil ? `Son kullanım ${fmtDate(c.validUntil)}` : "Süresiz",
                   expired,
+                  canDelete: true,
                 }}
               />
             );

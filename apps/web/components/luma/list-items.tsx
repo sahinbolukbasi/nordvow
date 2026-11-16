@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { dayMonthShort, timeShort, weekdayLong } from "@/lib/event-format";
 import { DateBadge, Pill, type PillTone } from "./primitives";
+import { DeleteConfirmButton } from "./delete-confirm-button";
 
 /** Etkinlik durum etiketi ve tonu. */
 export const eventStatusView: Record<string, { label: string; tone: PillTone }> = {
@@ -29,6 +30,7 @@ export type EventListItemData = {
   guests: number;
   going: number;
   capacity?: number | null;
+  canDelete?: boolean;
 };
 
 /** Luma zaman çizelgesi satırı: solda gün, sağda kart (saat, başlık, konum, misafir, kapak). */
@@ -45,28 +47,31 @@ export function EventListItem({ e }: { e: EventListItemData }) {
           <span className="text-[12px] text-fg-muted">{weekdayLong(e.startsAt)}</span>
         </div>
       </div>
-      <Link href={e.href} className="group flex items-start gap-4 rounded-2xl border border-line bg-surface p-4 transition-standard hover:border-line-strong">
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <span className="text-[13px] text-fg-muted tabular-nums">{timeShort(e.startsAt)}</span>
-          <span className="text-[17px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4">{e.title}</span>
-          <span className="truncate text-[13px] text-fg-muted">{e.organizer}{e.venueLabel ? ` · ${e.venueLabel}` : ""}</span>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Pill tone={st.tone}>{st.label}</Pill>
-            <Pill>{e.visibility === "HERKESE_ACIK" ? "Herkese açık" : "Davetli"}</Pill>
-            <span className="text-[12px] text-fg-muted tabular-nums">
-              {e.going} katılımcı · {e.guests} davet{e.capacity ? ` · ${e.capacity} kapasite` : ""}
-            </span>
+      <div className="flex items-start gap-2 rounded-2xl border border-line bg-surface p-4 transition-standard hover:border-line-strong">
+        <Link href={e.href} className="group flex min-w-0 flex-1 items-start gap-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="text-[13px] text-fg-muted tabular-nums">{timeShort(e.startsAt)}</span>
+            <span className="text-[17px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4">{e.title}</span>
+            <span className="truncate text-[13px] text-fg-muted">{e.organizer}{e.venueLabel ? ` · ${e.venueLabel}` : ""}</span>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Pill tone={st.tone}>{st.label}</Pill>
+              <Pill>{e.visibility === "HERKESE_ACIK" ? "Herkese açık" : "Davetli"}</Pill>
+              <span className="text-[12px] text-fg-muted tabular-nums">
+                {e.going} katılımcı · {e.guests} davet{e.capacity ? ` · ${e.capacity} kapasite` : ""}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-line sm:h-24 sm:w-24">
-          {e.coverSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={e.coverSrc} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full bg-[linear-gradient(135deg,var(--color-neon-violet),var(--color-neon-pink))] opacity-80" />
-          )}
-        </div>
-      </Link>
+          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-line sm:h-24 sm:w-24">
+            {e.coverSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={e.coverSrc} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="h-full w-full bg-[linear-gradient(135deg,var(--color-neon-violet),var(--color-neon-pink))] opacity-80" />
+            )}
+          </div>
+        </Link>
+        {e.canDelete ? <DeleteConfirmButton id={e.id} kind="event" label={e.title} /> : null}
+      </div>
     </li>
   );
 }
@@ -86,14 +91,15 @@ export type CouponTileData = {
   used?: number;
   validLabel?: string | null;
   expired?: boolean;
+  canDelete?: boolean;
 };
 
 /** Mini kupon kartı (liste için). */
 export function CouponTile({ c }: { c: CouponTileData }) {
   const st = c.statusOverride ?? (c.status ? couponStatusView[c.status] : null);
   return (
-    <li>
-      <Link href={c.href} className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-standard hover:border-line-strong">
+    <li className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-standard hover:border-line-strong">
+      <Link href={c.href} className="group flex flex-1 flex-col">
         <div className="relative flex items-center gap-3 px-4 py-4 text-white" style={{ background: `linear-gradient(140deg, ${c.accent} 0%, #111827 140%)` }}>
           {c.logoSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -117,6 +123,11 @@ export function CouponTile({ c }: { c: CouponTileData }) {
           {c.validLabel ? <span className={cn("text-[12px]", c.expired ? "text-red-500" : "text-fg-passive")}>{c.expired ? "Süresi doldu" : c.validLabel}</span> : null}
         </div>
       </Link>
+      {c.canDelete ? (
+        <div className="flex justify-end border-t border-line px-4 py-2">
+          <DeleteConfirmButton id={c.id} kind="coupon" label={c.title} />
+        </div>
+      ) : null}
     </li>
   );
 }

@@ -1,8 +1,8 @@
 import NextAuth from "next-auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { authConfig } from "./auth.config";
 import { detectRegion } from "@infulancer/core/i18n/regions";
-import { isAdminOnlyPath, requiredRoleForPath, roleHome } from "./lib/roles";
+import { roleHome } from "./lib/roles";
 
 const { auth } = NextAuth(authConfig);
 const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek", "/sifremi-unuttum", "/sifre-sifirla"]);
@@ -15,7 +15,10 @@ const LANDING = "/";
  * doğrulanan webhook uçları (/api/webhooks/*).
  * Her sayfa/aksiyon ayrıca lib/auth-guard ile rolü yeniden doğrular (derinlemesine savunma).
  */
-function withPath(res: NextResponse, pathname: string): NextResponse {
+function withPath(req: NextRequest, pathname: string): NextResponse {
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set("x-pathname", pathname);
   return res;
 }
@@ -64,17 +67,8 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
     return NextResponse.redirect(url);
   }
 
-  const required = requiredRoleForPath(pathname);
-  // Ajans çalışanı /admin ekranlarını kullanır, yalnız yönetici ekranlarına giremez.
-  const effective = user.role === "AGENCY" ? "ADMIN" : user.role;
-  if (user.role === "AGENCY" && isAdminOnlyPath(pathname)) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 });
-    return NextResponse.redirect(new URL("/admin?yetki=yok", req.nextUrl));
-  }
-  if (required && required !== effective) {
-    return NextResponse.redirect(new URL(roleHome[user.role], req.nextUrl));
-  }
-  return withPath(NextResponse.next(), pathname);
+  // Yetki kontrolü (rol + PagePermission özel izinleri) veritabanı erişimli requireActor/requireAdmin katmanında yapılır.
+  return withPath(req, pathname);
 }
 
 export const config = {

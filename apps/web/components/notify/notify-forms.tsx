@@ -57,7 +57,8 @@ export function AnnouncementForm() {
         <Field label={tt("Hedef kitle")}>
           {(p) => (
             <Select {...p} name="audience" value={audience} onChange={(e) => setAudience(e.target.value)}>
-              <option value="all">{tt("Tüm aktif kullanıcılar")}</option>
+              <option value="all">{tt("Tümü (Ziyaretçiler + Kayıtlı Kullanıcılar)")}</option>
+              <option value="visitors">{tt("Tüm Ziyaretçiler (Kayıtsız Kullanıcılar)")}</option>
               <option value="influencers">{tt("Tüm Influencerlar")}</option>
               <option value="brands">{tt("Tüm Markalar")}</option>
               <option value="agency">{tt("Ajans & Admin ekibi")}</option>

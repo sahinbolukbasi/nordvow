@@ -4,6 +4,8 @@ import { prisma } from "@infulancer/core/db";
 import { getConfig } from "@infulancer/core/config/store";
 import { envStr } from "@infulancer/core/env";
 import { integrationStatuses, modeLabel } from "@infulancer/core/integrations/status";
+import { getAdminAiAnalytics } from "@infulancer/core/creative/ai-analytics";
+import { AiUsageAnalyticsView } from "@/components/ai/ai-usage-analytics";
 import { FeatureToggle, ModelControls } from "@/components/ai/ai-model-controls";
 import { StatusCards } from "@/components/ui/status-cards";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -19,17 +21,19 @@ const licenseTr: Record<string, string> = { cleared: "Onaylı", pending: "Beklem
 export default async function AdminAiPage() {
   const tt = await getTT();
   await requireAdmin();
-  const [models, features, integrations] = await Promise.all([
+  const [models, features, integrations, analytics] = await Promise.all([
     prisma.modelRegistry.findMany({ orderBy: [{ provider: "asc" }, { kind: "asc" }, { key: "asc" }] }),
     getConfig("features"),
     integrationStatuses(),
+    getAdminAiAnalytics(),
   ]);
   const llm = envStr("LLM_PROVIDER", "mock");
   const falMode = envStr("FAL_MODE", "mock");
   const flagList = Object.entries(features).filter(([k]) => k.startsWith("creative."));
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={tt("AI sağlayıcıları")} description={tt("Asistan ve Creative için Bedrock ve fal.ai modellerini buradan yönetin.")} />
+      <PageHeader title={tt("AI sağlayıcıları & Maliyet Analitiği")} description={tt("Asistan ve Creative için Bedrock ve fal.ai modellerini, kullanım ve maliyet istatistiklerini buradan yönetin.")} />
+      <AiUsageAnalyticsView data={analytics} />
       <StatusCards
         items={[
           { title: "Asistan (metin)", state: llm === "bedrock" ? "ok" : "warn", value: llm === "bedrock" ? "Bedrock · canlı" : "Mock", text: llm === "bedrock" ? "Yanıtlar Amazon Bedrock modelinden üretiliyor." : "Kural tabanlı çalışıyor; gerçek LLM için LLM_PROVIDER=bedrock.", href: "#saglayici", action: "Nasıl açılır" },

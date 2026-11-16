@@ -70,10 +70,16 @@ async function assertPageVisible(actor: Actor): Promise<void> {
   if (await isPathHiddenFor(actor.staffRole ?? actor.role, actor.userId, pathname)) redirect(`${home}?erisim=kapali`);
 }
 
-/** Yalnız platform yöneticisi (ADMIN): kullanıcılar, yetkiler, finans, tanıtım içeriği. Ajans çalışanı panel ana sayfasına döner. */
+/** Yalnız platform yöneticisi (ADMIN): kullanıcılar, yetkiler, finans, tanıtım içeriği. Ajans çalışanı (özel izin yoksa) panel ana sayfasına döner. */
 export async function requireAdmin(): Promise<Actor> {
   const actor = await requireActor("ADMIN");
-  if (actor.staffRole) redirect("/admin?yetki=yok");
+  if (actor.staffRole) {
+    const pathname = (await headers()).get("x-pathname");
+    const perms = pathname ? await loadPagePermissions(actor.staffRole, actor.userId) : [];
+    if (!pathname || !isPathExplicitlyAllowed(perms, actor.staffRole, actor.userId, pathname)) {
+      redirect("/admin?yetki=yok");
+    }
+  }
   return actor;
 }
 /** Server Action'larda: ajans çalışanını reddeder. */

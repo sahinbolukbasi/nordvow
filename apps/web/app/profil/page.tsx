@@ -11,6 +11,9 @@ import { WorkHistory } from "@/components/history/work-history";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
 import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
 import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
+import { WhatsAppConnectCard } from "@/components/profile/whatsapp-connect-card";
+import { getOrCreateWhatsAppLink } from "@infulancer/core/messaging/user-whatsapp-ai";
+import { envStr } from "@infulancer/core/env";
 import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
@@ -63,7 +66,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const actor = await requireActor();
   const { sekme } = await searchParams;
   const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
-  const activity = await audit.listByActor(actor.userId, 60).catch(() => []);
+  const [activity, waLink] = await Promise.all([
+    audit.listByActor(actor.userId, 60).catch(() => []),
+    getOrCreateWhatsAppLink(actor.userId),
+  ]);
   const tabs: { id: string; label: string; content: React.ReactNode }[] = [];
   let avatar: string | null = user.avatarKey ? `/api/avatar/${user.avatarKey.replace(/^avatars\//, "")}` : null;
   let headline = roleLabels[user.role];
@@ -85,7 +91,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       }),
     ]);
     avatar = pickAvatar(inf.socialAccounts, inf.avatarKey);
-    if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < Date.now() - 3_600_000)) {
+    if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < now.getTime() - 3_600_000)) {
       void syncInfluencer(id).catch(() => {});
     }
     headline = `İçerik üreticisi${inf.city ? ` · ${inf.city}` : ""}`;
@@ -300,6 +306,15 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         <Card interactive={false} className="flex flex-col gap-3">
           <CardTitle>{tt("Güvenlik")}</CardTitle>
           <PasswordForm />
+        </Card>
+        <Card interactive={false} className="flex flex-col gap-3">
+          <CardTitle>{tt("WhatsApp Bağlantısı")}</CardTitle>
+          <WhatsAppConnectCard
+            pairingCode={waLink.pairingCode}
+            verified={waLink.verified}
+            waPhone={waLink.waPhone}
+            botPhone={envStr("WHATSAPP_BOT_PHONE", "")}
+          />
         </Card>
         {brandModeSettings ? (
           <DefaultModeCard

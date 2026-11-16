@@ -253,12 +253,20 @@ export function ScheduleStep({
 }) {
   const tt = useTT();
   const baseCur = values.currency ?? "TRY";
-  const cur = !values.currency || values.currency === "TRY" ? "TL" : values.currency;
+  const symbol = baseCur === "USD" ? "$" : baseCur === "EUR" ? "€" : baseCur === "GBP" ? "£" : "₺";
+  const formatLiveCurrency = (raw: string): { display: string; rawDigits: string } => {
+    const digits = raw.replace(/[^\d]/g, "");
+    if (!digits) return { display: "", rawDigits: "" };
+    const formatted = Number(digits).toLocaleString("tr-TR");
+    return { display: `${formatted} ${symbol}`, rawDigits: digits };
+  };
   const [startsAt, setStartsAt] = useState(values.startsAt);
   const [endsAt, setEndsAt] = useState(values.endsAt);
-  const [feeStr, setFeeStr] = useState(values.brandTotalFee);
+  const initialDigits = String(values.brandTotalFee || "").replace(/[^\d]/g, "");
+  const [feeDigits, setFeeDigits] = useState(initialDigits);
+  const [feeDisplay, setFeeDisplay] = useState(() => formatLiveCurrency(initialDigits).display);
   const days = Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / 86_400_000) + 1;
-  const parsedMajor = Number(String(feeStr || "0").replace(/\./g, "").replace(",", "."));
+  const parsedMajor = Number(feeDigits || "0");
   const minorPreview = Number.isFinite(parsedMajor) && parsedMajor > 0 ? Math.round(parsedMajor * 100) : 0;
 
   return (
@@ -275,32 +283,29 @@ export function ScheduleStep({
         ))}
         <span className="text-[12px] tabular-nums text-fg-passive">{days > 0 ? `${days} gün` : tt("Bitiş başlangıçtan önce olamaz")}</span>
       </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Field label={`Toplam bütçe (${cur})`} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Kampanya toplam bütçeniz (influencer bedelleri dahil)."} Global influencer'lar için güncel kur üzerinden otomatik dönüştürülür.`}>
-            {(p) => (
-              <Input
-                {...p}
-                name="brandTotalFee"
-                required
-                inputMode="decimal"
-                value={feeStr}
-                onChange={(e) => setFeeStr(e.target.value)}
-                placeholder="100.000"
-              />
-            )}
-          </Field>
-          {minorPreview > 0 ? (
-            <div className="rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-[12px] text-fg-muted">
-              <span className="font-medium text-fg">{tt("Seçili Para Birimi Tutarı:")}</span>{" "}
-              {formatDualMinor(minorPreview, baseCur, { viewerCurrency: baseCur })}
-            </div>
-          ) : null}
-        </div>
-        {isAdmin ? (
-          <Field label={`Influencer bütçesi (${cur})`} hint={tt("Yalnız ajans görür; boşsa kurulumda girilir.")}>
-            {(p) => <Input {...p} name="budget" inputMode="decimal" defaultValue={values.budget} placeholder="80.000" />}
-          </Field>
+      <div className="flex flex-col gap-2">
+        <input type="hidden" name="brandTotalFee" value={feeDigits} />
+        <Field label={tt("Toplam Bütçe")} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Kampanya toplam bütçeniz (influencer bedelleri dahil)."} Global influencer'lar için güncel kur üzerinden otomatik dönüştürülür.`}>
+          {(p) => (
+            <Input
+              {...p}
+              required
+              inputMode="numeric"
+              value={feeDisplay}
+              onChange={(e) => {
+                const next = formatLiveCurrency(e.target.value);
+                setFeeDigits(next.rawDigits);
+                setFeeDisplay(next.display);
+              }}
+              placeholder={`15.000 ${symbol}`}
+            />
+          )}
+        </Field>
+        {minorPreview > 0 ? (
+          <div className="rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-[12px] text-fg-muted">
+            <span className="font-medium text-fg">{tt("Seçili Para Birimi Tutarı:")}</span>{" "}
+            {formatDualMinor(minorPreview, baseCur, { viewerCurrency: baseCur })}
+          </div>
         ) : null}
       </div>
     </StepForm>

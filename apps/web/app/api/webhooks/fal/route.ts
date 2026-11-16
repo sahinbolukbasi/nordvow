@@ -1,5 +1,6 @@
 import { handleFalWebhook, type FalWebhook } from "@infulancer/core/creative/fal";
 import { verifyFalWebhook } from "@infulancer/core/creative/fal-webhook-verify";
+import { handlePipelineFalWebhook } from "@infulancer/core/creative/studio/jobQueue";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /**
@@ -22,7 +23,10 @@ export async function POST(req: Request) {
   if (!ok) return new Response(null, { status: 401 });
   try {
     const body = JSON.parse(new TextDecoder().decode(raw)) as FalWebhook;
-    await handleFalWebhook(body);
+    const handledByPipeline = await handlePipelineFalWebhook(body).catch(() => false);
+    if (!handledByPipeline) {
+      await handleFalWebhook(body);
+    }
   } catch (e) {
     console.error("[fal] webhook işleme hatası", e);
   }

@@ -163,6 +163,7 @@ export async function EventsIndex({
                       guests: e.invites.length,
                       going: e.invites.filter((i) => i.status === "KABUL").length,
                       capacity: e.capacity,
+                      canDelete: true,
                     }}
                   />
                 ))}

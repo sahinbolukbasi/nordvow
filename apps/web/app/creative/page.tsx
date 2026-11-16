@@ -13,6 +13,7 @@ import { reconcileStaleJobs } from "@infulancer/core/creative/fal";
 import { PricingForm } from "@/components/creative/pricing-form";
 import { CreditRequestForm } from "@/components/creative/credit-request-form";
 import { StudioEditor, type StudioUpload } from "@/components/creative/studio-editor";
+import { VideoStudioPipeline } from "@/components/creative/video-studio-pipeline";
 import { AssetThumb } from "@/components/creative/asset-thumb";
 import { listSavedPromptsForTenant, openAssetInStudioAction, saveAssetToLibraryAction, saveFalKeyAction } from "@/lib/actions/creative-studio";
 import { resolveFalKey } from "@infulancer/core/creative/fal";
@@ -329,13 +330,16 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
       {/* 3. Sekme: Düzenleyici (Video & Fotoğraf Stüdyosu) */}
       {tab === "studyo" ? (
-        <StudioEditor
-          uploads={studioUploads}
-          available={available}
-          prices={studioPrices}
-          isAdmin={isAdmin}
-          initialSelected={sp.dosya}
-        />
+        <div className="flex flex-col gap-6">
+          <VideoStudioPipeline uploads={studioUploads} />
+          <StudioEditor
+            uploads={studioUploads}
+            available={available}
+            prices={studioPrices}
+            isAdmin={isAdmin}
+            initialSelected={sp.dosya}
+          />
+        </div>
       ) : null}
 
       {/* 4. Sekme: Yönetici Bakiye, fal.ai API & Model Yönetimi */}

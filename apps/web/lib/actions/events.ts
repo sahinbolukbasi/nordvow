@@ -204,3 +204,27 @@ export async function updateEventPartnersAction(_p: ActionState, fd: FormData): 
     return { ok: true, message: "İş birliği markaları güncellendi." };
   });
 }
+
+/** Etkinliği kalıcı olarak siler (Admin veya etkinliğin sahibi Marka). */
+export async function deleteEventAction(eventId: string): Promise<{ ok: boolean; error?: string }> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  try {
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true, title: true } });
+    if (!ev) return { ok: false, error: "Etkinlik bulunamadı." };
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      return { ok: false, error: "Bu etkinliği silme yetkiniz yok." };
+    }
+    await prisma.event.delete({ where: { id: eventId } });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_DELETED",
+      entityType: "Event",
+      entityId: eventId,
+      data: { title: ev.title },
+    });
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Etkinlik silinemedi." };
+  }
+}

@@ -116,3 +116,27 @@ export async function grantCouponAction(_p: ActionState, fd: FormData): Promise<
     return { ok: true, message: `${r.length} kişiye gönderildi.` };
   });
 }
+
+/** Kuponu kalıcı olarak siler (Admin veya kuponun sahibi Marka). */
+export async function deleteCouponAction(couponId: string): Promise<{ ok: boolean; error?: string }> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  try {
+    const c = await prisma.coupon.findUnique({ where: { id: couponId }, select: { id: true, tenantId: true, title: true } });
+    if (!c) return { ok: false, error: "Kupon bulunamadı." };
+    if (actor.role === "BRAND" && c.tenantId !== actor.brandId) {
+      return { ok: false, error: "Bu kuponu silme yetkiniz yok." };
+    }
+    await prisma.coupon.delete({ where: { id: couponId } });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "COUPON_DELETED",
+      entityType: "Coupon",
+      entityId: couponId,
+      data: { title: c.title },
+    });
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Kupon silinemedi." };
+  }
+}

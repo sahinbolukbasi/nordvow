@@ -6,6 +6,7 @@ import { LandingPage, type LandingStats } from "@/components/landing/landing-pag
 import { getActor, getUserStatus } from "@/lib/auth-guard";
 import { getLandingContent, toReferences, toVideos } from "@/lib/landing-store";
 import { roleHome } from "@/lib/roles";
+import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
 export const metadata: Metadata = {
   title: { absolute: `${BRAND_NAME} · Influencer marketing platformu` },
   description: "Influencer kampanyalarını brief'ten ödemeye kadar tek panelden yönetin: doğru içerik üreticisi, ölçülebilir sonuç.",
@@ -31,6 +32,16 @@ export default async function RootPage() {
   ])
     .then(([influencers, f, campaigns, published]) => ({ influencers, followers: f._sum.followers ?? 0, campaigns, published }))
     .catch(() => ({ influencers: 0, followers: 0, campaigns: 0, published: 0 }));
-  const content = await getLandingContent();
-  return <LandingPage stats={stats} data={{ videos: toVideos(content), references: toReferences(content), creators: content.creators }} />;
+  const [content, popupRow] = await Promise.all([
+    getLandingContent(),
+    prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null),
+  ]);
+  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  const visitorPopups = allPopups.filter((p) => p.audience === "visitors" || p.audience === "all");
+  return (
+    <>
+      <LandingPage stats={stats} data={{ videos: toVideos(content), references: toReferences(content), creators: content.creators }} />
+      <AnnouncementPopup items={visitorPopups} userId="visitor" />
+    </>
+  );
 }

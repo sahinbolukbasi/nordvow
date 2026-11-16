@@ -1,4 +1,5 @@
 import { receiveWebhook } from "@infulancer/core/channels/webhook";
+import { handleUserWhatsAppInbound } from "@infulancer/core/messaging/user-whatsapp-ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,15 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.text();
-  await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"));
+  let handledByPersonalAi = false;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    handledByPersonalAi = await handleUserWhatsAppInbound(parsed).catch(() => false);
+  } catch {
+    /* ignore */
+  }
+  if (!handledByPersonalAi) {
+    await receiveWebhook("meta", body, req.headers.get("x-hub-signature-256"));
+  }
   return new Response(null, { status: 200 });
 }

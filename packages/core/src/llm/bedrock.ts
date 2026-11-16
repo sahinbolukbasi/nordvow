@@ -1,7 +1,22 @@
 import { BedrockRuntimeClient, ConverseCommand, type ImageFormat } from "@aws-sdk/client-bedrock-runtime";
+import { prisma } from "../db";
 import { envStr, requireEnv } from "../env";
 import { prompts } from "./prompts";
 import type { LlmProvider, TextRequest, VisionRequest } from "./types";
+
+function logBedrockUsage(modelId: string, operation: string, usage: { inputTokens?: number; outputTokens?: number } | undefined, durationMs: number) {
+  const inTok = usage?.inputTokens ?? 0;
+  const outTok = usage?.outputTokens ?? 0;
+  // Yaklaşık USD maliyeti (Nova Lite / Haiku / Sonnet ortalaması)
+  const inRate = modelId.includes("sonnet") ? 0.000003 : modelId.includes("haiku") ? 0.0000008 : 0.00000006;
+  const outRate = modelId.includes("sonnet") ? 0.000015 : modelId.includes("haiku") ? 0.000004 : 0.00000024;
+  const costUsd = inTok * inRate + outTok * outRate;
+  void prisma.aiUsageLog
+    .create({
+      data: { provider: "bedrock", modelId, operation, inputTokens: inTok, outputTokens: outTok, costUsd, durationMs },
+    })
+    .catch(() => undefined);
+}
 
 let client: BedrockRuntimeClient | undefined;
 function bedrock(): BedrockRuntimeClient {
@@ -57,6 +72,7 @@ export async function converseChat(opts: { system: string; turns: ChatTurn[]; ma
   let lastErr: unknown;
   for (const modelId of models) {
     try {
+      const t0 = Date.now();
       const res = await bedrock().send(
         new ConverseCommand({
           modelId,
@@ -65,6 +81,7 @@ export async function converseChat(opts: { system: string; turns: ChatTurn[]; ma
           inferenceConfig: { maxTokens: opts.maxTokens ?? 400, temperature: opts.temperature ?? 0.5 },
         }),
       );
+      logBedrockUsage(modelId, "chat", res.usage, Date.now() - t0);
       return { text: textOf(res.output), model: modelId };
     } catch (e) {
       lastErr = e;
@@ -104,6 +121,7 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
 
   for (const modelId of structuredModels) {
     try {
+      const t0 = Date.now();
       const res = await bedrock().send(
         new ConverseCommand({
           modelId,
@@ -124,6 +142,7 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
           },
         }),
       );
+      logBedrockUsage(modelId, "structured", res.usage, Date.now() - t0);
       const rawText = textOf(res.output);
       const parsed = parseJsonObject(rawText) as T | null;
       if (parsed) return { data: parsed, rawText, model: modelId };
