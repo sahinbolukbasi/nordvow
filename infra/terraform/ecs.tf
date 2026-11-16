@@ -78,10 +78,13 @@ resource "aws_iam_role_policy" "task" {
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.assets.arn] },
       { Effect = "Allow", Action = ["sqs:SendMessage"], Resource = [aws_sqs_queue.agent_events.arn] },
       {
-        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar)
+        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar) + entegrasyon anahtarları
         Effect   = "Allow"
         Action   = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
-        Resource = ["arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*"]
+        Resource = [
+          "arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*",
+          aws_secretsmanager_secret.integrations.arn,
+        ]
       },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = ["*"] },
       {
@@ -96,7 +99,7 @@ resource "aws_iam_role_policy" "task" {
       },
       {
         Effect   = "Allow"
-        Action   = ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail"]
+        Action   = ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail", "polly:SynthesizeSpeech", "polly:DescribeVoices"]
         Resource = ["*"]
       },
     ]

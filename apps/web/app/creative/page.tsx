@@ -14,12 +14,13 @@ import { PricingForm } from "@/components/creative/pricing-form";
 import { CreditRequestForm } from "@/components/creative/credit-request-form";
 import { StudioEditor, type StudioUpload } from "@/components/creative/studio-editor";
 import { AssetThumb } from "@/components/creative/asset-thumb";
-import { openAssetInStudioAction, saveAssetToLibraryAction } from "@/lib/actions/creative-studio";
+import { listSavedPromptsForTenant, openAssetInStudioAction, saveAssetToLibraryAction, saveFalKeyAction } from "@/lib/actions/creative-studio";
+import { resolveFalKey } from "@infulancer/core/creative/fal";
 import { getConfig } from "@infulancer/core/config/store";
 import { withUnverified } from "@infulancer/core/unverified";
 import { CreativeComposer, type ChatHistoryItem, type ComposerModel } from "@/components/creative/creative-composer";
 import { KindIcon } from "@/components/creative/kind-icon";
-import { PostBriefStudio } from "@/components/creative/post-brief-studio";
+import { ActionForm } from "@/components/forms/action-form";
 import { TopUpForm } from "@/components/forms/operations-forms";
 import { FilterTabs, Pill, SectionHead, StatStrip } from "@/components/luma/primitives";
 import { DocLink } from "@/components/docs/doc-components";
@@ -29,12 +30,12 @@ import { asKind, fmtTl, KIND_LABEL, modelName, needsReference, toneFor, type Cre
 import { fmtDateTime } from "@/lib/time";
 import { cn } from "@/lib/cn";
 
-export const metadata: Metadata = { title: "Creative AI Stüdyo" };
+export const metadata: Metadata = { title: "Nordvow Creative AI" };
 export const dynamic = "force-dynamic";
 
 const usd = new Intl.NumberFormat("tr-TR", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
 
-type Tab = "uret" | "galeri" | "studyo" | "metin" | "yonetim";
+type Tab = "uret" | "galeri" | "studyo" | "yonetim";
 type SP = {
   sekme?: string;
   tur?: string;
@@ -195,9 +196,14 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const completed = jobs.filter((j) => j.status === "COMPLETED").length;
   const adBase = actor.role === "ADMIN" ? "/admin/reklam" : actor.role === "BRAND" ? "/marka/reklam" : null;
 
+  const [savedPrompts, currentFalKey] = await Promise.all([
+    listSavedPromptsForTenant(own),
+    isAdmin ? resolveFalKey() : Promise.resolve(""),
+  ]);
+
   const rawTab = sp.sekme === "kitaplik" ? "galeri" : sp.sekme;
   const tab: Tab =
-    rawTab === "galeri" || rawTab === "metin" || rawTab === "studyo" || (rawTab === "yonetim" && isAdmin)
+    rawTab === "galeri" || rawTab === "studyo" || (rawTab === "yonetim" && isAdmin)
       ? (rawTab as Tab)
       : "uret";
 
@@ -206,10 +212,9 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const profileName = nameOf.get(own) ?? "Stüdyo";
 
   const tabs = [
-    { id: "uret", label: "Sohbet Stüdyosu", href: "/creative" },
+    { id: "uret", label: "Nordvow Creative AI", href: "/creative" },
     { id: "galeri", label: "Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
     { id: "studyo", label: "Düzenleyici", href: "/creative?sekme=studyo" },
-    { id: "metin", label: "Post & Brief", href: "/creative?sekme=metin" },
     ...(isAdmin ? [{ id: "yonetim", label: "Yönetim", href: "/creative?sekme=yonetim" }] : []),
   ];
 
@@ -219,10 +224,10 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   return (
     <div className="flex min-h-[calc(100dvh-5.5rem)] w-full flex-1 flex-col gap-3">
       {/* Sade Üst Stüdyo Çubuğu */}
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-2.5 sm:px-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-2 sm:px-5">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold tracking-tight text-fg">{tt("Creative Stüdyo")}</h1>
+            <h1 className="text-sm font-semibold tracking-tight text-fg">{tt("Nordvow Creative AI")}</h1>
             <span className="hidden rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted sm:inline-block">
               {profileName}
             </span>
@@ -280,6 +285,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           initialKind={initialKind}
           initialRefId={sp.ref}
           initialHistory={chatHistory}
+          initialSavedPrompts={savedPrompts}
         />
       ) : null}
 
@@ -313,21 +319,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         />
       ) : null}
 
-      {/* 4. Sekme: Post & Brief Oluşturucu */}
-      {tab === "metin" ? (
-        <div className="flex flex-col gap-4">
-          <PostBriefStudio
-            defaultAssetId={sp.asset}
-            assets={assets.map((a) => {
-              const k = kindOf.get(a.modelKey) ?? "image";
-              const p = a.jobId ? jobPrompt.get(a.jobId) : undefined;
-              return { id: a.id, label: `${KIND_LABEL[k]} · ${(p ?? modelName(a.modelKey)).slice(0, 48)}` };
-            })}
-          />
-        </div>
-      ) : null}
-
-      {/* 5. Sekme: Yönetici Bakiye & Model Yönetimi */}
+      {/* 4. Sekme: Yönetici Bakiye, fal.ai API & Model Yönetimi */}
       {tab === "yonetim" && isAdmin ? (
         <div className="flex flex-col gap-6">
           <StatStrip
@@ -346,6 +338,23 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
               { label: "Aktif model", value: String(usable.length) },
             ]}
           />
+          <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
+            <SectionHead title={tt("fal.ai API Bağlantısı (FAL_KEY)")} />
+            <p className="text-[12px] text-fg-muted">
+              {currentFalKey
+                ? tt("fal.ai API anahtarı tanımlı ve aktif. Tüm görsel, video ve ses modelleri doğrudan fal.ai üzerinden çalışır.")
+                : tt("fal.ai API anahtarınızı (key_id:key_secret) aşağıya girerek FLUX Schnell, Recraft V3, Ideogram V3, Kling ve ElevenLabs modellerini doğrudan fal.ai kuyruğuna bağlayabilirsiniz.")}
+            </p>
+            <ActionForm action={saveFalKeyAction} submitLabel={tt("fal.ai Anahtarını Kaydet")}>
+              <input
+                type="password"
+                name="falKey"
+                defaultValue={currentFalKey}
+                placeholder="key_id:key_secret"
+                className="h-9 w-full max-w-md rounded-xl border border-line bg-bg px-3 text-sm text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+              />
+            </ActionForm>
+          </section>
           <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
               <SectionHead title={tt("Fiyatlandırma")} />
@@ -665,24 +674,32 @@ async function UnifiedLibrary({
                       ) : null
                     ) : null}
 
-                    {/* Fotoğraf ise AI Sohbette Referans / Videoya Çevir */}
+                    {/* Fotoğraf ise AI Sohbette Referans / Sesli Videoya Çevir */}
                     {item.kind === "image" ? (
                       <Link
-                        href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&tur=video&prompt=${encodeURIComponent(`${item.title} — bu görseli 5 saniyelik akıcı bir tanıtım videosuna dönüştür`)}`}
+                        href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&tur=video&prompt=${encodeURIComponent(`Şimdi üret: ${item.title} — bu görseli 5 saniyelik akıcı bir tanıtım videosuna dönüştür ve Türkçe seslendirme ekle`)}`}
                         className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
                       >
-                        {tt("Videoya Çevir")}
+                        {tt("Sesli Videoya Çevir")}
                       </Link>
                     ) : null}
 
-                    {item.assetId ? (
+                    {/* Video ise AI Sohbette Videoya Ses Ekle */}
+                    {item.kind === "video" ? (
                       <Link
-                        href={`/creative?sekme=metin&asset=${item.assetId}`}
-                        className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:text-fg"
+                        href={`/creative?prompt=${encodeURIComponent(`Videoma seslendirme ekle: '${item.title} için yeni sezon fırsatlarını hemen keşfedin!'`)}`}
+                        className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
                       >
-                        {tt("Post yaz")}
+                        {tt("Videoya Ses Ekle")}
                       </Link>
                     ) : null}
+
+                    <Link
+                      href={`/creative?prompt=${encodeURIComponent(`Sadece post brief hazırla: "${item.title}" içeriği için dikkat çekici Instagram başlığı, açıklama metni ve #reklam uyumlu hashtag seti yaz.`)}`}
+                      className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:text-fg"
+                    >
+                      {tt("Post & Brief")}
+                    </Link>
 
                     {adBase && item.assetId ? (
                       <Link

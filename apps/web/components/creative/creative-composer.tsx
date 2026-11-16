@@ -1,13 +1,17 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
 import { startTransition, useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  addVoiceoverToVideoAction,
   chatCreativeDirectorAction,
+  deleteCreativePromptAction,
   openAssetInStudioAction,
   saveAssetToLibraryAction,
+  saveCreativePromptAction,
   type CreditTier,
+  type PromptIdeaItem,
+  type SavedPromptItem,
 } from "@/lib/actions/creative-studio";
 import { idleState } from "@/lib/action-state";
 import { cn } from "@/lib/cn";
@@ -54,6 +58,7 @@ type ChatTurn =
       text: string;
       tierLabel?: string;
       refCount?: number;
+      isHistorical?: boolean;
     }
   | {
       id: string;
@@ -61,6 +66,7 @@ type ChatTurn =
       text: string;
       postBrief?: string | null;
       enhancedPrompt?: string | null;
+      voiceoverScript?: string | null;
       assetId?: string | null;
       uploadId?: string | null;
       kind?: CreativeKind;
@@ -69,14 +75,58 @@ type ChatTurn =
       prompt?: string;
       savedToLibrary?: boolean;
       error?: string | null;
+      isHistorical?: boolean;
     };
 
-const INITIAL_SUGGESTIONS = [
-  "Instagram'a yeni ürün tanıtım postu atmak istiyorum",
-  "9:16 dikey Story / Reels görseli tasarlayalım",
-  "Şimdi üret: sabah ışığında minimal masada kahve ve ürün çekimi",
-  "Şimdi üret: 5 saniyelik sinematik 9:16 ürün tanıtım videosu",
-  "Neler yapabilirsin? Yeteneklerini göster",
+const STARTER_PROMPT_IDEAS: PromptIdeaItem[] = [
+  {
+    title: "Sabah Işığında Ürün & Kahve Postu",
+    category: "4:5 Fotoğraf + Brief",
+    prompt:
+      "Instagram için 4:5 dikey formatta ürün ve kahve çekimi üret: Sabah güneş ışığı alan doğal ahşap masa üzerinde minimal kompozisyon, sıcak krem ve toprak tonları, arkada hafif flu bitkiler, yüksek stüdyo netliği ve dikkat çekici Instagram post metni ile hashtagler hazırla.",
+  },
+  {
+    title: "Sinematik Sesli Reels Videosu",
+    category: "9:16 Sesli Video",
+    prompt:
+      "Instagram Reels için 9:16 dikey formatta 5 saniyelik sinematik tanıtım videosu ve Türkçe seslendirme üret: Yavaşça ürüne doğru yaklaşan kamera hareketi, altın saat ışık yansımaları, modern lüks atmosfer ve enerjik bir Türkçe reklam seslendirmesi ekle.",
+  },
+  {
+    title: "Videoma Türkçe Seslendirme Üret",
+    category: "Videoya Ses",
+    prompt:
+      "Videom için enerjik ve samimi bir Türkçe reklam seslendirmesi üretip videoya ekle: 'Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.'",
+  },
+  {
+    title: "Kozmetik & Cilt Bakımı Stüdyo",
+    category: "4:5 Makro Fotoğraf",
+    prompt:
+      "Kozmetik ve cilt bakımı ürünü için 4:5 makro stüdyo fotoğrafı üret: Su damlacıkları ve doğal botanik yapraklar arasında zarif şişe, yumuşak difüzör aydınlatması, pastel bej arka plan ve ürün faydalarını anlatan Instagram Post Brief'i oluştur.",
+  },
+  {
+    title: "Editorial Moda & Sokak Stili",
+    category: "9:16 Story Görseli",
+    prompt:
+      "Instagram Story için 9:16 dikey formatta editorial moda çekimi üret: Şehir sokaklarında doğal gün ışığında modern minimalist kombin, sinematik renk tonlaması ve etkileşim artıran Story metni hazırla.",
+  },
+  {
+    title: "Gastronomi & Gurme Lezzet Çekimi",
+    category: "4:5 Fotoğraf + Brief",
+    prompt:
+      "Sosyal medya için 4:5 gurme kahve ve tatlı çekimi üret: Buharı tüten latte art fincanı, yanında taze kruvasan, mermer masa üstü, 45 derece doğal pencere ışığı ve samimi davet içeren Instagram Post Brief'i yaz.",
+  },
+  {
+    title: "Kampanya Post Brief & Hashtag Seti",
+    category: "Post & Brief",
+    prompt:
+      "Yeni ürün lansmanımız için görsel üretmeden önce kapsamlı bir Instagram Post Brief'i, dikkat çekici 3 farklı açılış cümlesi (Hook), açıklama metni, yapılacaklar listesi ve #reklam uyumlu hashtag seti hazırla.",
+  },
+  {
+    title: "Lüks Parfüm & Saat Stüdyo Reklamı",
+    category: "9:16 Sesli Video",
+    prompt:
+      "9:16 dikey Reels formatında lüks parfüm tanıtım videosu ve Türkçe seslendirme üret: Siyah ıslak doğal taş zemin üzerinde dramatik altın spot ışığı, su yansımaları, sinematik kamera geçişi ve etkileyici Türkçe dış ses.",
+  },
 ];
 
 function ChatMediaCard({
@@ -85,21 +135,31 @@ function ChatMediaCard({
   kind,
   prompt,
   modelKey,
+  voiceoverScript,
   savedInitial,
-  onQuickFollowUp,
+  onInsertPrompt,
+  onAddVoiceToVideo,
   onOpenPhone,
+  onSavePrompt,
 }: {
   assetId: string;
   uploadId?: string | null;
   kind: CreativeKind;
   prompt: string;
   modelKey?: string;
+  voiceoverScript?: string | null;
   savedInitial?: boolean;
-  onQuickFollowUp: (refId: string, command: string) => void;
+  onInsertPrompt: (refId: string | null, promptText: string) => void;
+  onAddVoiceToVideo: (videoId: string, defaultScript: string) => void;
   onOpenPhone: () => void;
+  onSavePrompt: (text: string, k: CreativeKind) => void;
 }) {
   const tt = useTT();
   const [mediaOk, setMediaOk] = useState(true);
+  const [voiceBoxOpen, setVoiceBoxOpen] = useState(false);
+  const [voiceScript, setVoiceScript] = useState(
+    voiceoverScript || "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.",
+  );
   const [saveState, saveAction, savePending] = useActionState(saveAssetToLibraryAction, idleState);
   const isSaved = savedInitial || !!uploadId || saveState.ok;
   const effectiveRefId = (saveState.data?.uploadId as string | undefined) ?? uploadId ?? assetId;
@@ -110,14 +170,23 @@ function ChatMediaCard({
     <div className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-surface">
       {kind === "audio" ? (
         <div className="flex flex-col gap-2 bg-fg/[0.03] p-4">
-          <div className="flex items-center gap-2 text-[12px] font-medium text-fg">
-            <KindIcon kind="audio" size={14} />
-            <span>{tt("Seslendirme")}</span>
+          <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-fg">
+            <span className="inline-flex items-center gap-1.5">
+              <KindIcon kind="audio" size={14} />
+              <span>{tt("Türkçe AI Seslendirme")}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onSavePrompt(cleanPrompt, "audio")}
+              className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-[10px] text-fg-muted hover:border-fg/40 hover:text-fg"
+            >
+              ★ {tt("Promptu Kaydet")}
+            </button>
           </div>
           <audio src={src} controls className="w-full" />
         </div>
       ) : (
-        <div className={cn("relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden bg-gradient-to-br text-white", toneFor(kind, assetId))}>
+        <div className={cn("relative flex aspect-[16/10] max-h-72 w-full items-center justify-center overflow-hidden bg-gradient-to-br text-white", toneFor(kind, assetId))}>
           {mediaOk ? (
             kind === "video" ? (
               <video
@@ -166,6 +235,39 @@ function ChatMediaCard({
         </div>
       )}
 
+      {/* Videoya Ses Üret & Ekle Açılır Kutusu */}
+      {kind === "video" && voiceBoxOpen ? (
+        <div className="flex flex-col gap-2 border-t border-line bg-bg/80 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Üret & Ekle")}</span>
+            <button type="button" onClick={() => setVoiceBoxOpen(false)} className="text-[11px] text-fg-muted hover:text-fg">
+              {tt("Kapat")}
+            </button>
+          </div>
+          <textarea
+            rows={2}
+            value={voiceScript}
+            onChange={(e) => setVoiceScript(e.target.value)}
+            placeholder={tt("Videoda okunmasını istediğiniz Türkçe metni yazın…")}
+            className="w-full rounded-xl border border-line bg-surface p-2 text-[12px] text-fg focus:border-fg focus:outline-none"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (voiceScript.trim()) {
+                  setVoiceBoxOpen(false);
+                  onAddVoiceToVideo(assetId, voiceScript.trim());
+                }
+              }}
+              className="rounded-full bg-fg px-3.5 py-1 text-[11px] font-semibold text-bg hover:opacity-90"
+            >
+              {tt("Ses Üret & Videoya Göm")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line bg-bg/60 p-2.5">
         {kind !== "audio" && !isSaved ? (
           <form
@@ -192,7 +294,17 @@ function ChatMediaCard({
             onClick={onOpenPhone}
             className="rounded-full bg-fg px-3 py-1 text-[11px] font-medium text-bg transition-standard hover:opacity-90"
           >
-            {tt("Telefonda Gör & Formatla")}
+            {tt("Telefonda Gör")}
+          </button>
+        ) : null}
+
+        {kind === "video" ? (
+          <button
+            type="button"
+            onClick={() => setVoiceBoxOpen((v) => !v)}
+            className="rounded-full border border-fg bg-surface px-3 py-1 text-[11px] font-semibold text-fg transition-standard hover:bg-fg hover:text-bg"
+          >
+            {tt("Videoya Ses Üret & Ekle")}
           </button>
         ) : null}
 
@@ -200,20 +312,33 @@ function ChatMediaCard({
           <>
             <button
               type="button"
-              onClick={() => onQuickFollowUp(effectiveRefId, `Şimdi üret: ${cleanPrompt} — bu sahneyi 5 saniyelik akıcı 9:16 Reels videosuna dönüştür`)}
+              onClick={() =>
+                onInsertPrompt(
+                  effectiveRefId,
+                  `Şimdi üret: ${cleanPrompt} — bu görseli 5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür ve üzerine Türkçe seslendirme ekle`,
+                )
+              }
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Videoya Çevir")}
+              {tt("Sesli Videoya Çevir")}
             </button>
             <button
               type="button"
-              onClick={() => onQuickFollowUp(effectiveRefId, `Şimdi üret: ${cleanPrompt} — yeni varyasyon oluştur`)}
+              onClick={() => onInsertPrompt(effectiveRefId, `Şimdi üret: ${cleanPrompt} — farklı ışık ve kadrajla yeni bir varyasyon üret`)}
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Varyasyon Üret")}
+              {tt("Varyasyon")}
             </button>
           </>
         ) : null}
+
+        <button
+          type="button"
+          onClick={() => onSavePrompt(cleanPrompt, kind)}
+          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
+        >
+          ★ {tt("Promptu Kaydet")}
+        </button>
 
         {kind !== "audio" ? (
           <form action={openAssetInStudioAction}>
@@ -250,6 +375,7 @@ export function CreativeComposer({
   initialPrompt = "",
   initialRefId,
   initialHistory = [],
+  initialSavedPrompts = [],
 }: {
   models: ComposerModel[];
   library?: ComposerLibraryItem[];
@@ -263,6 +389,7 @@ export function CreativeComposer({
   initialKind?: CreativeKind;
   initialRefId?: string;
   initialHistory?: ChatHistoryItem[];
+  initialSavedPrompts?: SavedPromptItem[];
 }) {
   const tt = useTT();
   const router = useRouter();
@@ -278,8 +405,12 @@ export function CreativeComposer({
   const [upPct, setUpPct] = useState<number | null>(null);
   const [upMsg, setUpMsg] = useState<{ text: string; isError?: boolean } | null>(null);
   const [quickCmd, setQuickCmd] = useState("");
+  const [phoneVoiceScript, setPhoneVoiceScript] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<string[]>(INITIAL_SUGGESTIONS);
+  const [sliderTab, setSliderTab] = useState<"ideas" | "saved">("ideas");
+  const [ideas, setIdeas] = useState<PromptIdeaItem[]>(STARTER_PROMPT_IDEAS);
+  const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>(initialSavedPrompts);
+  const [promptNotice, setPromptNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -296,7 +427,6 @@ export function CreativeComposer({
     setLiveBalance(available);
   }, [available]);
 
-  // Kredi paketlerinin (Uygun / Dengeli / Yüksek Kalite) fal.ai modellerine göre birim kredi maliyeti
   const tierCosts = useMemo(() => {
     const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
     const econ = imgs.find((m) => m.key === "flux-schnell")?.creditsPerUnit ?? imgs[0]?.creditsPerUnit ?? minTry;
@@ -311,7 +441,7 @@ export function CreativeComposer({
   }, [models, minTry, currency]);
 
   const TIERS: { id: CreditTier; label: string; desc: string; cost: number }[] = [
-    { id: "economy", label: tt("Uygun Kredi"), desc: "FLUX Schnell / Hızlı", cost: tierCosts.economy },
+    { id: "economy", label: tt("Uygun Kredi"), desc: "FLUX Schnell / LTX / Hızlı", cost: tierCosts.economy },
     { id: "standard", label: tt("Dengeli Kredi"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
     { id: "pro", label: tt("Yüksek Kalite"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
   ];
@@ -335,21 +465,26 @@ export function CreativeComposer({
   const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
   const [panelOpen, setPanelOpen] = useState(Boolean(latestCompleted));
 
+  // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
     const welcome: ChatTurn = {
       id: "welcome",
       from: "bot",
-      text: "Merhaba! Ben Nordvow Creative AI Yönetmeninizim. Ayarlarla uğraşmanıza gerek yok: nasıl bir Instagram postu, Story, Reels videosu veya seslendirme istediğinizi yazın; birlikte netleştirip Post Brief'inizi hazırlayayım ve fal.ai (FLUX Schnell / Pro) ile üreteyim.",
+      isHistorical: true,
+      text:
+        "Merhaba! Ben **Nordvow Creative AI**. Fotoğraf, Reels videosu, videolarınıza Türkçe AI seslendirme ve Instagram Post & Brief hazırlama işlemlerinin tamamını bu sohbette yönetebilirsiniz.\n\n" +
+        "Aşağıdaki **Fikir & Hazır Promptlar** veya **Kayıtlı Promptlarım** kaydırıcısından bir karta tıklayarak detaylı komutu sohbet kutusuna ekleyebilir ya da doğrudan merhaba yazıp sohbet ederek başlayabilirsiniz.",
     };
     if (!initialHistory.length) return [welcome];
     const turns: ChatTurn[] = [welcome];
-    const sorted = [...initialHistory].slice(0, 10).reverse();
+    const sorted = [...initialHistory].slice(0, 6).reverse();
     for (const h of sorted) {
       const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
       turns.push({
         id: `hist-u-${h.jobId}`,
         from: "user",
         text: cleanText || h.prompt,
+        isHistorical: true,
       });
       if (h.status === "COMPLETED" && h.assetId) {
         turns.push({
@@ -362,6 +497,7 @@ export function CreativeComposer({
           modelKey: h.modelKey,
           prompt: cleanText || h.prompt,
           savedToLibrary: true,
+          isHistorical: true,
         });
       }
     }
@@ -369,12 +505,124 @@ export function CreativeComposer({
   }, [initialHistory]);
 
   const [chatLog, setChatLog] = useState<ChatTurn[]>(initialTurns);
-  const endRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const ideaSliderRef = useRef<HTMLDivElement>(null);
+  const mediaSliderRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const el = chatScrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [chatLog.length, activeJob]);
+
+  // Sohbette üretilmiş tüm medya öğeleri (yatay slider için)
+  const mediaItems = useMemo(() => {
+    const list: { assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; modelKey?: string; format?: string }[] = [];
+    const seen = new Set<string>();
+    for (let i = chatLog.length - 1; i >= 0; i--) {
+      const m = chatLog[i]!;
+      if (m.from === "bot" && m.assetId && m.kind && !seen.has(m.assetId)) {
+        seen.add(m.assetId);
+        list.push({
+          assetId: m.assetId,
+          uploadId: m.uploadId,
+          kind: m.kind,
+          prompt: m.prompt ?? m.text,
+          modelKey: m.modelKey,
+          format: m.format,
+        });
+      }
+    }
+    return list;
+  }, [chatLog]);
+
+  const latestVideoAssetId = useMemo(() => {
+    const v = mediaItems.find((m) => m.kind === "video");
+    return v?.assetId ?? null;
+  }, [mediaItems]);
+
+  /** Hazır prompt veya kayıtlı prompt tıklandığında komutu GÖNDERMEZ; sohbet kutusuna ekler ve odaklar. */
+  const insertPromptIntoChat = (textToInsert: string, refId?: string | null) => {
+    if (refId) {
+      setRefs((prev) => (prev.includes(refId) ? prev : [refId, ...prev].slice(0, 4)));
+    }
+    setPrompt(textToInsert);
+    setPromptNotice("Prompt sohbet kutusuna eklendi — dilediğiniz gibi düzenleyip Gönder'e basabilirsiniz.");
+    setTimeout(() => setPromptNotice(null), 4000);
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    }, 30);
+  };
+
+  const handleSavePrompt = (textToSave: string, kind: "image" | "video" | "audio" | "brief" = "image") => {
+    const clean = textToSave.trim();
+    if (clean.length < 3) return;
+    start(async () => {
+      const res = await saveCreativePromptAction({ prompt: clean, kind });
+      if (res.ok) {
+        setSavedPrompts(res.items);
+        setSliderTab("saved");
+        setPromptNotice("Prompt 'Kayıtlı Promptlarım' alanına kaydedildi.");
+        setTimeout(() => setPromptNotice(null), 3500);
+      }
+    });
+  };
+
+  const handleDeleteSavedPrompt = (id: string) => {
+    start(async () => {
+      const res = await deleteCreativePromptAction(id);
+      if (res.ok) setSavedPrompts(res.items);
+    });
+  };
+
+  const handleAddVoiceToVideo = (videoId: string, scriptText: string) => {
+    if (!scriptText.trim() || pending) return;
+    setError(null);
+    const tierInfo = TIERS.find((t) => t.id === tier);
+    setChatLog((prev) => [
+      ...prev,
+      {
+        id: `u-voice-${Date.now()}`,
+        from: "user",
+        text: `Videoya Türkçe Seslendirme Ekle: "${scriptText}"`,
+        tierLabel: tierInfo?.label,
+      },
+    ]);
+    start(async () => {
+      const res = await addVoiceoverToVideoAction({ videoId, scriptText, tier });
+      if (!res.ok) {
+        setError(res.error ?? "Videoya ses eklenemedi.");
+        return;
+      }
+      if (typeof res.availableCredits === "number") setLiveBalance(res.availableCredits);
+      if (res.assetId) {
+        setResult({ assetId: res.assetId, kind: "video", prompt: scriptText, format: "9:16" });
+        setPanelOpen(true);
+        setChatLog((prev) => [
+          ...prev,
+          {
+            id: `b-voice-${Date.now()}`,
+            from: "bot",
+            text: res.reply,
+            voiceoverScript: scriptText,
+            assetId: res.assetId,
+            kind: "video",
+            format: "9:16",
+            modelKey: res.modelKey,
+            prompt: scriptText,
+            savedToLibrary: true,
+          },
+        ]);
+        router.refresh();
+      }
+    });
+  };
 
   const addFiles = async (files: FileList) => {
     setUpMsg(null);
@@ -387,7 +635,9 @@ export function CreativeComposer({
           setRefs((x) => (x.length < 4 ? [...x, r.id] : x));
           setUpMsg({ text: "Görsel referans olarak seçildi." });
         } else {
-          setUpMsg({ text: "Video kitaplığa eklendi." });
+          setResult({ assetId: r.id, uploadId: r.id, kind: "video", prompt: f.name, format: "9:16" });
+          setPanelOpen(true);
+          setUpMsg({ text: "Video yüklendi — sağ panelden veya sohbetten videoya ses ekleyebilirsiniz." });
         }
       } catch (e) {
         setUpMsg({ text: `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`, isError: true });
@@ -403,12 +653,14 @@ export function CreativeComposer({
     const trimmed = rawMessage.trim();
     if (!trimmed || pending) return;
     setError(null);
+    setPromptNotice(null);
     const tierInfo = TIERS.find((t) => t.id === tier);
     const usedRefs = overrideRefs ?? refs;
 
-    const historyForApi = chatLog
-      .filter((c) => c.id !== "welcome")
-      .slice(-8)
+    // Yalnız bu oturumdaki aktif konuşma geçmişini gönder (eski iş geçmişi 'selam' mesajını üretime zorlamasın)
+    const activeSessionHistory = chatLog
+      .filter((c) => !c.isHistorical)
+      .slice(-6)
       .map((c) => ({ role: c.from === "user" ? ("user" as const) : ("assistant" as const), text: c.text }));
 
     setChatLog((prev) => [
@@ -426,9 +678,10 @@ export function CreativeComposer({
     start(async () => {
       const res = await chatCreativeDirectorAction({
         message: trimmed,
-        history: historyForApi,
+        history: activeSessionHistory,
         tier,
         referenceUploadIds: usedRefs,
+        targetVideoAssetId: result?.kind === "video" ? result.assetId : latestVideoAssetId,
         forceGenerate,
       });
 
@@ -438,7 +691,7 @@ export function CreativeComposer({
       }
 
       if (res.suggestions?.length) {
-        setSuggestions(res.suggestions);
+        setIdeas(res.suggestions);
       }
 
       if (typeof res.availableCredits === "number") {
@@ -452,12 +705,12 @@ export function CreativeComposer({
             id: `b-${Date.now()}`,
             from: "bot",
             text: res.reply,
+            postBrief: res.postBrief,
           },
         ]);
         return;
       }
 
-      // action === "generate"
       if (res.assetId) {
         const k = res.kind ?? "image";
         const f = res.format ?? "9:16";
@@ -471,6 +724,7 @@ export function CreativeComposer({
             text: res.reply,
             postBrief: res.postBrief,
             enhancedPrompt: res.enhancedPrompt,
+            voiceoverScript: res.voiceoverScript,
             assetId: res.assetId,
             kind: k,
             format: f,
@@ -497,6 +751,7 @@ export function CreativeComposer({
             text: res.reply,
             postBrief: res.postBrief,
             enhancedPrompt: res.enhancedPrompt,
+            voiceoverScript: res.voiceoverScript,
           },
         ]);
       }
@@ -515,23 +770,28 @@ export function CreativeComposer({
     sendTurn(`Şimdi üret: ${result.prompt} — ${cmdText}`, true, nextRefs);
   };
 
+  const scrollElement = (el: HTMLDivElement | null, dir: -1 | 1) => {
+    if (!el) return;
+    el.scrollBy({ left: dir * 320, behavior: "smooth" });
+  };
+
   return (
     <div
       className={cn(
-        "grid min-h-[calc(100dvh-9.5rem)] w-full flex-1 grid-cols-1 gap-3",
-        panelOpen && result ? "lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]" : "",
+        "grid h-[calc(100dvh-8.2rem)] max-h-[calc(100dvh-8.2rem)] w-full grid-cols-1 gap-3 overflow-hidden",
+        panelOpen && result ? "lg:grid-cols-[minmax(0,1fr)_370px] xl:grid-cols-[minmax(0,1fr)_400px]" : "",
       )}
     >
-      {/* Sol / Orta: Tam Ekran AI Sohbet Alanı */}
-      <div className="flex min-h-[calc(100dvh-9.5rem)] flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface">
-        {/* Üst Sohbet Çubuğu: Yalnız Kredi Seviyesi Seçimi (Uygun / Dengeli / Yüksek Kalite) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+      {/* Sol / Orta: Sabit Yüksekliğe Sahip Nordvow Creative AI Sohbet Stüdyosu */}
+      <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface">
+        {/* Üst Çubuk: Nordvow Creative AI + Kredi Seviyesi Seçimi */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg" aria-hidden>
               <SparkleIcon size={14} />
             </span>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[13px] font-semibold text-fg">{tt("AI Creative Yönetmeni (Bedrock + fal.ai)")}</h2>
+              <h2 className="text-[13px] font-semibold text-fg">{tt("Nordvow Creative AI")}</h2>
               {profileLabel ? (
                 <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
                   {profileLabel}
@@ -540,7 +800,6 @@ export function CreativeComposer({
             </div>
           </div>
 
-          {/* Kredi Paketi Seçici: Uygun / Dengeli / Yüksek Kalite */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-full border border-line bg-bg p-0.5" role="radiogroup" aria-label={tt("Kredi tercihi")}>
               {TIERS.map((t) => {
@@ -579,17 +838,90 @@ export function CreativeComposer({
           </div>
         </div>
 
-        {/* Sohbet Mesaj Akışı */}
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:p-6" role="log" aria-live="polite">
+        {/* Üretilen İçerikler Yatay Slider Şeridi (Chat uzamadan hızlı geçiş) */}
+        {mediaItems.length > 0 ? (
+          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-bg/40 px-3 py-1.5">
+            <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{tt("Üretilenler:")}</span>
+            <button
+              type="button"
+              onClick={() => scrollElement(mediaSliderRef.current, -1)}
+              aria-label={tt("Sola kaydır")}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+            >
+              ‹
+            </button>
+            <div
+              ref={mediaSliderRef}
+              className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scroll-smooth py-0.5 [scrollbar-width:none]"
+            >
+              {mediaItems.map((item) => {
+                const active = result?.assetId === item.assetId;
+                return (
+                  <button
+                    key={item.assetId}
+                    type="button"
+                    onClick={() => {
+                      setResult({
+                        assetId: item.assetId,
+                        uploadId: item.uploadId,
+                        kind: item.kind,
+                        prompt: item.prompt,
+                        format: item.format ?? "9:16",
+                      });
+                      setPanelOpen(true);
+                    }}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-standard",
+                      active ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg hover:border-fg/40",
+                    )}
+                  >
+                    <KindIcon kind={item.kind} size={11} />
+                    <span className="max-w-[140px] truncate">{item.prompt}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => scrollElement(mediaSliderRef.current, 1)}
+              aria-label={tt("Sağa kaydır")}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+            >
+              ›
+            </button>
+          </div>
+        ) : null}
+
+        {/* Sohbet Mesaj Akışı (Sabit yükseklik içinde kayar, sayfayı uzatmaz) */}
+        <div
+          ref={chatScrollRef}
+          className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto scroll-smooth p-4 sm:p-5"
+          role="log"
+          aria-live="polite"
+        >
           {chatLog.map((msg) =>
             msg.from === "user" ? (
               <div key={msg.id} className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
-                <div className="rounded-2xl rounded-br-sm bg-fg px-4 py-2.5 text-[14px] leading-relaxed text-bg">
+                <div className="rounded-2xl rounded-br-sm bg-fg px-4 py-2.5 text-[13px] leading-relaxed text-bg">
                   {msg.text}
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-fg-passive">
+                <div className="flex flex-wrap items-center gap-2 text-[10px] text-fg-passive">
                   {msg.tierLabel ? <span>{msg.tierLabel}</span> : null}
                   {msg.refCount ? <span>· {msg.refCount} {tt("referans")}</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => insertPromptIntoChat(msg.text)}
+                    className="underline hover:text-fg"
+                  >
+                    {tt("Chate Ekle")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSavePrompt(msg.text, "image")}
+                    className="underline hover:text-fg"
+                  >
+                    ★ {tt("Kaydet")}
+                  </button>
                 </div>
               </div>
             ) : (
@@ -598,29 +930,40 @@ export function CreativeComposer({
                   {msg.text}
                 </div>
 
-                {/* Bedrock ile Üretilen Hazır Instagram Post Brief & Caption */}
+                {/* Hazır Instagram Post Metni & Brief Kartı */}
                 {msg.postBrief ? (
                   <div className="flex max-w-xl flex-col gap-2 rounded-2xl border border-line bg-bg/40 p-3.5">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-                        {tt("Hazır Instagram Post Metni & Brief")}
+                        {tt("Instagram Post Metni & Brief")}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(msg.postBrief!);
-                          setCopiedId(msg.id);
-                          setTimeout(() => setCopiedId(null), 2000);
-                        }}
-                        className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] font-medium text-fg hover:border-fg/40"
-                      >
-                        {copiedId === msg.id ? tt("Kopyalandı") : tt("Metni Kopyala")}
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        {msg.enhancedPrompt ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSavePrompt(msg.enhancedPrompt!, msg.kind ?? "image")}
+                            className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] text-fg-muted hover:border-fg/40 hover:text-fg"
+                          >
+                            ★ {tt("Promptu Kaydet")}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(msg.postBrief!);
+                            setCopiedId(msg.id);
+                            setTimeout(() => setCopiedId(null), 2000);
+                          }}
+                          className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] font-medium text-fg hover:border-fg/40"
+                        >
+                          {copiedId === msg.id ? tt("Kopyalandı") : tt("Metni Kopyala")}
+                        </button>
+                      </div>
                     </div>
-                    <p className="whitespace-pre-line text-[13px] leading-relaxed text-fg">{msg.postBrief}</p>
-                    {msg.enhancedPrompt ? (
-                      <p className="border-t border-line/60 pt-2 text-[11px] text-fg-passive">
-                        <strong>{tt("Geliştirilmiş fal.ai Promptu:")}</strong> {msg.enhancedPrompt}
+                    <p className="max-h-40 overflow-y-auto whitespace-pre-line text-[12px] leading-relaxed text-fg">{msg.postBrief}</p>
+                    {msg.voiceoverScript ? (
+                      <p className="border-t border-line/60 pt-2 text-[11px] text-fg-muted">
+                        <strong>{tt("Seslendirme Metni:")}</strong> {msg.voiceoverScript}
                       </p>
                     ) : null}
                   </div>
@@ -633,11 +976,11 @@ export function CreativeComposer({
                     kind={msg.kind}
                     prompt={msg.prompt ?? msg.text}
                     modelKey={msg.modelKey}
+                    voiceoverScript={msg.voiceoverScript}
                     savedInitial={msg.savedToLibrary}
-                    onQuickFollowUp={(refId, cmd) => {
-                      setRefs([refId]);
-                      sendTurn(cmd, true, [refId]);
-                    }}
+                    onInsertPrompt={(refId, textToInsert) => insertPromptIntoChat(textToInsert, refId)}
+                    onAddVoiceToVideo={(vidId, script) => handleAddVoiceToVideo(vidId, script)}
+                    onSavePrompt={(p, k) => handleSavePrompt(p, k)}
                     onOpenPhone={() => {
                       setResult({
                         assetId: msg.assetId!,
@@ -670,7 +1013,7 @@ export function CreativeComposer({
                       {
                         id: `done-${Date.now()}`,
                         from: "bot",
-                        text: `${KIND_LABEL[doneJob.kind]} hazırlandı ve kitaplığınıza kaydedildi. Sağ panelde telefonda önizleyip formatlayabilirsiniz.`,
+                        text: `${KIND_LABEL[doneJob.kind]} hazırlandı ve kitaplığınıza kaydedildi. Sağ panelde telefonda önizleyebilir veya videoya seslendirme ekleyebilirsiniz.`,
                         assetId,
                         kind: doneJob.kind,
                         format: doneJob.format,
@@ -687,8 +1030,8 @@ export function CreativeComposer({
           ) : null}
 
           {pending ? (
-            <div className="mr-auto flex items-center gap-2 rounded-2xl border border-line bg-bg/60 px-4 py-2.5 text-[12px] text-fg-muted">
-              <span>{tt("AI Yönetmen hazırlıyor…")}</span>
+            <div className="mr-auto flex items-center gap-2 rounded-2xl border border-line bg-bg/60 px-4 py-2 text-[12px] text-fg-muted">
+              <span>{tt("Nordvow Creative AI hazırlıyor…")}</span>
             </div>
           ) : null}
 
@@ -697,48 +1040,135 @@ export function CreativeComposer({
               {error}
             </p>
           ) : null}
-          <div ref={endRef} />
         </div>
 
-        {/* Alt Sohbet & Öneri Alanı (Ayar Butonları Yok, Yalnız Öneriler + Sohbet Girişi) */}
-        <div className="flex flex-col gap-2 border-t border-line bg-bg/40 p-3 sm:p-4">
-          {/* Önceden Oluşturulmuş / Bedrock Soru-Cevap Yönlendirme Çipleri */}
-          {suggestions.length > 0 ? (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1" aria-label={tt("Önerilen yanıtlar")}>
-              {suggestions.map((s) => {
-                const isDirectGen = s.toLocaleLowerCase("tr").startsWith("şimdi üret");
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    disabled={pending}
-                    onClick={() => sendTurn(s, isDirectGen)}
-                    className={cn(
-                      "shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-standard disabled:opacity-40",
-                      isDirectGen
-                        ? "border-fg bg-fg text-bg hover:opacity-90"
-                        : "border-line bg-surface text-fg-muted hover:border-fg/40 hover:text-fg",
-                    )}
-                  >
-                    {s}
-                  </button>
-                );
-              })}
+        {/* Alt Bölüm: Yatay Kaydırılabilir (Slider) Hazır Fikir Promptları + Kayıtlı Promptlar + Sohbet Kutusu */}
+        <div className="flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 p-2.5 sm:p-3">
+          {/* Slider Sekmeleri ve Sol/Sağ Kaydırma Okları */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSliderTab("ideas")}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                  sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                )}
+              >
+                {tt("Fikir & Hazır Promptlar")} ({ideas.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSliderTab("saved")}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                  sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                )}
+              >
+                ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length})
+              </button>
+              <span className="hidden text-[11px] text-fg-passive sm:inline">
+                {tt("(Tıkladığınız prompt sohbet kutusuna eklenir)")}
+              </span>
             </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => scrollElement(ideaSliderRef.current, -1)}
+                aria-label={tt("Promptları sola kaydır")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollElement(ideaSliderRef.current, 1)}
+                aria-label={tt("Promptları sağa kaydır")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          {/* Yatay Kaydırılabilir (Slider) Kartlar: Tıklayınca Komut Gitmez, Chate Detaylı Ekler */}
+          <div
+            ref={ideaSliderRef}
+            className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
+          >
+            {sliderTab === "ideas" ? (
+              ideas.map((idea, idx) => (
+                <button
+                  key={`${idea.title}-${idx}`}
+                  type="button"
+                  onClick={() => insertPromptIntoChat(idea.prompt)}
+                  className="group flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="truncate text-[11px] font-semibold text-fg">{idea.title}</span>
+                    <span className="shrink-0 rounded-full border border-line bg-bg px-2 py-0.5 text-[9px] font-medium text-fg-muted group-hover:border-fg/40">
+                      {idea.category}
+                    </span>
+                  </div>
+                  <p className="line-clamp-2 text-[11px] leading-snug text-fg-muted">{idea.prompt}</p>
+                </button>
+              ))
+            ) : savedPrompts.length === 0 ? (
+              <div className="flex w-full items-center justify-between rounded-xl border border-dashed border-line bg-surface/60 px-3 py-2 text-[12px] text-fg-muted">
+                <span>{tt("Henüz kayıtlı promptunuz yok. Sohbet kutusuna yazdığınız veya beğendiğiniz bir promptu '★ Promptu Kaydet' ile buraya ekleyebilirsiniz.")}</span>
+              </div>
+            ) : (
+              savedPrompts.map((sp) => (
+                <div
+                  key={sp.id}
+                  className="group relative flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                >
+                  <div className="flex items-center justify-between gap-1.5 pr-5">
+                    <button
+                      type="button"
+                      onClick={() => insertPromptIntoChat(sp.prompt)}
+                      className="truncate text-left text-[11px] font-semibold text-fg hover:underline"
+                    >
+                      ★ {sp.title}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => insertPromptIntoChat(sp.prompt)}
+                    className="line-clamp-2 text-left text-[11px] leading-snug text-fg-muted"
+                  >
+                    {sp.prompt}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteSavedPrompt(sp.id)}
+                    aria-label={tt("Kayıtlı promptu sil")}
+                    className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-fg-passive hover:bg-bg hover:text-critical"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {promptNotice ? (
+            <p className="text-[11px] font-medium text-fg">{promptNotice}</p>
           ) : null}
 
           {refs.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-1.5">
               <span className="text-[11px] font-medium text-fg">{tt("Seçili referans:")}</span>
               {refs.map((r) => (
-                <div key={r} className="relative h-9 w-9 overflow-hidden rounded-lg border border-fg">
+                <div key={r} className="relative h-8 w-8 overflow-hidden rounded-lg border border-fg">
                   {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
                   <img src={`/api/creative/file/${r}`} alt={tt("Referans")} className="h-full w-full object-cover" />
                   <button
                     type="button"
                     onClick={() => toggleRef(r)}
                     aria-label={tt("Referansı kaldır")}
-                    className="absolute top-0.5 right-0.5 rounded-full bg-black/75 px-1 text-[10px] text-white"
+                    className="absolute top-0 right-0 rounded-full bg-black/75 px-1 text-[9px] text-white"
                   >
                     ×
                   </button>
@@ -754,28 +1184,43 @@ export function CreativeComposer({
             <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
               <div className="flex items-center justify-between">
                 <span className="text-[12px] font-medium text-fg">
-                  {tt("Kitaplığım")} ({lib.length}) — {tt("Referans seçin")}
+                  {tt("Kitaplığım")} ({lib.length}) — {tt("Referans görsel seçin veya videoya ses ekleyin")}
                 </span>
                 <button type="button" onClick={() => setShowLib(false)} className="text-[11px] text-fg-muted hover:text-fg">
                   {tt("Kapat")}
                 </button>
               </div>
               {lib.length === 0 ? (
-                <p className="py-3 text-center text-[12px] text-fg-muted">{tt("Kitaplığınızda henüz dosya yok.")}</p>
+                <p className="py-2 text-center text-[12px] text-fg-muted">{tt("Kitaplığınızda henüz dosya yok.")}</p>
               ) : (
-                <ul className="grid max-h-32 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-8">
+                <ul className="flex gap-2 overflow-x-auto pb-1">
                   {lib.map((u) => (
-                    <li key={u.id} className="relative">
+                    <li key={u.id} className="shrink-0">
                       <button
                         type="button"
-                        onClick={() => toggleRef(u.id)}
+                        onClick={() => {
+                          if (u.kind === "video") {
+                            setResult({ assetId: u.id, uploadId: u.id, kind: "video", prompt: u.name ?? "Video", format: "9:16" });
+                            setPanelOpen(true);
+                            setShowLib(false);
+                          } else {
+                            toggleRef(u.id);
+                          }
+                        }}
                         className={cn(
-                          "group relative block aspect-square w-full overflow-hidden rounded-xl border bg-bg",
+                          "group relative block h-16 w-16 overflow-hidden rounded-xl border bg-bg",
                           refs.includes(u.id) ? "border-fg ring-2 ring-fg/40" : "border-line hover:border-fg/40",
                         )}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
-                        <img src={`/api/creative/file/${u.id}`} alt={u.name ?? ""} className="h-full w-full object-cover" />
+                        {u.kind === "video" ? (
+                          <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 bg-fg/10 p-1 text-center text-[9px] font-medium text-fg">
+                            <KindIcon kind="video" size={14} />
+                            <span className="line-clamp-1">{u.name ?? "Video"}</span>
+                          </div>
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i
+                          <img src={`/api/creative/file/${u.id}`} alt={u.name ?? ""} className="h-full w-full object-cover" />
+                        )}
                       </button>
                     </li>
                   ))}
@@ -804,14 +1249,14 @@ export function CreativeComposer({
                   if (prompt.trim() && !pending) sendTurn(prompt, false);
                 }
               }}
-              placeholder={tt("Örn: Instagram'a kahve postu atmak istiyorum şöyle olsun… (veya doğrudan üretmek istediğiniz fotoğraf/video/sesi yazın)")}
-              className="w-full resize-none bg-transparent px-2 py-1 text-[14px] leading-relaxed text-fg placeholder:text-fg-passive focus:outline-none"
+              placeholder={tt("Selam yazarak tanışın veya üretmek istediğiniz fotoğraf, sesli video, videoya seslendirme ya da Post Brief'i yazın…")}
+              className="w-full resize-none bg-transparent px-2 py-0.5 text-[13px] leading-relaxed text-fg placeholder:text-fg-passive focus:outline-none"
             />
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
-                  + {tt("Referans Yükle")}
+                  + {tt("Dosya / Video Yükle")}
                   <input
                     type="file"
                     multiple
@@ -833,6 +1278,15 @@ export function CreativeComposer({
                 >
                   {tt("Kitaplığım")} ({lib.length})
                 </button>
+                {prompt.trim().length >= 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSavePrompt(prompt, "image")}
+                    className="rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
+                  >
+                    ★ {tt("Promptu Kaydet")}
+                  </button>
+                ) : null}
                 {upPct != null ? <span className="text-[11px] text-fg-muted">%{upPct}</span> : null}
                 {upMsg ? (
                   <span className={cn("text-[11px]", upMsg.isError ? "text-critical" : "text-fg-muted")}>
@@ -841,11 +1295,11 @@ export function CreativeComposer({
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <div className="text-right leading-tight">
-                  <span className="block text-[12px] font-semibold tabular-nums text-fg">{money(currentCost)}</span>
+                  <span className="block text-[11px] font-semibold tabular-nums text-fg">{money(currentCost)}</span>
                   <span className={cn("block text-[10px] tabular-nums", short ? "text-critical" : "text-fg-passive")}>
-                    {short ? tt("Kredi yetersiz") : `${tt("Kalan:")} ${money(Math.max(0, liveBalance - currentCost))}`}
+                    {short ? tt("Kredi yetersiz") : `${tt("Bakiye:")} ${money(liveBalance)}`}
                   </span>
                 </div>
                 {prompt.trim().length >= 3 ? (
@@ -853,7 +1307,7 @@ export function CreativeComposer({
                     type="button"
                     disabled={pending || short}
                     onClick={() => sendTurn(prompt, true)}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-fg px-4 text-[12px] font-semibold text-fg transition-standard hover:bg-fg/10 disabled:opacity-40"
+                    className="inline-flex h-8 items-center gap-1 rounded-full border border-fg px-3.5 text-[11px] font-semibold text-fg transition-standard hover:bg-fg/10 disabled:opacity-40"
                   >
                     {tt("Doğrudan Üret")}
                   </button>
@@ -861,9 +1315,9 @@ export function CreativeComposer({
                 <button
                   type="submit"
                   disabled={pending || !prompt.trim()}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-fg px-5 text-[13px] font-semibold text-bg transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-fg px-4 text-[12px] font-semibold text-bg transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <SparkleIcon size={13} />
+                  <SparkleIcon size={12} />
                   {pending ? tt("Yanıtlanıyor…") : tt("Gönder")}
                 </button>
               </div>
@@ -872,14 +1326,17 @@ export function CreativeComposer({
         </div>
       </div>
 
-      {/* Sağ Panel: Telefon Önizleme & Chat Komutları ile Hızlı Formatlama */}
+      {/* Sağ Panel: Telefon Önizleme, Videoya Ses Ekleme & Hızlı Chat Formatlama */}
       {panelOpen && result ? (
-        <aside className="flex flex-col justify-between gap-4 rounded-2xl border border-line bg-surface p-4" aria-label={tt("Telefon önizleme ve hızlı formatlama")}>
+        <aside
+          className="flex h-full min-h-0 flex-col justify-between gap-3 overflow-y-auto rounded-2xl border border-line bg-surface p-4"
+          aria-label={tt("Telefon önizleme ve hızlı formatlama")}
+        >
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between border-b border-line pb-2.5">
+            <div className="flex items-center justify-between border-b border-line pb-2">
               <div>
-                <h2 className="text-[13px] font-semibold text-fg">{tt("Telefon Önizleme & Formatlama")}</h2>
-                <p className="text-[11px] text-fg-muted">{tt("Telefonda görünümü seçin veya chat komutuyla düzenleyin")}</p>
+                <h2 className="text-[13px] font-semibold text-fg">{tt("Telefon Önizleme & Ses / Format")}</h2>
+                <p className="text-[11px] text-fg-muted">{tt("Telefonda görünümü inceleyin veya videoya ses ekleyin")}</p>
               </div>
               <button
                 type="button"
@@ -913,9 +1370,37 @@ export function CreativeComposer({
               )}
             </div>
 
+            {/* Videolar İçin Doğrudan Ses Üret & Ekle Bölümü */}
+            {result.kind === "video" ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Ekle")}</span>
+                <textarea
+                  rows={2}
+                  value={phoneVoiceScript}
+                  onChange={(e) => setPhoneVoiceScript(e.target.value)}
+                  placeholder={tt("Örn: Yeni koleksiyonumuz şimdi mağazalarda ve online'da! Hemen keşfedin…")}
+                  className="w-full rounded-lg border border-line bg-surface p-2 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    const txt =
+                      phoneVoiceScript.trim() ||
+                      "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
+                    setPhoneVoiceScript("");
+                    handleAddVoiceToVideo(result.assetId, txt);
+                  }}
+                  className="rounded-lg bg-fg px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                >
+                  {tt("Ses Üret & Videoya Göm")}
+                </button>
+              </div>
+            ) : null}
+
             {result.kind !== "audio" ? (
               <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
-                <span className="text-[11px] font-medium text-fg">{tt("Hızlı Chat Formatlama Komutları")}</span>
+                <span className="text-[11px] font-medium text-fg">{tt("Hızlı Formatlama & Sohbet İşlemleri")}</span>
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
@@ -945,10 +1430,10 @@ export function CreativeComposer({
                     <button
                       type="button"
                       disabled={pending}
-                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür", "9:16")}
+                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli ve Türkçe seslendirmeli 9:16 Reels videosuna dönüştür", "9:16")}
                       className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
                     >
-                      Videoya Çevir
+                      {tt("Sesli Videoya Çevir")}
                     </button>
                   ) : null}
                 </div>
@@ -981,28 +1466,33 @@ export function CreativeComposer({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-1.5 border-t border-line pt-3">
+          <div className="flex flex-col gap-1.5 border-t border-line pt-2.5">
             {result.kind !== "audio" ? (
               <form action={openAssetInStudioAction}>
                 <input type="hidden" name="assetId" value={result.assetId} />
                 <button
                   type="submit"
-                  className="w-full rounded-xl border border-line px-3 py-2 text-center text-[12px] font-medium text-fg hover:border-fg/40"
+                  className="w-full rounded-xl border border-line px-3 py-1.5 text-center text-[12px] font-medium text-fg hover:border-fg/40"
                 >
                   {result.kind === "video" ? tt("Videoyu Düzenleyicide Aç →") : tt("Fotoğrafı Düzenleyicide Aç →")}
                 </button>
               </form>
             ) : null}
-            <Link
-              href={`/creative?sekme=metin&asset=${result.assetId}`}
-              className="rounded-xl border border-line px-3 py-2 text-center text-[12px] text-fg hover:border-fg/40"
+            <button
+              type="button"
+              onClick={() =>
+                insertPromptIntoChat(
+                  `Sadece post brief hazırla: "${result.prompt}" içeriği için dikkat çekici Instagram başlığı (Hook), açıklama metni, brief yapılacaklar listesi ve #reklam uyumlu hashtag seti yaz.`,
+                )
+              }
+              className="rounded-xl border border-line px-3 py-1.5 text-center text-[12px] text-fg hover:border-fg/40"
             >
-              {tt("Post Metni & Hashtag Oluştur →")}
-            </Link>
+              {tt("Sohbette Post & Brief Yaz →")}
+            </button>
             <a
               href={`/api/creative/file/${result.assetId}?t=asset`}
               download
-              className="rounded-xl bg-fg px-3 py-2 text-center text-[12px] font-semibold text-bg hover:opacity-90"
+              className="rounded-xl bg-fg px-3 py-1.5 text-center text-[12px] font-semibold text-bg hover:opacity-90"
             >
               {tt("İndir")}
             </a>

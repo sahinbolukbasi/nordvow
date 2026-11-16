@@ -20,12 +20,14 @@ export async function submitGeneration(input: {
   seconds?: number;
   referenceUploadIds?: string[];
   portrait?: boolean;
+  voiceText?: string;
 }) {
   const model = await resolveModel(input.modelKey);
   const refIds = [...new Set(input.referenceUploadIds ?? [])].slice(0, 4);
   if (refIds.length === 0) {
     const plan = planGeneration({ modelKey: model.key, kind: model.kind, prompt: input.prompt, aspect: input.aspect, seconds: input.seconds });
-    return submitCreative({ tenantId: input.tenantId, modelKey: model.key, prompt: input.prompt, units: plan.units, falInput: plan.falInput, referenceImageIsPortrait: !!input.portrait });
+    const falInput = input.voiceText ? { ...plan.falInput, voiceText: input.voiceText } : plan.falInput;
+    return submitCreative({ tenantId: input.tenantId, modelKey: model.key, prompt: input.prompt, units: plan.units, falInput, referenceImageIsPortrait: !!input.portrait });
   }
   const uploads = await Promise.all(refIds.map((id) => getOwnedUpload(input.tenantId, id)));
   if (uploads.some((u) => u.kind !== "image")) throw new DomainError("DOGRULAMA", "Referans olarak yalnız görsel kullanılabilir. Videonuzu Stüdyo'da “Brief ile AI düzenle” ile düzenleyin.");
@@ -47,12 +49,15 @@ export async function submitGeneration(input: {
     const key = kling ? "kling-v2-5-i2v" : "hailuo-02-fast-i2v";
     const allowed = kling ? [5, 10] : [6, 10];
     const secs = allowed.includes(input.seconds ?? 0) ? input.seconds! : allowed[0]!;
+    const baseInput = kling
+      ? { prompt: input.prompt, image_url: urls[0], duration: String(secs) }
+      : { prompt: input.prompt, image_url: urls[0], duration: String(secs), prompt_optimizer: true };
     return submitCreative({
       tenantId: input.tenantId,
       modelKey: key,
       prompt: input.prompt,
       units: secs,
-      falInput: kling ? { prompt: input.prompt, image_url: urls[0], duration: String(secs) } : { prompt: input.prompt, image_url: urls[0], duration: String(secs), prompt_optimizer: true },
+      falInput: input.voiceText ? { ...baseInput, voiceText: input.voiceText } : baseInput,
       referenceImageIsPortrait: !!input.portrait,
       inputUploadId: uploads[0]!.id,
     });
