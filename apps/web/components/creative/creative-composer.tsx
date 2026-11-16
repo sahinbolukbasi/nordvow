@@ -364,6 +364,25 @@ function ChatMediaCard({
   );
 }
 
+const WELCOME_TURN: ChatTurn = {
+  id: "welcome",
+  from: "bot",
+  isHistorical: true,
+  text:
+    "Merhaba! Ben **Nordvow Creative AI**. Fotoğraf, Reels videosu, videolarınıza Türkçe AI seslendirme ve Instagram Post & Brief hazırlama işlemlerinin tamamını bu sohbette yönetebilirsiniz.\n\n" +
+    "Aşağıdaki **Fikir & Hazır Promptlar** veya **Kayıtlı Promptlarım** kaydırıcısından bir karta tıklayarak detaylı komutu sohbet kutusuna ekleyebilir ya da doğrudan merhaba yazıp sohbet ederek başlayabilirsiniz.",
+};
+
+type ChatSession = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  turns: ChatTurn[];
+  result?: { assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null;
+  source: "local" | "db";
+  kind?: CreativeKind;
+};
+
 export function CreativeComposer({
   models,
   library = [],
@@ -423,10 +442,6 @@ export function CreativeComposer({
     postBrief?: string | null;
   } | null>(null);
 
-  useEffect(() => {
-    setLiveBalance(available);
-  }, [available]);
-
   const tierCosts = useMemo(() => {
     const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
     const econ = imgs.find((m) => m.key === "flux-schnell")?.creditsPerUnit ?? imgs[0]?.creditsPerUnit ?? minTry;
@@ -467,16 +482,8 @@ export function CreativeComposer({
 
   // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
-    const welcome: ChatTurn = {
-      id: "welcome",
-      from: "bot",
-      isHistorical: true,
-      text:
-        "Merhaba! Ben **Nordvow Creative AI**. Fotoğraf, Reels videosu, videolarınıza Türkçe AI seslendirme ve Instagram Post & Brief hazırlama işlemlerinin tamamını bu sohbette yönetebilirsiniz.\n\n" +
-        "Aşağıdaki **Fikir & Hazır Promptlar** veya **Kayıtlı Promptlarım** kaydırıcısından bir karta tıklayarak detaylı komutu sohbet kutusuna ekleyebilir ya da doğrudan merhaba yazıp sohbet ederek başlayabilirsiniz.",
-    };
-    if (!initialHistory.length) return [welcome];
-    const turns: ChatTurn[] = [welcome];
+    if (!initialHistory.length) return [WELCOME_TURN];
+    const turns: ChatTurn[] = [WELCOME_TURN];
     const sorted = [...initialHistory].slice(0, 6).reverse();
     for (const h of sorted) {
       const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
@@ -504,11 +511,125 @@ export function CreativeComposer({
     return turns;
   }, [initialHistory]);
 
+  const storageKey = `nv_creative_sessions_${username}`;
+  const dbSessions = useMemo<ChatSession[]>(() => {
+    return initialHistory.map((h) => {
+      const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim() || h.prompt;
+      const turns: ChatTurn[] = [
+        WELCOME_TURN,
+        { id: `hist-u-${h.jobId}`, from: "user", text: cleanText, isHistorical: true },
+        ...(h.status === "COMPLETED" && h.assetId
+          ? [
+              {
+                id: `hist-b-${h.jobId}`,
+                from: "bot" as const,
+                text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığa kaydedildi.`,
+                assetId: h.assetId,
+                uploadId: h.uploadId,
+                kind: h.kind,
+                modelKey: h.modelKey,
+                prompt: cleanText,
+                savedToLibrary: true,
+                isHistorical: true,
+              },
+            ]
+          : []),
+      ];
+      return {
+        id: `db-${h.jobId}`,
+        title: cleanText.slice(0, 60),
+        updatedAt: h.createdAt,
+        turns,
+        result: h.status === "COMPLETED" && h.assetId ? { assetId: h.assetId, uploadId: h.uploadId, kind: h.kind, prompt: cleanText, format: "9:16" } : null,
+        source: "db",
+        kind: h.kind,
+      };
+    });
+  }, [initialHistory]);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [localSessions, setLocalSessions] = useState<ChatSession[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      const parsed = raw ? (JSON.parse(raw) as ChatSession[]) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string>("current");
   const [chatLog, setChatLog] = useState<ChatTurn[]>(initialTurns);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const ideaSliderRef = useRef<HTMLDivElement>(null);
   const mediaSliderRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [sessionSeq, setSessionSeq] = useState(1);
+
+  const persistLocalSessions = (next: ChatSession[]) => {
+    setLocalSessions(next);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next.slice(0, 30)));
+    } catch {
+      /* ignore storage errors */
+    }
+  };
+
+  const allSessions = useMemo(() => [...localSessions, ...dbSessions], [localSessions, dbSessions]);
+
+  const saveCurrentIfNeeded = () => {
+    const userTurns = chatLog.filter((t) => t.from === "user" && !t.isHistorical);
+    if (userTurns.length === 0) return;
+    const firstTitle = userTurns[0]!.text.slice(0, 60);
+    const id = activeSessionId.startsWith("local-") ? activeSessionId : `local-${sessionSeq}`;
+    if (!activeSessionId.startsWith("local-")) setSessionSeq((n) => n + 1);
+    const entry: ChatSession = {
+      id,
+      title: firstTitle,
+      updatedAt: new Date().toISOString(),
+      turns: chatLog,
+      result,
+      source: "local",
+      kind: result?.kind,
+    };
+    const next = [entry, ...localSessions.filter((s) => s.id !== id)];
+    persistLocalSessions(next);
+  };
+
+  const startNewChat = () => {
+    saveCurrentIfNeeded();
+    const nextSeq = sessionSeq + 1;
+    setSessionSeq(nextSeq);
+    setActiveSessionId(`local-${nextSeq}`);
+    setChatLog([WELCOME_TURN]);
+    setPrompt("");
+    setRefs([]);
+    setActiveJob(null);
+    setResult(null);
+    setPanelOpen(false);
+    setError(null);
+    setTimeout(() => inputRef.current?.focus(), 20);
+  };
+
+  const selectSession = (s: ChatSession) => {
+    saveCurrentIfNeeded();
+    setActiveSessionId(s.id);
+    setChatLog(s.turns.length ? s.turns : [WELCOME_TURN]);
+    setResult(s.result ?? null);
+    setPanelOpen(Boolean(s.result));
+    setActiveJob(null);
+    setError(null);
+  };
+
+  const deleteLocalSession = (id: string) => {
+    persistLocalSessions(localSessions.filter((s) => s.id !== id));
+    if (activeSessionId === id) {
+      setActiveSessionId("current");
+      setChatLog([WELCOME_TURN]);
+      setResult(null);
+      setPanelOpen(false);
+    }
+  };
 
   useEffect(() => {
     const el = chatScrollRef.current;
@@ -781,19 +902,118 @@ export function CreativeComposer({
   return (
     <div
       className={cn(
-        "grid h-[calc(100dvh-8.2rem)] max-h-[calc(100dvh-8.2rem)] w-full grid-cols-1 gap-3 overflow-hidden",
-        panelOpen && result ? "lg:grid-cols-[minmax(0,1fr)_370px] xl:grid-cols-[minmax(0,1fr)_400px]" : "",
+        "grid min-h-0 flex-1 w-full grid-cols-1 gap-3 overflow-hidden",
+        historyOpen && panelOpen && result
+          ? "lg:grid-cols-[260px_minmax(0,1fr)_370px] xl:grid-cols-[260px_minmax(0,1fr)_400px]"
+          : historyOpen
+            ? "lg:grid-cols-[260px_minmax(0,1fr)]"
+            : panelOpen && result
+              ? "lg:grid-cols-[minmax(0,1fr)_370px] xl:grid-cols-[minmax(0,1fr)_400px]"
+              : "",
       )}
     >
+      {/* Sol Açılır/Kapanır Geçmiş Sohbetler Paneli */}
+      {historyOpen ? (
+        <aside
+          aria-label={tt("Geçmiş sohbetler")}
+          className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
+            <span className="text-[12px] font-semibold text-fg">
+              {tt("Geçmiş Sohbetler")} ({allSessions.length})
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={startNewChat}
+                className="rounded-full bg-fg px-2.5 py-1 text-[11px] font-medium text-bg hover:opacity-90"
+              >
+                + {tt("Yeni")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                aria-label={tt("Geçmiş panelini kapat")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-fg-muted hover:bg-surface-hover hover:text-fg"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2.5">
+            {allSessions.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-[12px] text-fg-muted">
+                {tt("Henüz kayıtlı geçmiş sohbet yok.")}
+              </p>
+            ) : (
+              allSessions.map((s) => {
+                const isActive = activeSessionId === s.id;
+                return (
+                  <div
+                    key={s.id}
+                    className={cn(
+                      "group flex items-start justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-standard",
+                      isActive ? "border-fg bg-bg" : "border-transparent hover:border-line hover:bg-bg/60",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectSession(s)}
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                    >
+                      <span className="line-clamp-2 text-[12px] font-medium text-fg">{s.title}</span>
+                      <span className="text-[10px] text-fg-passive">
+                        {s.kind ? `${KIND_LABEL[s.kind]} · ` : ""}
+                        {new Date(s.updatedAt).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" })}
+                      </span>
+                    </button>
+                    {s.source === "local" ? (
+                      <button
+                        type="button"
+                        onClick={() => deleteLocalSession(s.id)}
+                        aria-label={tt("Sohbeti sil")}
+                        className="shrink-0 rounded px-1 text-[11px] text-fg-passive opacity-0 transition-opacity hover:text-critical group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      ) : null}
+
       {/* Sol / Orta: Sabit Yüksekliğe Sahip Nordvow Creative AI Sohbet Stüdyosu */}
       <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface">
-        {/* Üst Çubuk: Nordvow Creative AI + Kredi Seviyesi Seçimi */}
+        {/* Üst Çubuk: Geçmiş + Yeni Sohbet + Nordvow Creative AI + Kredi Seviyesi Seçimi */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg" aria-hidden>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-standard",
+                historyOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
+              )}
+            >
+              <span>{historyOpen ? tt("Geçmişi Gizle") : tt("Geçmiş Sohbetler")}</span>
+              {allSessions.length ? <span className="opacity-75">({allSessions.length})</span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={startNewChat}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-bg px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
+            >
+              + {tt("Yeni Sohbet")}
+            </button>
+            <span className="hidden h-4 w-px bg-line sm:inline-block" aria-hidden />
+            <span className="hidden h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg sm:inline-flex" aria-hidden>
               <SparkleIcon size={14} />
             </span>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="hidden flex-wrap items-center gap-2 sm:flex">
               <h2 className="text-[13px] font-semibold text-fg">{tt("Nordvow Creative AI")}</h2>
               {profileLabel ? (
                 <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">

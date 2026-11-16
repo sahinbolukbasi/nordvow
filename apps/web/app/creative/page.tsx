@@ -223,7 +223,13 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
     sp.tur === "video" || sp.tur === "image" || sp.tur === "audio" ? sp.tur : undefined;
 
   return (
-    <div className="flex min-h-[calc(100dvh-5.5rem)] w-full flex-1 flex-col gap-3">
+    <div
+      className={
+        tab === "uret"
+          ? "flex h-[calc(100dvh-4.5rem)] max-h-[calc(100dvh-4.5rem)] w-full flex-1 flex-col gap-3 overflow-hidden"
+          : "flex min-h-[calc(100dvh-5.5rem)] w-full flex-1 flex-col gap-3"
+      }
+    >
       {/* Sade Üst Stüdyo Çubuğu */}
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-2 sm:px-5">
         <div className="flex flex-wrap items-center gap-3">
