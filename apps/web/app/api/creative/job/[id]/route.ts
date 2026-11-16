@@ -1,4 +1,5 @@
 import { prisma } from "@infulancer/core/db";
+import { getAvailableCredits } from "@infulancer/core/creative/credits";
 import { reconcileStaleJobs } from "@infulancer/core/creative/fal";
 import { tenantCurrency } from "@infulancer/core/creative/tenant";
 import { EDIT_ACTIONS, EDIT_LABEL, pipelineJobs, type EditAction } from "@infulancer/core/creative/edit";
@@ -48,8 +49,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const done = !failed && pending.length === 0 && last.status === "COMPLETED";
   // Webhook gecikirse fal kuyruğunu sorgulayarak sonuçlandır (bloke takılı kalmasın).
   if (!done && !failed) void reconcileStaleJobs({ olderThanMs: 1_500 }).catch(() => {});
+  const availableCredits = await getAvailableCredits(root.tenantId);
   return Response.json(
-    { currency: await tenantCurrency(root.tenantId), done, failed, steps, finalAssetId: done ? (assetOf.get(last.id) ?? null) : null, chainError: root.rejectReason && root.status === "COMPLETED" ? root.rejectReason : null },
+    { currency: await tenantCurrency(root.tenantId), availableCredits, done, failed, steps, finalAssetId: done ? (assetOf.get(last.id) ?? null) : null, chainError: root.rejectReason && root.status === "COMPLETED" ? root.rejectReason : null },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

@@ -162,7 +162,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
       return {
         jobId: j.id,
         prompt: j.prompt,
-        kind: kindOf.get(j.modelKey) ?? "image",
+        kind: j.prompt.startsWith("Videoya Seslendirme:") ? ("video" as const) : (kindOf.get(j.modelKey) ?? "image"),
         modelKey: j.modelKey,
         status: j.status,
         assetId: a?.id ?? null,
@@ -171,6 +171,17 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         createdAt: j.createdAt.toISOString(),
       };
     });
+
+  const runningJob = jobs.find((j) => j.status === "HELD" || j.status === "IN_QUEUE" || j.status === "IN_PROGRESS");
+  const initialActiveJob = runningJob
+    ? {
+        jobId: runningJob.id,
+        kind: runningJob.prompt.startsWith("Videoya Seslendirme:") ? ("video" as const) : (kindOf.get(runningJob.modelKey) ?? "image"),
+        format: "9:16",
+        prompt: runningJob.prompt,
+        modelKey: runningJob.modelKey,
+      }
+    : null;
 
   const studioUploads: StudioUpload[] = library.map((u) => ({
     id: u.id,
@@ -292,6 +303,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           initialKind={initialKind}
           initialRefId={sp.ref}
           initialHistory={chatHistory}
+          initialActiveJob={initialActiveJob}
           initialSavedPrompts={savedPrompts}
         />
       ) : null}

@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 import { KindIcon } from "@/components/creative/kind-icon";
 import { chargeAmount, fmtTl, KIND_LABEL, modelName, toneFor, type CreativeKind } from "@/lib/creative-models";
 import { uploadFile } from "@/lib/creative-upload";
-import { JobProgress } from "@/components/creative/job-progress";
+import { JobProgress, type JobDoneInfo } from "@/components/creative/job-progress";
 import { PhonePreview } from "@/components/creative/phone-preview";
 import { CheckIcon, SparkleIcon, XIcon } from "@/components/icons";
 
@@ -383,6 +383,15 @@ type ChatSession = {
   kind?: CreativeKind;
 };
 
+export type ActiveJobState = {
+  jobId: string;
+  kind: CreativeKind;
+  format: string;
+  prompt: string;
+  modelKey: string;
+  postBrief?: string | null;
+};
+
 export function CreativeComposer({
   models,
   library = [],
@@ -394,6 +403,7 @@ export function CreativeComposer({
   initialPrompt = "",
   initialRefId,
   initialHistory = [],
+  initialActiveJob = null,
   initialSavedPrompts = [],
 }: {
   models: ComposerModel[];
@@ -408,6 +418,7 @@ export function CreativeComposer({
   initialKind?: CreativeKind;
   initialRefId?: string;
   initialHistory?: ChatHistoryItem[];
+  initialActiveJob?: ActiveJobState | null;
   initialSavedPrompts?: SavedPromptItem[];
 }) {
   const tt = useTT();
@@ -422,6 +433,8 @@ export function CreativeComposer({
   const [lib, setLib] = useState<ComposerLibraryItem[]>(library);
   const [showLib, setShowLib] = useState(false);
   const [upPct, setUpPct] = useState<number | null>(null);
+  const [upBatch, setUpBatch] = useState<{ total: number; done: number; currentName: string } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [upMsg, setUpMsg] = useState<{ text: string; isError?: boolean } | null>(null);
   const [quickCmd, setQuickCmd] = useState("");
   const [phoneVoiceScript, setPhoneVoiceScript] = useState("");
@@ -433,14 +446,35 @@ export function CreativeComposer({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const [activeJob, setActiveJob] = useState<{
-    jobId: string;
-    kind: CreativeKind;
-    format: string;
-    prompt: string;
-    modelKey: string;
-    postBrief?: string | null;
-  } | null>(null);
+  const activeJobStorageKey = `nv_creative_active_job_${username}`;
+  const [activeJob, setActiveJob] = useState<ActiveJobState | null>(initialActiveJob);
+
+  useEffect(() => {
+    if (initialActiveJob) return;
+    queueMicrotask(() => {
+      try {
+        const raw = localStorage.getItem(activeJobStorageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as ActiveJobState;
+          if (parsed?.jobId) setActiveJob(parsed);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [initialActiveJob, activeJobStorageKey]);
+
+  useEffect(() => {
+    try {
+      if (activeJob) {
+        localStorage.setItem(activeJobStorageKey, JSON.stringify(activeJob));
+      } else {
+        localStorage.removeItem(activeJobStorageKey);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [activeJob, activeJobStorageKey]);
 
   const tierCosts = useMemo(() => {
     const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
@@ -716,55 +750,88 @@ export function CreativeComposer({
       },
     ]);
     start(async () => {
-      const res = await addVoiceoverToVideoAction({ videoId, scriptText, tier });
-      if (!res.ok) {
-        setError(res.error ?? "Videoya ses eklenemedi.");
-        return;
-      }
-      if (typeof res.availableCredits === "number") setLiveBalance(res.availableCredits);
-      if (res.assetId) {
-        setResult({ assetId: res.assetId, kind: "video", prompt: scriptText, format: "9:16" });
-        setPanelOpen(true);
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-voice-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            voiceoverScript: scriptText,
-            assetId: res.assetId,
-            kind: "video",
-            format: "9:16",
-            modelKey: res.modelKey,
-            prompt: scriptText,
-            savedToLibrary: true,
-          },
-        ]);
-        router.refresh();
+      try {
+        const res = await addVoiceoverToVideoAction({ videoId, scriptText, tier });
+        if (typeof res.availableCredits === "number") setLiveBalance(res.availableCredits);
+        if (!res.ok) {
+          const errMsg = res.error ?? "Videoya ses eklenemedi.";
+          setError(errMsg);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-voice-err-${Date.now()}`,
+              from: "bot",
+              text: `Seslendirme eklenemedi: ${errMsg}`,
+            },
+          ]);
+          return;
+        }
+        if (res.assetId) {
+          setResult({ assetId: res.assetId, kind: "video", prompt: scriptText, format: "9:16" });
+          setPanelOpen(true);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-voice-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              voiceoverScript: scriptText,
+              assetId: res.assetId,
+              kind: "video",
+              format: "9:16",
+              modelKey: res.modelKey,
+              prompt: scriptText,
+              savedToLibrary: true,
+            },
+          ]);
+          router.refresh();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Videoya ses eklenirken beklenmeyen bir hata oluştu.");
       }
     });
   };
 
   const addFiles = async (files: FileList) => {
+    const batch = Array.from(files).slice(0, 20);
+    if (!batch.length) return;
     setUpMsg(null);
-    for (const f of Array.from(files).slice(0, 4)) {
+    let imgOk = 0;
+    let vidOk = 0;
+    let failed = 0;
+    let lastErr = "";
+    for (let idx = 0; idx < batch.length; idx++) {
+      const f = batch[idx]!;
       try {
         setUpPct(0);
+        setUpBatch({ total: batch.length, done: idx + 1, currentName: f.name });
         const r = await uploadFile(f, { name: f.name, mime: f.type, onProgress: setUpPct });
         setLib((l) => [{ id: r.id, kind: r.kind, name: f.name, source: "upload" }, ...l]);
         if (r.kind === "image") {
-          setRefs((x) => (x.length < 4 ? [...x, r.id] : x));
-          setUpMsg({ text: "Görsel referans olarak seçildi." });
+          imgOk++;
+          setRefs((x) => (x.length < 4 && !x.includes(r.id) ? [...x, r.id] : x));
         } else {
+          vidOk++;
           setResult({ assetId: r.id, uploadId: r.id, kind: "video", prompt: f.name, format: "9:16" });
           setPanelOpen(true);
-          setUpMsg({ text: "Video yüklendi — sağ panelden veya sohbetten videoya ses ekleyebilirsiniz." });
         }
       } catch (e) {
-        setUpMsg({ text: `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`, isError: true });
+        failed++;
+        lastErr = `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`;
       }
     }
     setUpPct(null);
+    setUpBatch(null);
+    const totalOk = imgOk + vidOk;
+    if (totalOk > 0) {
+      const parts: string[] = [];
+      if (imgOk > 0) parts.push(`${imgOk} fotoğraf`);
+      if (vidOk > 0) parts.push(`${vidOk} video`);
+      const summary = `${totalOk} dosya kitaplığa eklendi (${parts.join(", ")}).${imgOk > 0 ? " İlk 4 fotoğraf referans olarak seçildi." : ""}`;
+      setUpMsg({ text: failed > 0 ? `${summary} (${failed} dosya başarısız: ${lastErr})` : summary, isError: failed > 0 });
+    } else if (failed > 0) {
+      setUpMsg({ text: lastErr || "Dosyalar yüklenemedi.", isError: true });
+    }
   };
 
   const toggleRef = (id: string) =>
@@ -797,87 +864,100 @@ export function CreativeComposer({
     setPrompt("");
 
     start(async () => {
-      const res = await chatCreativeDirectorAction({
-        message: trimmed,
-        history: activeSessionHistory,
-        tier,
-        referenceUploadIds: usedRefs,
-        targetVideoAssetId: result?.kind === "video" ? result.assetId : latestVideoAssetId,
-        forceGenerate,
-      });
-
-      if (!res.ok) {
-        setError(res.error ?? "İşlem tamamlanamadı.");
-        return;
-      }
-
-      if (res.suggestions?.length) {
-        setIdeas(res.suggestions);
-      }
-
-      if (typeof res.availableCredits === "number") {
-        setLiveBalance(res.availableCredits);
-      }
-
-      if (res.action === "ask") {
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            postBrief: res.postBrief,
-            orchestrator: res.orchestrator,
-          },
-        ]);
-        return;
-      }
-
-      if (res.assetId) {
-        const k = res.kind ?? "image";
-        const f = res.format ?? "9:16";
-        setResult({ assetId: res.assetId, kind: k, prompt: res.enhancedPrompt ?? trimmed, format: f });
-        setPanelOpen(true);
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            postBrief: res.postBrief,
-            enhancedPrompt: res.enhancedPrompt,
-            voiceoverScript: res.voiceoverScript,
-            assetId: res.assetId,
-            kind: k,
-            format: f,
-            modelKey: res.modelKey,
-            prompt: res.enhancedPrompt ?? trimmed,
-            savedToLibrary: true,
-            orchestrator: res.orchestrator,
-          },
-        ]);
-        router.refresh();
-      } else if (res.jobId) {
-        setActiveJob({
-          jobId: res.jobId,
-          kind: res.kind ?? "image",
-          format: res.format ?? "9:16",
-          prompt: res.enhancedPrompt ?? trimmed,
-          modelKey: res.modelKey ?? "flux-schnell",
-          postBrief: res.postBrief,
+      try {
+        const res = await chatCreativeDirectorAction({
+          message: trimmed,
+          history: activeSessionHistory,
+          tier,
+          referenceUploadIds: usedRefs,
+          targetVideoAssetId: result?.kind === "video" ? result.assetId : latestVideoAssetId,
+          forceGenerate,
         });
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-prep-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
+
+        if (typeof res.availableCredits === "number") {
+          setLiveBalance(res.availableCredits);
+        }
+
+        if (!res.ok) {
+          const errMsg = res.error ?? "İşlem tamamlanamadı.";
+          setError(errMsg);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-err-${Date.now()}`,
+              from: "bot",
+              text: `İşlem tamamlanamadı: ${errMsg}`,
+            },
+          ]);
+          return;
+        }
+
+        if (res.suggestions?.length) {
+          setIdeas(res.suggestions);
+        }
+
+        if (res.action === "ask") {
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              orchestrator: res.orchestrator,
+            },
+          ]);
+          return;
+        }
+
+        if (res.assetId) {
+          const k = res.kind ?? "image";
+          const f = res.format ?? "9:16";
+          setResult({ assetId: res.assetId, kind: k, prompt: res.enhancedPrompt ?? trimmed, format: f });
+          setPanelOpen(true);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              enhancedPrompt: res.enhancedPrompt,
+              voiceoverScript: res.voiceoverScript,
+              assetId: res.assetId,
+              kind: k,
+              format: f,
+              modelKey: res.modelKey,
+              prompt: res.enhancedPrompt ?? trimmed,
+              savedToLibrary: true,
+              orchestrator: res.orchestrator,
+            },
+          ]);
+          router.refresh();
+        } else if (res.jobId) {
+          setActiveJob({
+            jobId: res.jobId,
+            kind: res.kind ?? "image",
+            format: res.format ?? "9:16",
+            prompt: res.enhancedPrompt ?? trimmed,
+            modelKey: res.modelKey ?? "flux-schnell",
             postBrief: res.postBrief,
-            enhancedPrompt: res.enhancedPrompt,
-            voiceoverScript: res.voiceoverScript,
-            orchestrator: res.orchestrator,
-          },
-        ]);
+          });
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-prep-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              enhancedPrompt: res.enhancedPrompt,
+              voiceoverScript: res.voiceoverScript,
+              orchestrator: res.orchestrator,
+            },
+          ]);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Üretim başlatılırken beklenmeyen bir hata oluştu.");
       }
     });
   };
@@ -1263,13 +1343,37 @@ export function CreativeComposer({
           )}
 
           {activeJob ? (
-            <div className="mr-auto w-full max-w-md">
+            <div className="mr-auto flex w-full max-w-md flex-col gap-1.5">
+              <p className="px-1 text-[11px] text-fg-muted">
+                {tt("Arka planda üretim devam ediyor — başka bir sayfaya geçseniz bile işlem iptal olmaz.")}
+              </p>
               <JobProgress
                 key={activeJob.jobId}
                 jobId={activeJob.jobId}
-                onDone={(assetId) => {
+                onDone={(assetId, info?: JobDoneInfo) => {
                   const doneJob = activeJob;
                   setActiveJob(null);
+                  if (typeof info?.availableCredits === "number") {
+                    setLiveBalance(info.availableCredits);
+                  }
+                  if (info?.failed) {
+                    const refundNote =
+                      info.refundedAmount > 0
+                        ? `Bloke edilen ${fmtTl(info.refundedAmount, info.currency ?? currency)} bakiyenize iade edildi.`
+                        : "Ücret alınmadı, bakiyeniz korundu.";
+                    const errText = `${info.error ?? "Üretim başarısız oldu."} ${refundNote}`;
+                    setError(errText);
+                    setChatLog((prev) => [
+                      ...prev,
+                      {
+                        id: `fail-${Date.now()}`,
+                        from: "bot",
+                        text: `Üretim tamamlanamadı: ${errText}`,
+                      },
+                    ]);
+                    router.refresh();
+                    return;
+                  }
                   if (assetId && doneJob) {
                     setResult({ assetId, kind: doneJob.kind, prompt: doneJob.prompt, format: doneJob.format });
                     setPanelOpen(true);
@@ -1499,8 +1603,29 @@ export function CreativeComposer({
               e.preventDefault();
               sendTurn(prompt, false);
             }}
-            className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-2.5 focus-within:border-fg/50"
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!dragOver) setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
+            }}
+            className={cn(
+              "flex flex-col gap-2 rounded-2xl border bg-surface p-2.5 focus-within:border-fg/50",
+              dragOver ? "border-fg ring-2 ring-fg/30" : "border-line",
+            )}
           >
+            {upBatch ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-bg px-3 py-1.5 text-[11px] text-fg">
+                <span className="truncate">
+                  {tt("Toplu yükleme:")} {upBatch.done}/{upBatch.total} · {upBatch.currentName}
+                </span>
+                <span className="shrink-0 font-semibold tabular-nums">{upPct ?? 0}%</span>
+              </div>
+            ) : null}
             <textarea
               ref={inputRef}
               id="cc-prompt"
@@ -1521,7 +1646,7 @@ export function CreativeComposer({
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
-                  + {tt("Dosya / Video Yükle")}
+                  + {tt("Toplu Fotoğraf / Video Ekle")}
                   <input
                     type="file"
                     multiple

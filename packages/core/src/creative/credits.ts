@@ -55,6 +55,46 @@ export async function releaseHold(holdId: string, db: Tx = prisma): Promise<bool
   return true;
 }
 
+/**
+ * Başarısız veya tamamlanamayan üretim işlerinde kullanıcı mağduriyetini önler:
+ *  - Hold henüz tahsil edilmediyse (`held`) blokesini kaldırır (`released`).
+ *  - Tahsil edildiyse (`charged`) bakiyeye iade eder ve `REFUND` hareketi yazar.
+ * Idempotent: aynı iş ikinci kez iade edilmez.
+ */
+export async function refundJobCredits(
+  jobId: string,
+  reason = "Başarısız üretim otomatik bakiye iadesi",
+  db: Tx = prisma,
+): Promise<{ refunded: boolean; amount: number; mode: "released" | "refunded" | "none" }> {
+  const job = await db.creativeJob.findUnique({ where: { id: jobId }, select: { id: true, tenantId: true, creditHoldId: true } });
+  if (!job?.creditHoldId) return { refunded: false, amount: 0, mode: "none" };
+  const hold = await db.creditHold.findUnique({ where: { id: job.creditHoldId } });
+  if (!hold) return { refunded: false, amount: 0, mode: "none" };
+  if (hold.status === "held") {
+    const ok = await releaseHold(hold.id, db);
+    return { refunded: ok, amount: ok ? Number(hold.credits) : 0, mode: ok ? "released" : "none" };
+  }
+  if (hold.status === "charged") {
+    const n = await db.creditHold.updateMany({
+      where: { id: hold.id, status: "charged" },
+      data: { status: "refunded", settledAt: new Date() },
+    });
+    if (n.count !== 1) return { refunded: false, amount: 0, mode: "none" };
+    await db.$executeRaw`
+      UPDATE credit_accounts SET "balanceCredits" = "balanceCredits" + ${hold.credits}, "updatedAt" = now()
+      WHERE "tenantId" = ${hold.tenantId}`;
+    await ledger(db, hold.tenantId, "REFUND", hold.credits, reason, job.id);
+    return { refunded: true, amount: Number(hold.credits), mode: "refunded" };
+  }
+  return { refunded: false, amount: 0, mode: "none" };
+}
+
+/** Kullanılabilir bakiyeyi (bakiye - bloke) döndürür. */
+export async function getAvailableCredits(tenantId: string, db: Tx = prisma): Promise<number> {
+  const acc = await db.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } });
+  return acc ? Math.max(0, Number(acc.balanceCredits) - Number(acc.heldCredits)) : 0;
+}
+
 export async function topUp(tenantId: string, credits: number, note?: string | null) {
   return prisma.$transaction(async (tx) => {
     const acc = await tx.creditAccount.upsert({

@@ -21,8 +21,10 @@ import {
 import {
   chargeHold,
   ensureStarterCredits,
+  getAvailableCredits,
   InsufficientCreditsError,
   placeHold,
+  refundJobCredits,
   releaseHold,
 } from "@infulancer/core/creative/credits";
 import { chargeIn, creativePricing } from "@infulancer/core/creative/pricing";
@@ -410,66 +412,84 @@ export async function addVoiceoverToVideoAction(input: {
     };
   }
 
-  // Videoyu GeneratedAsset veya CreativeUpload tablosundan bul
-  const asset = await prisma.generatedAsset.findFirst({ where: { id: input.videoId, tenantId } });
-  const upload = !asset ? await prisma.creativeUpload.findFirst({ where: { id: input.videoId, tenantId } }) : null;
-  const s3Key = asset?.s3Key ?? upload?.s3Key;
-  if (!s3Key) {
-    return {
-      ok: false,
-      error: "Ses eklenecek video bulunamadı.",
-      action: "ask",
-      reply: "",
-      suggestions: DEFAULT_PROMPT_IDEAS,
-    };
-  }
-
-  const activeModels = await prisma.modelRegistry.findMany({
-    where: { status: "active", licenseStatus: "cleared", provider: "fal" },
-    select: { key: true, kind: true, creditsPerUnit: true },
-  });
-  const audioModelKey = pickFalModelKey(activeModels, "audio", input.tier, script);
-  const model = await resolveModel(audioModelKey);
-  const units = Math.max(1, Math.ceil(script.length / 1000));
-  const pricing = await creativePricing();
-  const credits = chargeIn(Number(model.creditsPerUnit), units, pricing, await tenantCurrency(tenantId));
-  const hold = await placeHold(tenantId, credits);
-  const promptHash = createHash("sha256").update(script).digest("hex");
-
-  const job = await prisma.creativeJob.create({
-    data: {
-      tenantId,
-      modelKey: model.key,
-      modelId: model.modelId,
-      prompt: `Videoya Seslendirme: ${script}`,
-      promptHash,
-      units,
-      creditHoldId: hold.id,
-      inputUploadId: upload?.id ?? null,
-      status: "IN_PROGRESS",
-      submittedAt: new Date(),
-    },
-  });
+  let holdId: string | null = null;
+  let jobId: string | null = null;
 
   try {
+    // Videoyu GeneratedAsset veya CreativeUpload tablosundan bul
+    const asset = await prisma.generatedAsset.findFirst({ where: { id: input.videoId, tenantId } });
+    const upload = !asset ? await prisma.creativeUpload.findFirst({ where: { id: input.videoId, tenantId } }) : null;
+    const s3Key = asset?.s3Key ?? upload?.s3Key;
+    if (!s3Key) {
+      return {
+        ok: false,
+        error: "Ses eklenecek video bulunamadı.",
+        action: "ask",
+        reply: "",
+        availableCredits: await getAvailableCredits(tenantId),
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+    }
+
+    let activeModels = await prisma.modelRegistry.findMany({
+      where: { status: "active", licenseStatus: "cleared", provider: "fal" },
+      select: { key: true, kind: true, creditsPerUnit: true },
+    });
+    if (!activeModels.some((m) => m.kind === "audio")) {
+      await seedModelRegistry().catch(() => undefined);
+      activeModels = await prisma.modelRegistry.findMany({
+        where: { status: "active", licenseStatus: "cleared", provider: "fal" },
+        select: { key: true, kind: true, creditsPerUnit: true },
+      });
+    }
+
+    const audioModelKey = pickFalModelKey(activeModels, "audio", input.tier, script);
+    const model = await resolveModel(audioModelKey);
+    const units = Math.max(1, Math.ceil(script.length / 1000));
+    const pricing = await creativePricing();
+    const credits = chargeIn(Number(model.creditsPerUnit), units, pricing, await tenantCurrency(tenantId));
+    const hold = await placeHold(tenantId, credits);
+    holdId = hold.id;
+    const promptHash = createHash("sha256").update(script).digest("hex");
+
+    const job = await prisma.creativeJob.create({
+      data: {
+        tenantId,
+        modelKey: model.key,
+        modelId: model.modelId,
+        prompt: `Videoya Seslendirme: ${script}`,
+        promptHash,
+        units,
+        creditHoldId: hold.id,
+        inputUploadId: upload?.id ?? null,
+        status: "IN_PROGRESS",
+        submittedAt: new Date(),
+      },
+    });
+    jobId = job.id;
+
     let mergedBytes: Uint8Array;
     const dir = mkdtempSync(path.join(tmpdir(), "nv-dl-"));
     try {
       const tmpIn = path.join(dir, "in.mp4");
-      await downloadToFile(s3Key, tmpIn);
-      const rawBytes = new Uint8Array(readFileSync(tmpIn));
-      if (rawBytes.byteLength > 256) {
+      let rawBytes: Uint8Array | null = null;
+      try {
+        await downloadToFile(s3Key, tmpIn);
+        const buf = readFileSync(tmpIn);
+        if (buf.byteLength > 256) rawBytes = new Uint8Array(buf);
+      } catch {
+        rawBytes = null;
+      }
+      if (rawBytes) {
         mergedBytes = await mergeVoiceoverOntoVideoBytes(rawBytes, script);
       } else {
         const gen = await renderStudioVideoMp4({ prompt: script, aspect: "9:16", voiceText: script });
         mergedBytes = gen.bytes;
       }
-    } catch {
-      const gen = await renderStudioVideoMp4({ prompt: script, aspect: "9:16", voiceText: script });
-      mergedBytes = gen.bytes;
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+
     const c2pa = embedC2pa({
       assetBytes: mergedBytes,
       mime: "video/mp4",
@@ -487,7 +507,7 @@ export async function addVoiceoverToVideoAction(input: {
         data: {
           tenantId,
           jobId: job.id,
-          modelKey: "ltxv-distilled",
+          modelKey: asset?.modelKey ?? "ltxv-distilled",
           modelId: model.modelId,
           promptHash,
           s3Key: outKey,
@@ -516,8 +536,7 @@ export async function addVoiceoverToVideoAction(input: {
       return a;
     });
 
-    const acc = await prisma.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } });
-    const avail = acc ? Number(acc.balanceCredits) - Number(acc.heldCredits) : undefined;
+    const avail = await getAvailableCredits(tenantId);
     revalidateAll();
 
     return {
@@ -534,16 +553,26 @@ export async function addVoiceoverToVideoAction(input: {
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
   } catch (e) {
-    await releaseHold(hold.id);
-    await prisma.creativeJob.update({
-      where: { id: job.id },
-      data: { status: "FAILED", rejectReason: (e as Error).message, completedAt: new Date() },
-    });
+    if (jobId) {
+      await refundJobCredits(jobId, "Videoya seslendirme eklenemedi; bakiye iade edildi.").catch(() => undefined);
+      await prisma.creativeJob
+        .update({
+          where: { id: jobId },
+          data: { status: "FAILED", rejectReason: e instanceof Error ? e.message : "Videoya ses eklenemedi.", completedAt: new Date() },
+        })
+        .catch(() => undefined);
+    } else if (holdId) {
+      await releaseHold(holdId).catch(() => undefined);
+    }
+    const avail = await getAvailableCredits(tenantId).catch(() => undefined);
+    const baseMsg = e instanceof Error ? e.message : "Videoya ses eklenemedi.";
+    const withRefund = holdId && !(e instanceof InsufficientCreditsError) ? `${baseMsg} (Ücret alınmadı, bakiyeniz iade edildi.)` : baseMsg;
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Videoya ses eklenemedi.",
+      error: withRefund,
       action: "ask",
       reply: "",
+      availableCredits: avail,
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
   }
@@ -621,7 +650,7 @@ export async function chatCreativeDirectorAction(input: {
     /(sadece brief|sadece post metni|görsel üretmeden|yalnızca metin|post brief hazırla|instagram açıklaması yaz|hashtag yaz)/.test(norm);
 
   if (onlyBriefRequest) {
-    let briefReply = `İstediğiniz konu için Instagram Post Brief ve hazır paylaşım metnini hazırladım. Dilerseniz bu brief'e uygun 4:5 fotoğraf veya 9:16 sesli Reels videosunu da hemen üretebilirim!`;
+    const briefReply = `İstediğiniz konu için Instagram Post Brief ve hazır paylaşım metnini hazırladım. Dilerseniz bu brief'e uygun 4:5 fotoğraf veya 9:16 sesli Reels videosunu da hemen üretebilirim!`;
     let postBriefText =
       `📌 KAMPANYA & POST BRIEF\n` +
       `• Konsept: ${msg}\n` +
@@ -953,11 +982,15 @@ export async function chatCreativeDirectorAction(input: {
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
   } catch (e) {
+    const avail = await getAvailableCredits(tenantId).catch(() => undefined);
+    const msgErr = e instanceof Error ? e.message : "Üretim başlatılamadı.";
+    const note = e instanceof InsufficientCreditsError ? msgErr : `${msgErr} (Ücret alınmadı, bakiyeniz korundu.)`;
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Üretim başlatılamadı.",
+      error: note,
       action: "ask",
       reply: "",
+      availableCredits: avail,
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
   }

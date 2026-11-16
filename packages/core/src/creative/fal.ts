@@ -565,40 +565,58 @@ export async function mergeVoiceoverOntoVideoBytes(videoBytes: Uint8Array, voice
     const outPath = path.join(dir, "out.mp4");
     writeFileSync(vidPath, Buffer.from(videoBytes));
     writeFileSync(mp3Path, Buffer.from(speechBytes));
-    const r = spawnSync(
+    const commonArgs = [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      vidPath,
+      "-i",
+      mp3Path,
+    ];
+    // Hızlı yol: video akışını kopyala (H.264 MP4).
+    let r = spawnSync(
       "ffmpeg",
-      [
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        vidPath,
-        "-i",
-        mp3Path,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-movflags",
-        "+faststart",
-        outPath,
-      ],
+      [...commonArgs, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0", "-movflags", "+faststart", outPath],
       { timeout: 60_000 },
     );
+    // WebM/MOV gibi MP4'e doğrudan kopyalanamayan kodeklerde H.264'e yeniden kodla.
+    if (r.status !== 0) {
+      r = spawnSync(
+        "ffmpeg",
+        [
+          ...commonArgs,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "23",
+          "-pix_fmt",
+          "yuv420p",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "192k",
+          "-map",
+          "0:v:0",
+          "-map",
+          "1:a:0",
+          "-movflags",
+          "+faststart",
+          outPath,
+        ],
+        { timeout: 120_000 },
+      );
+    }
     if (r.status === 0) {
       return new Uint8Array(readFileSync(outPath));
     }
+    throw new Error(`Video ses birleştirme hatası: ${r.stderr?.toString().slice(0, 240) || "ffmpeg başarısız"}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  return videoBytes;
 }
 
 export const mockFal: FalClient = {
@@ -832,38 +850,45 @@ export async function handleFalWebhook(w: FalWebhook) {
       : isAudioPayload && !out.mime.startsWith("audio/")
         ? "audio/mpeg"
         : out.mime;
-  const c2pa = embedC2pa({ assetBytes: out.bytes, mime: effectiveMime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
-  const key = `generated/${job.tenantId}/${job.id}`;
-  await objectStore().put(key, c2pa.signedBytes, effectiveMime);
-  await objectStore().put(`${key}.c2pa.json`, c2pa.sidecarJson, "application/json");
-  const asset = await prisma.$transaction(async (tx) => {
-    const a = await tx.generatedAsset.create({
-      data: { tenantId: job.tenantId, campaignId: job.campaignId, jobId: job.id, modelKey: job.modelKey, modelId: job.modelId, promptHash: job.promptHash, s3Key: key, c2paManifestId: c2pa.manifestId, isAiGenerated: true },
-    });
-    if (effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/")) {
-      const kind = effectiveMime.startsWith("video/") ? "video" : "image";
-      const cleanPrompt = job.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
-      const existingLib = await tx.creativeUpload.findFirst({ where: { tenantId: job.tenantId, s3Key: key }, select: { id: true } });
-      if (!existingLib) {
-        await tx.creativeUpload.create({
-          data: {
-            tenantId: job.tenantId,
-            kind,
-            mime: effectiveMime,
-            sizeBytes: Math.max(1, c2pa.signedBytes.byteLength),
-            s3Key: key,
-            name: (cleanPrompt || `AI ${kind === "video" ? "Video" : "Fotoğraf"} · ${job.modelKey}`).slice(0, 120),
-            source: "ai",
-            parentId: job.inputUploadId ?? null,
-            durationSec: kind === "video" ? Number(job.units) || 5 : null,
-          },
-        });
+  let asset: { id: string };
+  try {
+    const c2pa = embedC2pa({ assetBytes: out.bytes, mime: effectiveMime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
+    const key = `generated/${job.tenantId}/${job.id}`;
+    await objectStore().put(key, c2pa.signedBytes, effectiveMime);
+    await objectStore().put(`${key}.c2pa.json`, c2pa.sidecarJson, "application/json");
+    asset = await prisma.$transaction(async (tx) => {
+      const a = await tx.generatedAsset.create({
+        data: { tenantId: job.tenantId, campaignId: job.campaignId, jobId: job.id, modelKey: job.modelKey, modelId: job.modelId, promptHash: job.promptHash, s3Key: key, c2paManifestId: c2pa.manifestId, isAiGenerated: true },
+      });
+      if (effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/")) {
+        const kind = effectiveMime.startsWith("video/") ? "video" : "image";
+        const cleanPrompt = job.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
+        const existingLib = await tx.creativeUpload.findFirst({ where: { tenantId: job.tenantId, s3Key: key }, select: { id: true } });
+        if (!existingLib) {
+          await tx.creativeUpload.create({
+            data: {
+              tenantId: job.tenantId,
+              kind,
+              mime: effectiveMime,
+              sizeBytes: Math.max(1, c2pa.signedBytes.byteLength),
+              s3Key: key,
+              name: (cleanPrompt || `AI ${kind === "video" ? "Video" : "Fotoğraf"} · ${job.modelKey}`).slice(0, 120),
+              source: "ai",
+              parentId: job.inputUploadId ?? null,
+              durationSec: kind === "video" ? Number(job.units) || 5 : null,
+            },
+          });
+        }
       }
-    }
-    if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
-    await tx.creativeJob.update({ where: { id: job.id }, data: { status: "COMPLETED", completedAt: new Date(), inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null } });
-    return a;
-  });
+      if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
+      await tx.creativeJob.update({ where: { id: job.id }, data: { status: "COMPLETED", completedAt: new Date(), inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null } });
+      return a;
+    });
+  } catch (e) {
+    if (job.creditHoldId) await releaseHold(job.creditHoldId);
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: `Çıktı kaydedilemedi: ${(e as Error).message}`.slice(0, 300), completedAt: new Date() } });
+    return { handled: true, status: "FAILED" as const };
+  }
   if (job.pipeline) {
     const { continuePipeline } = await import("./edit");
     await continuePipeline(job.id, asset.id).catch((e) => console.error("[creative] zincir", job.id, (e as Error).message));
@@ -902,6 +927,9 @@ export async function reconcileStaleJobs(opts: { olderThanMs?: number; giveUpAft
         if (st.status === "COMPLETED") {
           if (st.error) await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: st.error });
           else await handleFalWebhook({ request_id: j.requestId!, status: "OK", payload: await client.result(j.modelId, j.requestId!) });
+          settled++;
+        } else if (st.status === "FAILED" || st.status === "ERROR") {
+          await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: st.error ?? "Model üretim hatası; ücret alınmadı." });
           settled++;
         } else if (j.submittedAt && j.submittedAt < giveUp) {
           await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: "Zaman aşımı (6 saat); ücret alınmadı." });
