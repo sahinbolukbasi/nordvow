@@ -307,13 +307,13 @@ async function InstagramOnlyView() {
     where: { platform: "INSTAGRAM" },
     orderBy: { followers: "desc" },
     take: 40,
-    include: { influencer: { select: { name: true } } },
+    include: { influencer: { select: { id: true, name: true } } },
   });
   return (
     <div className="flex flex-col gap-6">
       <InstagramExplorer />
       <Card interactive={false} className="flex flex-col gap-3">
-        <CardTitle>{tt("Sistemdeki Instagram Hesapları")} ({accounts.length})</CardTitle>
+        <CardTitle>{tt("Sistemdeki Instagram Hesapları & Analiz Kartları")} ({accounts.length})</CardTitle>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-line text-left text-[12px] text-fg-muted">
@@ -321,18 +321,33 @@ async function InstagramOnlyView() {
                 <th className="py-2 pr-4 font-medium">{tt("Influencer")}</th>
                 <th className="py-2 pr-4 font-medium">Handle</th>
                 <th className="py-2 pr-4 font-medium">{tt("Takipçi")}</th>
+                <th className="py-2 pr-4 font-medium">{tt("Ort. Beğeni")}</th>
                 <th className="py-2 pr-4 font-medium">{tt("Etkileşim")}</th>
-                <th className="py-2 font-medium">{tt("Kaynak")}</th>
+                <th className="py-2 pr-4 font-medium">{tt("Kaynak")}</th>
+                <th className="py-2 font-medium">{tt("Detaylı Analiz")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {accounts.map((a) => (
                 <tr key={a.id}>
-                  <td className="py-2 pr-4 font-medium text-fg">{a.influencer.name}</td>
+                  <td className="py-2 pr-4 font-medium text-fg">
+                    <Link href={`/admin/influencerlar/${a.influencer.id}`} className="hover:underline">
+                      {a.influencer.name}
+                    </Link>
+                  </td>
                   <td className="py-2 pr-4 text-fg-muted">@{a.handle}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
+                  <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                   <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>
-                  <td className="py-2 text-[12px] text-fg-passive">{a.syncSource}</td>
+                  <td className="py-2 pr-4 text-[12px] text-fg-passive">{a.syncSource}</td>
+                  <td className="py-2">
+                    <Link
+                      href={`/admin/influencerlar/${a.influencer.id}`}
+                      className="rounded-full border border-line px-3 py-1 text-[12px] font-medium text-fg hover:border-fg/40"
+                    >
+                      {tt("Analiz Kartı →")}
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

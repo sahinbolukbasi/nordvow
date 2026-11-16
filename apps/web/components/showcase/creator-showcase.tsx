@@ -4,6 +4,8 @@ import Link from "next/link";
 import { prisma, type Platform } from "@infulancer/core/db";
 import { categoryLabel } from "@infulancer/core/domain/categories";
 import { contentTypeLabels, formatKurus, platformLabels } from "@infulancer/core/domain/labels";
+import { runInstagramExplorerForInfluencer } from "@infulancer/core/social/explorer";
+import { InfluencerAnalyticsDeck } from "@/components/showcase/influencer-analytics-deck";
 import { BrandBadge, type BrandLogoName } from "@/components/icons/brand-logos";
 import { ExternalIcon } from "@/components/icons";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -25,7 +27,15 @@ export function profileLink(platform: Platform, handle: string, profileUrl?: str
  * İçerik üreticisinin vitrini: markalar (Influencer bul → profil) ve üreticinin kendi önizlemesi aynı görünümü kullanır.
  * Görünürlük tercihleri (fiyatlar, iş birlikleri) üreticinin "Vitrinim" ayarlarından gelir.
  */
-export async function CreatorShowcase({ influencerId, actions }: { influencerId: string; actions?: ReactNode }) {
+export async function CreatorShowcase({
+  influencerId,
+  actions,
+  isAdmin = false,
+}: {
+  influencerId: string;
+  actions?: ReactNode;
+  isAdmin?: boolean;
+}) {
   const tt = await getTT();
   const inf = await prisma.influencer.findUnique({
     where: { id: influencerId },
@@ -44,10 +54,12 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
     },
   });
   if (!inf) return null;
-  const [rates, portfolio, collabs] = await Promise.all([
-    inf.showPrices ? prisma.rateCard.findMany({ where: { influencerId, active: true }, orderBy: [{ platform: "asc" }, { priceKurus: "asc" }] }) : Promise.resolve([]),
+  const showPricesEffective = inf.showPrices || isAdmin;
+  const showCollabsEffective = inf.showCollaborations || isAdmin;
+  const [rates, portfolio, collabs, explorerReport] = await Promise.all([
+    showPricesEffective ? prisma.rateCard.findMany({ where: { influencerId, active: true }, orderBy: [{ platform: "asc" }, { priceKurus: "asc" }] }) : Promise.resolve([]),
     prisma.portfolioItem.findMany({ where: { influencerId }, orderBy: [{ sort: "asc" }, { createdAt: "desc" }], take: 24 }),
-    inf.showCollaborations
+    showCollabsEffective
       ? prisma.assignment.findMany({
           where: { influencerId, contractStatus: "KABUL" },
           orderBy: { createdAt: "desc" },
@@ -60,6 +72,7 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
           },
         })
       : Promise.resolve([]),
+    runInstagramExplorerForInfluencer(influencerId, { triggeredBy: isAdmin ? "admin" : "brand" }),
   ]);
   const total = inf.socialAccounts.reduce((s, a) => s + a.followers, 0);
   const bestEr = inf.socialAccounts.reduce((m, a) => Math.max(m, Number(a.engagementRate)), 0);
@@ -67,13 +80,20 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Üst bilgi */}
+      {/* Üst Kimlik ve Özet Kartı */}
       <section className="relative overflow-hidden rounded-3xl border border-line bg-glass p-6">
         <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-neon-pink/20 blur-3xl" />
         <div className="relative flex flex-wrap items-start gap-5">
           <Avatar name={inf.name} src={pickAvatar(inf.socialAccounts, inf.avatarKey)} size={96} className="ring-2 ring-neon-pink/60" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <h1 className="text-[30px] leading-tight font-semibold tracking-tight">{inf.name}</h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-[30px] leading-tight font-semibold tracking-tight">{inf.name}</h1>
+              {explorerReport ? (
+                <span className="rounded-full bg-fg px-3 py-0.5 text-[12px] font-semibold text-bg">
+                  {tt("Uyum Skoru:")} {explorerReport.scores.overallScore}/100 · {explorerReport.scores.priorityTier}
+                </span>
+              ) : null}
+            </div>
             {inf.headline ? <p className="text-[15px] text-fg">{inf.headline}</p> : null}
             <p className="text-[13px] text-fg-muted">
               {inf.categories[0] ? categoryLabel(inf.categories[0].category) : inf.category}
@@ -90,12 +110,14 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
         {inf.bio ? <p className="relative mt-4 max-w-3xl text-sm leading-relaxed whitespace-pre-line text-fg-muted">{inf.bio}</p> : null}
-        <dl className="relative mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <dl className="relative mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
-            ["Toplam takipçi", compact.format(total)],
-            ["En iyi etkileşim", bestEr ? pct.format(bestEr) : "—"],
-            ["İş birliği", inf.showCollaborations ? String(collabs.length) : "Gizli"],
-            ["Yayınlanan içerik", inf.showCollaborations ? String(publishedCount) : "Gizli"],
+            [tt("Toplam takipçi"), compact.format(total || (explorerReport?.followers ?? 0))],
+            [tt("En iyi etkileşim (ER)"), bestEr ? pct.format(bestEr) : explorerReport ? `%${explorerReport.avgErPct}` : "—"],
+            [tt("Ort. Reels izlenme"), explorerReport ? compact.format(explorerReport.avgReelsViews) : "—"],
+            [tt("Ort. kaydetme (Saves)"), explorerReport ? compact.format(explorerReport.avgSaves) : "—"],
+            [tt("İş birliği"), showCollabsEffective ? String(Math.max(collabs.length, explorerReport?.brandCollaborations.length ?? 0)) : tt("Gizli")],
+            [tt("Yayınlanan içerik"), showCollabsEffective ? String(publishedCount || (explorerReport?.recentMedia.length ?? 0)) : tt("Gizli")],
           ].map(([k, v]) => (
             <div key={k} className="rounded-2xl border border-line bg-bg/40 p-3">
               <dt className="text-[12px] text-fg-muted">{k}</dt>
@@ -104,6 +126,9 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
           ))}
         </dl>
       </section>
+
+      {/* Instagram Gezgini (AI Analiz, 7g/30g/90g Zaman Çizelgesi Grafikleri, Kaydetme/İzlenme, Marka Geçmişi & NLP Yorum Analizi) */}
+      {explorerReport ? <InfluencerAnalyticsDeck report={explorerReport} isAdmin={isAdmin} /> : null}
 
       {/* Sosyal hesaplar */}
       <section aria-labelledby="sc-social" className="flex flex-col gap-3">
@@ -156,9 +181,16 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
       </section>
 
       {/* Fiyat listesi */}
-      {inf.showPrices ? (
+      {showPricesEffective ? (
         <section aria-labelledby="sc-rates" className="flex flex-col gap-3">
-          <h2 id="sc-rates" className="text-section">{" "}{tt("İçerik ücretleri")}</h2>
+          <div className="flex items-center gap-2">
+            <h2 id="sc-rates" className="text-section">{" "}{tt("İçerik ücretleri")}</h2>
+            {!inf.showPrices && isAdmin ? (
+              <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
+                {tt("Vitrinde gizli · Admin görünümü")}
+              </span>
+            ) : null}
+          </div>
           {rates.length === 0 ? (
             <p className="text-sm text-fg-passive">{tt("Fiyat listesi henüz girilmedi; teklif gönderebilirsiniz.")}</p>
           ) : (
@@ -205,9 +237,16 @@ export async function CreatorShowcase({ influencerId, actions }: { influencerId:
       </section>
 
       {/* İş birlikleri */}
-      {inf.showCollaborations ? (
+      {showCollabsEffective ? (
         <section aria-labelledby="sc-collabs" className="flex flex-col gap-3">
-          <h2 id="sc-collabs" className="text-section">{" "}{tt("Yer aldığı iş birlikleri")}</h2>
+          <div className="flex items-center gap-2">
+            <h2 id="sc-collabs" className="text-section">{" "}{tt("Platform içi yer aldığı iş birlikleri")}</h2>
+            {!inf.showCollaborations && isAdmin ? (
+              <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
+                {tt("Vitrinde gizli · Admin görünümü")}
+              </span>
+            ) : null}
+          </div>
           {collabs.length === 0 ? (
             <p className="text-sm text-fg-passive">{tt("Platformda tamamlanmış iş birliği yok.")}</p>
           ) : (
