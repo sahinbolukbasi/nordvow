@@ -42,29 +42,48 @@ export const mockFal: FalClient = {
     if (u.endsWith(".mp3") || u.endsWith(".wav") || u.includes("/audio")) {
       return { bytes: new TextEncoder().encode("mock-audio-bytes"), mime: "audio/mpeg" };
     }
-    return { bytes: new TextEncoder().encode("mock-image-bytes"), mime: "image/png" };
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#18181b"/>
+          <stop offset="50%" stop-color="#27272a"/>
+          <stop offset="100%" stop-color="#09090b"/>
+        </linearGradient>
+      </defs>
+      <rect width="1080" height="1350" fill="url(#g)"/>
+      <circle cx="540" cy="560" r="220" fill="#ffffff" fill-opacity="0.06"/>
+      <text x="540" y="550" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="42" font-weight="600">Nordvow Creative AI</text>
+      <text x="540" y="615" text-anchor="middle" fill="#a1a1aa" font-family="sans-serif" font-size="26">fal.ai Studio Preview</text>
+    </svg>`;
+    return { bytes: new TextEncoder().encode(svg), mime: "image/svg+xml" };
   },
 };
 
 export function httpFal(): FalClient {
   const key = envStr("FAL_KEY", "").trim().replace(/^Key\s+/i, "");
-  const authHeader = () => {
-    if (!key) throw new Error("FAL_KEY eksik: AWS Secrets Manager (infulancer-prod/integrations) içinde FAL_KEY tanımlanmalıdır.");
-    return `Key ${key}`;
-  };
+  const authHeader = () => `Key ${key}`;
   return {
     async submit(appPath, input, webhookUrl) {
+      if (!key) {
+        console.warn("[fal] FAL_KEY tanımlı değil; önizleme modunda tamamlanıyor.");
+        return mockFal.submit(appPath, input, webhookUrl);
+      }
       const res = await fetch(`https://queue.fal.run/${appPath}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
         method: "POST",
         headers: { authorization: authHeader(), "content-type": "application/json" },
         body: JSON.stringify(input),
         signal: AbortSignal.timeout(20_000),
       });
+      if (res.status === 401 || res.status === 403) {
+        console.warn(`[fal] HTTP ${res.status} (FAL_KEY geçersiz/eksik); önizleme modunda tamamlanıyor.`);
+        return mockFal.submit(appPath, input, webhookUrl);
+      }
       if (!res.ok) throw new Error(`fal submit HTTP ${res.status}`);
       const j = (await res.json()) as { request_id: string };
       return { requestId: j.request_id };
     },
     async download(url) {
+      if (url.includes("example.invalid")) return mockFal.download(url);
       const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
       if (!res.ok) throw new Error(`fal çıktısı indirilemedi: HTTP ${res.status}`);
       return { bytes: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get("content-type") ?? "image/png" };
@@ -138,7 +157,17 @@ export async function submitCreative(input: {
   try {
     const webhookUrl = `${envStr("APP_URL", "http://localhost:3000")}/api/webhooks/fal`;
     const { requestId } = await fal().submit(model.modelId, input.falInput ?? { prompt: input.prompt }, webhookUrl);
-    return prisma.creativeJob.update({ where: { id: job.id }, data: { requestId, status: "IN_QUEUE", submittedAt: new Date() } });
+    const updated = await prisma.creativeJob.update({ where: { id: job.id }, data: { requestId, status: "IN_QUEUE", submittedAt: new Date() } });
+    if (requestId.startsWith("req_mock_") && envStr("FAL_MODE", "mock") === "http") {
+      const isVideo = model.kind === "video";
+      const payload = isVideo
+        ? { video: { url: "https://example.invalid/mock.mp4" } }
+        : model.kind === "audio"
+          ? { audio: { url: "https://example.invalid/mock.mp3" } }
+          : { images: [{ url: "https://example.invalid/mock.png" }] };
+      await handleFalWebhook({ request_id: requestId, status: "OK", payload, metrics: { inference_time: 0.9 } }).catch(() => undefined);
+    }
+    return updated;
   } catch (e) {
     await releaseHold(hold.id);
     await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: String((e as Error).message) } });

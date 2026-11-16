@@ -97,7 +97,7 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
         </main>
       </div>
       <MobileTabBar role={navRole} perm={permCtx} />
-      <CopilotLauncher />
+      {!fullBleed ? <CopilotLauncher /> : null}
       <AnnouncementPopup items={popups} userId={actor.userId} />
     </div>
   );

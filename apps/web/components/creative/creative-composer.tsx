@@ -1,14 +1,18 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
-import { startTransition, useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { generateCreative } from "@/lib/actions/operations";
-import { openAssetInStudioAction, saveAssetToLibraryAction } from "@/lib/actions/creative-studio";
+import {
+  chatCreativeDirectorAction,
+  openAssetInStudioAction,
+  saveAssetToLibraryAction,
+  type CreditTier,
+} from "@/lib/actions/creative-studio";
 import { idleState } from "@/lib/action-state";
 import { cn } from "@/lib/cn";
 import { KindIcon } from "@/components/creative/kind-icon";
-import { chargeAmount, fmtTl, KIND_LABEL, modelHint, modelName, toneFor, unitLabel, type CreativeKind } from "@/lib/creative-models";
+import { chargeAmount, fmtTl, KIND_LABEL, modelName, toneFor, type CreativeKind } from "@/lib/creative-models";
 import { uploadFile } from "@/lib/creative-upload";
 import { JobProgress } from "@/components/creative/job-progress";
 import { PhonePreview } from "@/components/creative/phone-preview";
@@ -43,26 +47,20 @@ export type ChatHistoryItem = {
   createdAt: string;
 };
 
-export type PersonalPreset = {
-  id: string;
-  label: string;
-  contextPrompt: string;
-};
-
 type ChatTurn =
   | {
       id: string;
       from: "user";
       text: string;
-      kind: CreativeKind;
-      format: string;
-      personalized?: boolean;
+      tierLabel?: string;
       refCount?: number;
     }
   | {
       id: string;
       from: "bot";
       text: string;
+      postBrief?: string | null;
+      enhancedPrompt?: string | null;
       assetId?: string | null;
       uploadId?: string | null;
       kind?: CreativeKind;
@@ -73,40 +71,13 @@ type ChatTurn =
       error?: string | null;
     };
 
-const QUICK_IDEAS: Record<CreativeKind, { label: string; text: string; format?: string }[]> = {
-  video: [
-    { label: "Ürün Tanıtım Reels", text: "Ürünün etrafında yumuşak sinematik kamera dönüşü, sıcak stüdyo ışıkları, sonunda net ürün yakın çekimi", format: "9:16" },
-    { label: "Kutu Açılışı", text: "Minimal masada şık kutu açılışı, doğal sabah ışığı, akıcı ve davetkar sosyal medya videosu", format: "9:16" },
-    { label: "Lansman Hikayesi", text: "Yeni sezon lansman videosu: dinamik ışık geçişleri, modern şehir atmosferi, yüksek enerji", format: "9:16" },
-    { label: "Yaşam Tarzı", text: "Güneşli bir kafede ürünün doğal kullanım anı, samimi ve sıcak renk tonları, sinematik derinlik", format: "9:16" },
-  ],
-  image: [
-    { label: "Stüdyo Ürün Çekimi", text: "Pastel stüdyo arka planda ürünün yakın çekimi, yumuşak gölgeler, sade ve premium kompozisyon", format: "4:5" },
-    { label: "Story Kapağı (9:16)", text: "Instagram story kapağı: modern estetik, üstte ve altta başlık yazısı için temiz alan", format: "9:16" },
-    { label: "Doğal Yaşam Tarzı", text: "Sabah ışığında ahşap masada kahve ve ürün, doğal ve samimi yaşam tarzı fotoğrafı", format: "4:5" },
-    { label: "Kampanya Afişi", text: "Yeni sezon kampanya çekimi: dramatik kontrast ışık, zarif yansımalar, dergi kapağı kalitesi", format: "1:1" },
-  ],
-  audio: [
-    { label: "Reels Seslendirme", text: "Samimi ve enerjik bir tonla: 'Yeni koleksiyonumuz yayında! Favori parçanı keşfetmek için profildeki linke tıkla.'" },
-    { label: "Kampanya Spotu", text: "Heyecanlı bir tonla: 'Sadece bu hafta sonuna özel tüm seçili ürünlerde sürpriz fırsatları kaçırma!'" },
-  ],
-};
-
-const PERSONAL_PRESETS: PersonalPreset[] = [
-  { id: "marka-ozel", label: "Marka & Profil Stili", contextPrompt: "Kullanıcıya özel marka kimliğine uygun, profesyonel sosyal medya estetiği, yüksek çözünürlüklü temiz kompozisyon" },
-  { id: "urun-odakli", label: "Ürün Odaklı", contextPrompt: "Ürünü merkeze alan, dokuları ve detayları net gösteren ticari çekim kalitesi" },
-  { id: "reels-viral", label: "Reels / TikTok", contextPrompt: "Sosyal medya akışında dikkat çeken, modern dikey kadraj" },
-  { id: "sinematik-luks", label: "Sinematik", contextPrompt: "Sinematik alan derinliği, sıcak altın saat ışığı, premium reklam filmi atmosferi" },
+const INITIAL_SUGGESTIONS = [
+  "Instagram'a yeni ürün tanıtım postu atmak istiyorum",
+  "9:16 dikey Story / Reels görseli tasarlayalım",
+  "Şimdi üret: sabah ışığında minimal masada kahve ve ürün çekimi",
+  "Şimdi üret: 5 saniyelik sinematik 9:16 ürün tanıtım videosu",
+  "Neler yapabilirsin? Yeteneklerini göster",
 ];
-
-const FORMATS = [
-  { id: "9:16", label: "9:16 Dikey", hint: "Reels / Story" },
-  { id: "4:5", label: "4:5 Gönderi", hint: "Instagram" },
-  { id: "1:1", label: "1:1 Kare", hint: "Post" },
-  { id: "16:9", label: "16:9 Yatay", hint: "YouTube" },
-];
-
-const STYLES = ["Sinematik", "Minimal", "Doğal ışık", "Stüdyo", "Pastel", "Lüks", "Monokrom", "Retro"];
 
 function ChatMediaCard({
   assetId,
@@ -115,8 +86,7 @@ function ChatMediaCard({
   prompt,
   modelKey,
   savedInitial,
-  onUseAsReference,
-  onConvertToVideo,
+  onQuickFollowUp,
   onOpenPhone,
 }: {
   assetId: string;
@@ -125,8 +95,7 @@ function ChatMediaCard({
   prompt: string;
   modelKey?: string;
   savedInitial?: boolean;
-  onUseAsReference: (id: string, nextPrompt?: string, nextFormat?: string) => void;
-  onConvertToVideo: (id: string, basePrompt: string) => void;
+  onQuickFollowUp: (refId: string, command: string) => void;
   onOpenPhone: () => void;
 }) {
   const tt = useTT();
@@ -231,14 +200,14 @@ function ChatMediaCard({
           <>
             <button
               type="button"
-              onClick={() => onConvertToVideo(effectiveRefId, cleanPrompt)}
+              onClick={() => onQuickFollowUp(effectiveRefId, `Şimdi üret: ${cleanPrompt} — bu sahneyi 5 saniyelik akıcı 9:16 Reels videosuna dönüştür`)}
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
               {tt("Videoya Çevir")}
             </button>
             <button
               type="button"
-              onClick={() => onUseAsReference(effectiveRefId, `${cleanPrompt}, yeni varyasyon`)}
+              onClick={() => onQuickFollowUp(effectiveRefId, `Şimdi üret: ${cleanPrompt} — yeni varyasyon oluştur`)}
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
             >
               {tt("Varyasyon Üret")}
@@ -273,14 +242,12 @@ function ChatMediaCard({
 export function CreativeComposer({
   models,
   library = [],
-  refPrices,
   available,
   username = "markaniz",
   profileLabel,
   currency = "TRY",
   minTry = 2,
   initialPrompt = "",
-  initialKind,
   initialRefId,
   initialHistory = [],
 }: {
@@ -299,33 +266,58 @@ export function CreativeComposer({
 }) {
   const tt = useTT();
   const router = useRouter();
-  const [state, action, pending] = useActionState(generateCreative, idleState);
   const money = (n: number) => fmtTl(n, currency);
   const chargeTry = (cpu: number, units: number, min: number) => chargeAmount(cpu, units, min, currency);
 
-  const kinds = useMemo(
-    () => (["image", "video", "audio"] as CreativeKind[]).filter((k) => models.some((m) => m.kind === k)),
-    [models],
-  );
-  const defaultKind = initialKind && kinds.includes(initialKind) ? initialKind : (kinds[0] ?? "image");
-  const [kind, setKind] = useState<CreativeKind>(defaultKind);
-  const inKind = models.filter((m) => m.kind === kind);
-  const [modelKey, setModelKey] = useState(inKind[0]?.key ?? "");
-  const [seconds, setSeconds] = useState(0);
+  const [tier, setTier] = useState<CreditTier>("economy");
+  const [liveBalance, setLiveBalance] = useState(available);
   const [prompt, setPrompt] = useState(initialPrompt);
-  const [format, setFormat] = useState("9:16");
-  const [style, setStyle] = useState("");
-  const [personalPresetId, setPersonalPresetId] = useState<string>("marka-ozel");
-  const [showOptions, setShowOptions] = useState(false);
   const [refs, setRefs] = useState<string[]>(initialRefId ? [initialRefId] : []);
   const [lib, setLib] = useState<ComposerLibraryItem[]>(library);
   const [showLib, setShowLib] = useState(false);
   const [upPct, setUpPct] = useState<number | null>(null);
   const [upMsg, setUpMsg] = useState<{ text: string; isError?: boolean } | null>(null);
   const [quickCmd, setQuickCmd] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>(INITIAL_SUGGESTIONS);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
 
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState("");
+  const [activeJob, setActiveJob] = useState<{
+    jobId: string;
+    kind: CreativeKind;
+    format: string;
+    prompt: string;
+    modelKey: string;
+    postBrief?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    setLiveBalance(available);
+  }, [available]);
+
+  // Kredi paketlerinin (Uygun / Dengeli / Yüksek Kalite) fal.ai modellerine göre birim kredi maliyeti
+  const tierCosts = useMemo(() => {
+    const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
+    const econ = imgs.find((m) => m.key === "flux-schnell")?.creditsPerUnit ?? imgs[0]?.creditsPerUnit ?? minTry;
+    const std = imgs.find((m) => m.key === "nano-banana-2" || m.key === "recraft-v3")?.creditsPerUnit ?? imgs[Math.min(1, imgs.length - 1)]?.creditsPerUnit ?? econ * 2;
+    const pro = imgs.find((m) => m.key === "nano-banana-pro")?.creditsPerUnit ?? imgs[imgs.length - 1]?.creditsPerUnit ?? std * 2;
+    return {
+      economy: chargeTry(econ, 1, minTry),
+      standard: chargeTry(std, 1, minTry),
+      pro: chargeTry(pro, 1, minTry),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, minTry, currency]);
+
+  const TIERS: { id: CreditTier; label: string; desc: string; cost: number }[] = [
+    { id: "economy", label: tt("Uygun Kredi"), desc: "FLUX Schnell / Hızlı", cost: tierCosts.economy },
+    { id: "standard", label: tt("Dengeli Kredi"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
+    { id: "pro", label: tt("Yüksek Kalite"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
+  ];
+
+  const currentCost = tierCosts[tier];
+  const short = currentCost > liveBalance;
 
   const latestCompleted = useMemo(() => {
     const c = initialHistory.find((h) => h.status === "COMPLETED" && h.assetId);
@@ -347,19 +339,17 @@ export function CreativeComposer({
     const welcome: ChatTurn = {
       id: "welcome",
       from: "bot",
-      text: "Nasıl yardımcı olabilirim? İstediğiniz fotoğraf, video veya seslendirmeyi aşağıya yazın; sağ panelde telefonda önizleyip chat komutlarıyla anında formatlayabilirsiniz.",
+      text: "Merhaba! Ben Nordvow Creative AI Yönetmeninizim. Ayarlarla uğraşmanıza gerek yok: nasıl bir Instagram postu, Story, Reels videosu veya seslendirme istediğinizi yazın; birlikte netleştirip Post Brief'inizi hazırlayayım ve fal.ai (FLUX Schnell / Pro) ile üreteyim.",
     };
     if (!initialHistory.length) return [welcome];
     const turns: ChatTurn[] = [welcome];
-    const sorted = [...initialHistory].slice(0, 12).reverse();
+    const sorted = [...initialHistory].slice(0, 10).reverse();
     for (const h of sorted) {
       const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
       turns.push({
         id: `hist-u-${h.jobId}`,
         from: "user",
         text: cleanText || h.prompt,
-        kind: h.kind,
-        format: "9:16",
       });
       if (h.status === "COMPLETED" && h.assetId) {
         turns.push({
@@ -373,49 +363,18 @@ export function CreativeComposer({
           prompt: cleanText || h.prompt,
           savedToLibrary: true,
         });
-      } else if (h.status === "FAILED" || h.status === "REJECTED") {
-        turns.push({
-          id: `hist-err-${h.jobId}`,
-          from: "bot",
-          text: h.rejectReason ?? "İstek tamamlanamadı; krediniz iade edildi.",
-          error: h.rejectReason ?? "Başarısız",
-        });
       }
     }
     return turns;
   }, [initialHistory]);
 
   const [chatLog, setChatLog] = useState<ChatTurn[]>(initialTurns);
-
-  const formRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const m = models.find((x) => x.key === modelKey) ?? inKind[0];
-  const durations = m?.durations ?? [5];
-  const sec = durations.includes(seconds) ? seconds : durations[0]!;
-  const n = kind === "video" ? sec : kind === "audio" ? Math.max(1, Math.ceil(prompt.trim().length / 1000)) : 1;
-  const withRefs = refs.length > 0 && kind !== "audio";
-  const kling = !!m?.key.startsWith("kling");
-  const refSec = kind === "video" ? (kling ? ([5, 10].includes(sec) ? sec : 5) : [6, 10].includes(sec) ? sec : 6) : 1;
-  const refCpu = kind === "image" ? (refPrices?.imageEdit ?? 0) : kling ? (refPrices?.klingI2v ?? 0) : (refPrices?.ecoI2v ?? 0);
-  const cost = withRefs ? chargeTry(refCpu, refSec, minTry) : m ? chargeTry(m.creditsPerUnit, n, minTry) : 0;
-  const aspectOk = kind === "audio" || !m?.aspects || m.aspects.includes(format);
-  const balance = available;
-  const short = cost > balance;
-  const ready = prompt.trim().length >= 3 && !!m && n > 0 && !short && (aspectOk || withRefs);
-  const activePreset = PERSONAL_PRESETS.find((p) => p.id === personalPresetId) ?? null;
-
-  useEffect(() => {
-    if (state.ok && state.data?.jobId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sunucudan dönen işi izlemeye başla
-      setJobId(state.data.jobId);
-    }
-  }, [state]);
-
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [chatLog.length, jobId]);
+  }, [chatLog.length, activeJob]);
 
   const addFiles = async (files: FileList) => {
     setUpMsg(null);
@@ -426,9 +385,9 @@ export function CreativeComposer({
         setLib((l) => [{ id: r.id, kind: r.kind, name: f.name, source: "upload" }, ...l]);
         if (r.kind === "image") {
           setRefs((x) => (x.length < 4 ? [...x, r.id] : x));
-          setUpMsg({ text: "Görsel kitaplığa eklendi ve referans seçildi." });
+          setUpMsg({ text: "Görsel referans olarak seçildi." });
         } else {
-          setUpMsg({ text: "Video kitaplığa kaydedildi." });
+          setUpMsg({ text: "Video kitaplığa eklendi." });
         }
       } catch (e) {
         setUpMsg({ text: `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`, isError: true });
@@ -440,80 +399,121 @@ export function CreativeComposer({
   const toggleRef = (id: string) =>
     setRefs((x) => (x.includes(id) ? x.filter((y) => y !== id) : x.length < 4 ? [...x, id] : x));
 
-  const pickKind = (k: CreativeKind) => {
-    setKind(k);
-    const first = models.find((x) => x.kind === k);
-    setModelKey(first?.key ?? "");
-    setSeconds(0);
-  };
+  const sendTurn = (rawMessage: string, forceGenerate = false, overrideRefs?: string[]) => {
+    const trimmed = rawMessage.trim();
+    if (!trimmed || pending) return;
+    setError(null);
+    const tierInfo = TIERS.find((t) => t.id === tier);
+    const usedRefs = overrideRefs ?? refs;
 
-  const handleSubmit = () => {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
-    setLastSubmittedPrompt(trimmed);
+    const historyForApi = chatLog
+      .filter((c) => c.id !== "welcome")
+      .slice(-8)
+      .map((c) => ({ role: c.from === "user" ? ("user" as const) : ("assistant" as const), text: c.text }));
+
     setChatLog((prev) => [
       ...prev,
       {
         id: `u-${Date.now()}`,
         from: "user",
         text: trimmed,
-        kind,
-        format,
-        personalized: !!activePreset,
-        refCount: refs.length,
+        tierLabel: tierInfo?.label,
+        refCount: usedRefs.length,
       },
     ]);
+    setPrompt("");
+
+    start(async () => {
+      const res = await chatCreativeDirectorAction({
+        message: trimmed,
+        history: historyForApi,
+        tier,
+        referenceUploadIds: usedRefs,
+        forceGenerate,
+      });
+
+      if (!res.ok) {
+        setError(res.error ?? "İşlem tamamlanamadı.");
+        return;
+      }
+
+      if (res.suggestions?.length) {
+        setSuggestions(res.suggestions);
+      }
+
+      if (typeof res.availableCredits === "number") {
+        setLiveBalance(res.availableCredits);
+      }
+
+      if (res.action === "ask") {
+        setChatLog((prev) => [
+          ...prev,
+          {
+            id: `b-${Date.now()}`,
+            from: "bot",
+            text: res.reply,
+          },
+        ]);
+        return;
+      }
+
+      // action === "generate"
+      if (res.assetId) {
+        const k = res.kind ?? "image";
+        const f = res.format ?? "9:16";
+        setResult({ assetId: res.assetId, kind: k, prompt: res.enhancedPrompt ?? trimmed, format: f });
+        setPanelOpen(true);
+        setChatLog((prev) => [
+          ...prev,
+          {
+            id: `b-${Date.now()}`,
+            from: "bot",
+            text: res.reply,
+            postBrief: res.postBrief,
+            enhancedPrompt: res.enhancedPrompt,
+            assetId: res.assetId,
+            kind: k,
+            format: f,
+            modelKey: res.modelKey,
+            prompt: res.enhancedPrompt ?? trimmed,
+            savedToLibrary: true,
+          },
+        ]);
+        router.refresh();
+      } else if (res.jobId) {
+        setActiveJob({
+          jobId: res.jobId,
+          kind: res.kind ?? "image",
+          format: res.format ?? "9:16",
+          prompt: res.enhancedPrompt ?? trimmed,
+          modelKey: res.modelKey ?? "flux-schnell",
+          postBrief: res.postBrief,
+        });
+        setChatLog((prev) => [
+          ...prev,
+          {
+            id: `b-prep-${Date.now()}`,
+            from: "bot",
+            text: res.reply,
+            postBrief: res.postBrief,
+            enhancedPrompt: res.enhancedPrompt,
+          },
+        ]);
+      }
+    });
   };
 
-  const handleUseAsReference = (refId: string, nextPrompt?: string, nextFormat?: string) => {
-    if (kind === "audio") pickKind("image");
-    setRefs([refId]);
-    if (nextFormat) setFormat(nextFormat);
-    if (nextPrompt) setPrompt(nextPrompt);
-    inputRef.current?.focus();
-  };
-
-  const handleConvertToVideo = (refId: string, basePrompt: string) => {
-    pickKind("video");
-    setFormat("9:16");
-    setRefs([refId]);
-    setPrompt(
-      basePrompt
-        ? `${basePrompt} — bu sahneyi yumuşak kamera hareketiyle akıcı bir 9:16 tanıtım videosuna dönüştür`
-        : "Bu görseldeki sahneyi yumuşak kamera hareketiyle 5 saniyelik akıcı bir tanıtım videosuna dönüştür",
-    );
-    inputRef.current?.focus();
-  };
-
-  const applyQuickFormatCommand = (cmdText: string, nextFormat?: string, toVideo?: boolean) => {
+  const applyQuickFormatCommand = (cmdText: string, nextFormat?: string) => {
     if (!result) return;
-    const refId = result.uploadId ?? result.assetId;
-    if (toVideo) {
-      pickKind("video");
-    } else if (kind === "audio") {
-      pickKind("image");
-    }
     if (nextFormat) {
-      setFormat(nextFormat);
       setResult((r) => (r ? { ...r, format: nextFormat } : r));
     }
-    if (result.kind === "image" && refId) {
-      setRefs([refId]);
-    }
-    setPrompt(`${result.prompt} — ${cmdText}`);
+    const refId = result.uploadId ?? result.assetId;
+    const nextRefs = result.kind === "image" && refId ? [refId] : refs;
+    if (nextRefs.length) setRefs(nextRefs);
     setQuickCmd("");
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 30);
+    sendTurn(`Şimdi üret: ${result.prompt} — ${cmdText}`, true, nextRefs);
   };
-
-  if (!models.length) {
-    return (
-      <p className="rounded-3xl border border-dashed border-line p-8 text-center text-sm text-fg-muted">
-        {tt("Şu an kullanılabilir üretim modeli yok.")}
-      </p>
-    );
-  }
 
   return (
     <div
@@ -523,28 +523,15 @@ export function CreativeComposer({
       )}
     >
       {/* Sol / Orta: Tam Ekran AI Sohbet Alanı */}
-      <form
-        ref={formRef}
-        action={action}
-        onSubmit={handleSubmit}
-        className="flex min-h-[calc(100dvh-9.5rem)] flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface"
-      >
-        <input type="hidden" name="modelKey" value={m?.key ?? ""} />
-        <input type="hidden" name="aspect" value={kind === "audio" ? "" : format} />
-        <input type="hidden" name="seconds" value={kind === "video" ? sec : ""} />
-        <input type="hidden" name="style" value={kind === "audio" ? "" : style} />
-        <input type="hidden" name="kind" value={kind} />
-        <input type="hidden" name="personalContext" value={kind === "audio" ? "" : (activePreset?.contextPrompt ?? "")} />
-        {withRefs ? refs.map((r) => <input key={r} type="hidden" name="refs" value={r} />) : null}
-
-        {/* Üst Sohbet Çubuğu */}
+      <div className="flex min-h-[calc(100dvh-9.5rem)] flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface">
+        {/* Üst Sohbet Çubuğu: Yalnız Kredi Seviyesi Seçimi (Uygun / Dengeli / Yüksek Kalite) */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
           <div className="flex items-center gap-2.5">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg" aria-hidden>
               <SparkleIcon size={14} />
             </span>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[13px] font-semibold text-fg">{tt("AI Üretim Sohbeti")}</h2>
+              <h2 className="text-[13px] font-semibold text-fg">{tt("AI Creative Yönetmeni (Bedrock + fal.ai)")}</h2>
               {profileLabel ? (
                 <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
                   {profileLabel}
@@ -553,24 +540,30 @@ export function CreativeComposer({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {chatLog.length > 1 ? (
-              <button
-                type="button"
-                onClick={() =>
-                  setChatLog([
-                    {
-                      id: `welcome-${Date.now()}`,
-                      from: "bot",
-                      text: "Yeni sohbet başlatıldı. Fotoğraf veya video oluşturmak için isteğinizi yazın.",
-                    },
-                  ])
-                }
-                className="rounded-full border border-line px-3 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
-              >
-                {tt("Temizle")}
-              </button>
-            ) : null}
+          {/* Kredi Paketi Seçici: Uygun / Dengeli / Yüksek Kalite */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-full border border-line bg-bg p-0.5" role="radiogroup" aria-label={tt("Kredi tercihi")}>
+              {TIERS.map((t) => {
+                const active = tier === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setTier(t.id)}
+                    title={t.desc}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[11px] font-medium transition-standard",
+                      active ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
+                    )}
+                  >
+                    {t.label} · {money(t.cost)}
+                  </button>
+                );
+              })}
+            </div>
+
             {result ? (
               <button
                 type="button"
@@ -580,7 +573,7 @@ export function CreativeComposer({
                   panelOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
                 )}
               >
-                {panelOpen ? tt("Telefon Panelini Kapat") : tt("Telefon Önizleme & Formatla")}
+                {panelOpen ? tt("Telefonu Gizle") : tt("Telefon Önizleme")}
               </button>
             ) : null}
           </div>
@@ -595,17 +588,44 @@ export function CreativeComposer({
                   {msg.text}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-fg-passive">
-                  <span>{KIND_LABEL[msg.kind]}</span>
-                  {msg.kind !== "audio" ? <span>· {msg.format}</span> : null}
-                  {msg.personalized ? <span>· {tt("Marka Stili")}</span> : null}
+                  {msg.tierLabel ? <span>{msg.tierLabel}</span> : null}
                   {msg.refCount ? <span>· {msg.refCount} {tt("referans")}</span> : null}
                 </div>
               </div>
             ) : (
               <div key={msg.id} className="mr-auto flex w-full max-w-2xl flex-col gap-2.5">
-                <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed text-fg">
+                <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-fg">
                   {msg.text}
                 </div>
+
+                {/* Bedrock ile Üretilen Hazır Instagram Post Brief & Caption */}
+                {msg.postBrief ? (
+                  <div className="flex max-w-xl flex-col gap-2 rounded-2xl border border-line bg-bg/40 p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+                        {tt("Hazır Instagram Post Metni & Brief")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(msg.postBrief!);
+                          setCopiedId(msg.id);
+                          setTimeout(() => setCopiedId(null), 2000);
+                        }}
+                        className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] font-medium text-fg hover:border-fg/40"
+                      >
+                        {copiedId === msg.id ? tt("Kopyalandı") : tt("Metni Kopyala")}
+                      </button>
+                    </div>
+                    <p className="whitespace-pre-line text-[13px] leading-relaxed text-fg">{msg.postBrief}</p>
+                    {msg.enhancedPrompt ? (
+                      <p className="border-t border-line/60 pt-2 text-[11px] text-fg-passive">
+                        <strong>{tt("Geliştirilmiş fal.ai Promptu:")}</strong> {msg.enhancedPrompt}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {msg.assetId && msg.kind ? (
                   <ChatMediaCard
                     assetId={msg.assetId}
@@ -614,15 +634,17 @@ export function CreativeComposer({
                     prompt={msg.prompt ?? msg.text}
                     modelKey={msg.modelKey}
                     savedInitial={msg.savedToLibrary}
-                    onUseAsReference={handleUseAsReference}
-                    onConvertToVideo={handleConvertToVideo}
+                    onQuickFollowUp={(refId, cmd) => {
+                      setRefs([refId]);
+                      sendTurn(cmd, true, [refId]);
+                    }}
                     onOpenPhone={() => {
                       setResult({
                         assetId: msg.assetId!,
                         uploadId: msg.uploadId,
                         kind: msg.kind!,
                         prompt: msg.prompt ?? msg.text,
-                        format: msg.format ?? format,
+                        format: msg.format ?? "9:16",
                       });
                       setPanelOpen(true);
                     }}
@@ -632,32 +654,31 @@ export function CreativeComposer({
             ),
           )}
 
-          {jobId ? (
+          {activeJob ? (
             <div className="mr-auto w-full max-w-md">
               <JobProgress
-                key={jobId}
-                jobId={jobId}
+                key={activeJob.jobId}
+                jobId={activeJob.jobId}
                 onDone={(assetId) => {
-                  setJobId(null);
-                  if (assetId) {
-                    const submittedText = lastSubmittedPrompt || prompt;
-                    setResult({ assetId, kind, prompt: submittedText, format });
+                  const doneJob = activeJob;
+                  setActiveJob(null);
+                  if (assetId && doneJob) {
+                    setResult({ assetId, kind: doneJob.kind, prompt: doneJob.prompt, format: doneJob.format });
                     setPanelOpen(true);
                     setChatLog((prev) => [
                       ...prev,
                       {
                         id: `done-${Date.now()}`,
                         from: "bot",
-                        text: `${KIND_LABEL[kind]} oluşturuldu. Sağ panelden telefonda önizleyebilir ve chat komutlarıyla formatlayabilirsiniz.`,
+                        text: `${KIND_LABEL[doneJob.kind]} hazırlandı ve kitaplığınıza kaydedildi. Sağ panelde telefonda önizleyip formatlayabilirsiniz.`,
                         assetId,
-                        kind,
-                        format,
-                        modelKey: m?.key,
-                        prompt: submittedText,
+                        kind: doneJob.kind,
+                        format: doneJob.format,
+                        modelKey: doneJob.modelKey,
+                        prompt: doneJob.prompt,
                         savedToLibrary: true,
                       },
                     ]);
-                    setPrompt("");
                     router.refresh();
                   }
                 }}
@@ -665,171 +686,52 @@ export function CreativeComposer({
             </div>
           ) : null}
 
-          {state.error ? (
+          {pending ? (
+            <div className="mr-auto flex items-center gap-2 rounded-2xl border border-line bg-bg/60 px-4 py-2.5 text-[12px] text-fg-muted">
+              <span>{tt("AI Yönetmen hazırlıyor…")}</span>
+            </div>
+          ) : null}
+
+          {error ? (
             <p role="alert" className="rounded-xl border border-critical/30 bg-red-500/10 px-3 py-2 text-[13px] text-critical">
-              {state.error}
+              {error}
             </p>
           ) : null}
           <div ref={endRef} />
         </div>
 
-        {/* Alt Sohbet & Oluşturma Dock'u */}
-        <div className="flex flex-col gap-2.5 border-t border-line bg-bg/40 p-3 sm:p-4">
-          {/* 1. Satır: Tür + Kadraj + Süre + Ayarlar */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Üretim türü")}>
-                {kinds.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => pickKind(k)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-standard",
-                      kind === k ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
-                    )}
-                  >
-                    <KindIcon kind={k} size={12} />
-                    {k === "image" ? tt("Fotoğraf") : k === "video" ? tt("Video") : KIND_LABEL[k]}
-                  </button>
-                ))}
-              </div>
-
-              {kind !== "audio" ? (
-                <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Kadraj oranı")}>
-                  {FORMATS.map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => setFormat(f.id)}
-                      title={f.hint}
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-[11px] font-medium transition-standard",
-                        format === f.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
-                      )}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
-              {kind === "video" && durations.length > 1 ? (
-                <div className="inline-flex rounded-full border border-line bg-surface p-0.5" role="group" aria-label={tt("Video süresi")}>
-                  {durations.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setSeconds(d)}
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-[11px] font-medium transition-standard",
-                        sec === d ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
-                      )}
-                    >
-                      {d} {tt("sn")}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowOptions((v) => !v)}
-              aria-expanded={showOptions}
-              className={cn(
-                "rounded-full border px-3 py-1 text-[11px] font-medium transition-standard",
-                showOptions ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg-muted hover:text-fg",
-              )}
-            >
-              {m ? modelName(m.key) : tt("Model")} {style ? `· ${style}` : ""}
-            </button>
-          </div>
-
-          {/* Hızlı Fikirler & Stil Çipleri (Renksiz, Sade) */}
-          {kind !== "audio" ? (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" aria-label={tt("Hızlı şablonlar")}>
-              {PERSONAL_PRESETS.map((p) => {
-                const active = personalPresetId === p.id;
+        {/* Alt Sohbet & Öneri Alanı (Ayar Butonları Yok, Yalnız Öneriler + Sohbet Girişi) */}
+        <div className="flex flex-col gap-2 border-t border-line bg-bg/40 p-3 sm:p-4">
+          {/* Önceden Oluşturulmuş / Bedrock Soru-Cevap Yönlendirme Çipleri */}
+          {suggestions.length > 0 ? (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1" aria-label={tt("Önerilen yanıtlar")}>
+              {suggestions.map((s) => {
+                const isDirectGen = s.toLocaleLowerCase("tr").startsWith("şimdi üret");
                 return (
                   <button
-                    key={p.id}
+                    key={s}
                     type="button"
-                    onClick={() => setPersonalPresetId(active ? "" : p.id)}
+                    disabled={pending}
+                    onClick={() => sendTurn(s, isDirectGen)}
                     className={cn(
-                      "shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-standard",
-                      active ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg-muted hover:text-fg",
+                      "shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-standard disabled:opacity-40",
+                      isDirectGen
+                        ? "border-fg bg-fg text-bg hover:opacity-90"
+                        : "border-line bg-surface text-fg-muted hover:border-fg/40 hover:text-fg",
                     )}
                   >
-                    {p.label}
+                    {s}
                   </button>
                 );
               })}
-              <span className="mx-1 text-line">|</span>
-              {QUICK_IDEAS[kind].map((idea) => (
-                <button
-                  key={idea.label}
-                  type="button"
-                  onClick={() => {
-                    setPrompt(idea.text);
-                    if (idea.format) setFormat(idea.format);
-                    inputRef.current?.focus();
-                  }}
-                  className="shrink-0 rounded-full border border-line bg-surface px-2.5 py-0.5 text-[11px] text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
-                >
-                  {idea.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {showOptions ? (
-            <div className="grid grid-cols-1 gap-3 rounded-2xl border border-line bg-surface p-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-[11px] font-medium text-fg-muted">
-                {tt("AI Modeli (fal.ai)")}
-                <select
-                  value={m?.key ?? ""}
-                  onChange={(e) => setModelKey(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-line bg-bg px-3 text-[12px] text-fg"
-                >
-                  {inKind.map((x) => (
-                    <option key={x.key} value={x.key}>
-                      {modelName(x.key)}
-                      {modelHint(x.key) ? ` · ${modelHint(x.key)}` : ""} · {money(x.creditsPerUnit)}/{unitLabel(x.unit)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {kind !== "audio" ? (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-fg-muted">{tt("Görsel / Video Stili")}</span>
-                  <div className="flex flex-wrap gap-1">
-                    {STYLES.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setStyle(style === s ? "" : s)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-0.5 text-[11px]",
-                          style === s ? "border-fg bg-fg text-bg" : "border-line text-fg-muted hover:text-fg",
-                        )}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
             </div>
           ) : null}
 
           {refs.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2">
-              <span className="text-[11px] font-medium text-fg">
-                {kind === "video" ? tt("Videoya dönüştürülecek görsel:") : tt("Seçili referans görseller:")}
-              </span>
+              <span className="text-[11px] font-medium text-fg">{tt("Seçili referans:")}</span>
               {refs.map((r) => (
-                <div key={r} className="relative h-10 w-10 overflow-hidden rounded-lg border border-fg">
+                <div key={r} className="relative h-9 w-9 overflow-hidden rounded-lg border border-fg">
                   {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
                   <img src={`/api/creative/file/${r}`} alt={tt("Referans")} className="h-full w-full object-cover" />
                   <button
@@ -852,48 +754,29 @@ export function CreativeComposer({
             <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-3">
               <div className="flex items-center justify-between">
                 <span className="text-[12px] font-medium text-fg">
-                  {tt("Kitaplığım")} ({lib.length}) — {tt("Referans fotoğraf seçin veya videoyu düzenleyin")}
+                  {tt("Kitaplığım")} ({lib.length}) — {tt("Referans seçin")}
                 </span>
                 <button type="button" onClick={() => setShowLib(false)} className="text-[11px] text-fg-muted hover:text-fg">
                   {tt("Kapat")}
                 </button>
               </div>
               {lib.length === 0 ? (
-                <p className="py-3 text-center text-[12px] text-fg-muted">
-                  {tt("Kitaplığınızda henüz dosya yok.")}
-                </p>
+                <p className="py-3 text-center text-[12px] text-fg-muted">{tt("Kitaplığınızda henüz dosya yok.")}</p>
               ) : (
-                <ul className="grid max-h-36 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-8">
+                <ul className="grid max-h-32 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-8">
                   {lib.map((u) => (
                     <li key={u.id} className="relative">
-                      {u.kind === "image" ? (
-                        <button
-                          type="button"
-                          onClick={() => toggleRef(u.id)}
-                          title={u.name ?? tt("Referans seç")}
-                          className={cn(
-                            "group relative block aspect-square w-full overflow-hidden rounded-xl border bg-bg",
-                            refs.includes(u.id) ? "border-fg ring-2 ring-fg/40" : "border-line hover:border-fg/40",
-                          )}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
-                          <img src={`/api/creative/file/${u.id}`} alt={u.name ?? ""} className="h-full w-full object-cover" />
-                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[9px] text-white">
-                            {refs.includes(u.id) ? "Seçili" : "Fotoğraf"}
-                          </span>
-                        </button>
-                      ) : (
-                        <Link
-                          href={`/creative?sekme=studyo&dosya=${u.id}`}
-                          title={u.name ?? tt("Videoyu düzenle")}
-                          className="group relative block aspect-square w-full overflow-hidden rounded-xl border border-line bg-black hover:border-fg/50"
-                        >
-                          <video src={`/api/creative/file/${u.id}#t=0.5`} muted preload="metadata" className="h-full w-full object-cover" />
-                          <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[9px] text-white">
-                            Video
-                          </span>
-                        </Link>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleRef(u.id)}
+                        className={cn(
+                          "group relative block aspect-square w-full overflow-hidden rounded-xl border bg-bg",
+                          refs.includes(u.id) ? "border-fg ring-2 ring-fg/40" : "border-line hover:border-fg/40",
+                        )}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i */}
+                        <img src={`/api/creative/file/${u.id}`} alt={u.name ?? ""} className="h-full w-full object-cover" />
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -901,63 +784,55 @@ export function CreativeComposer({
             </div>
           ) : null}
 
-          {/* Sohbet Metin Girişi + Gönder Butonu */}
-          <div className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-2.5 focus-within:border-fg/50">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendTurn(prompt, false);
+            }}
+            className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-2.5 focus-within:border-fg/50"
+          >
             <textarea
               ref={inputRef}
               id="cc-prompt"
               name="prompt"
-              required
-              minLength={3}
-              maxLength={2000}
               rows={2}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (ready && !pending) formRef.current?.requestSubmit();
+                  if (prompt.trim() && !pending) sendTurn(prompt, false);
                 }
               }}
-              placeholder={
-                kind === "video"
-                  ? tt("Nasıl bir video oluşturmak istediğinizi yazın…")
-                  : kind === "image"
-                    ? tt("Nasıl bir fotoğraf oluşturmak istediğinizi yazın…")
-                    : tt("Seslendirilecek metni yazın…")
-              }
+              placeholder={tt("Örn: Instagram'a kahve postu atmak istiyorum şöyle olsun… (veya doğrudan üretmek istediğiniz fotoğraf/video/sesi yazın)")}
               className="w-full resize-none bg-transparent px-2 py-1 text-[14px] leading-relaxed text-fg placeholder:text-fg-passive focus:outline-none"
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-2">
               <div className="flex flex-wrap items-center gap-1.5">
-                {kind !== "audio" ? (
-                  <>
-                    <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
-                      + {tt("Dosya Yükle")}
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-                        className="sr-only"
-                        onChange={(e) => {
-                          if (e.target.files?.length) void addFiles(e.target.files);
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowLib((v) => !v)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-[11px] font-medium transition-standard",
-                        showLib ? "border-fg bg-fg text-bg" : "border-line bg-bg text-fg-muted hover:border-fg/40 hover:text-fg",
-                      )}
-                    >
-                      {tt("Kitaplığım")} ({lib.length})
-                    </button>
-                  </>
-                ) : null}
+                <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
+                  + {tt("Referans Yükle")}
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                    className="sr-only"
+                    onChange={(e) => {
+                      if (e.target.files?.length) void addFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowLib((v) => !v)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-[11px] font-medium transition-standard",
+                    showLib ? "border-fg bg-fg text-bg" : "border-line bg-bg text-fg-muted hover:border-fg/40 hover:text-fg",
+                  )}
+                >
+                  {tt("Kitaplığım")} ({lib.length})
+                </button>
                 {upPct != null ? <span className="text-[11px] text-fg-muted">%{upPct}</span> : null}
                 {upMsg ? (
                   <span className={cn("text-[11px]", upMsg.isError ? "text-critical" : "text-fg-muted")}>
@@ -966,32 +841,36 @@ export function CreativeComposer({
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <div className="text-right leading-tight">
-                  <span className="block text-[12px] font-semibold tabular-nums text-fg">{money(cost)}</span>
+                  <span className="block text-[12px] font-semibold tabular-nums text-fg">{money(currentCost)}</span>
                   <span className={cn("block text-[10px] tabular-nums", short ? "text-critical" : "text-fg-passive")}>
-                    {short ? tt("Kredi yetersiz") : `${tt("Kalan:")} ${money(Math.max(0, balance - cost))}`}
+                    {short ? tt("Kredi yetersiz") : `${tt("Kalan:")} ${money(Math.max(0, liveBalance - currentCost))}`}
                   </span>
                 </div>
+                {prompt.trim().length >= 3 ? (
+                  <button
+                    type="button"
+                    disabled={pending || short}
+                    onClick={() => sendTurn(prompt, true)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-fg px-4 text-[12px] font-semibold text-fg transition-standard hover:bg-fg/10 disabled:opacity-40"
+                  >
+                    {tt("Doğrudan Üret")}
+                  </button>
+                ) : null}
                 <button
                   type="submit"
-                  disabled={pending || !ready}
+                  disabled={pending || !prompt.trim()}
                   className="inline-flex h-9 items-center gap-1.5 rounded-full bg-fg px-5 text-[13px] font-semibold text-bg transition-standard hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <SparkleIcon size={13} />
-                  {pending
-                    ? tt("Üretiliyor…")
-                    : kind === "video"
-                      ? tt("Video Üret")
-                      : kind === "image"
-                        ? tt("Fotoğraf Üret")
-                        : tt("Ses Üret")}
+                  {pending ? tt("Yanıtlanıyor…") : tt("Gönder")}
                 </button>
               </div>
             </div>
-          </div>
+          </form>
         </div>
-      </form>
+      </div>
 
       {/* Sağ Panel: Telefon Önizleme & Chat Komutları ile Hızlı Formatlama */}
       {panelOpen && result ? (
@@ -1034,13 +913,13 @@ export function CreativeComposer({
               )}
             </div>
 
-            {/* Chat Komutları ile Formatlama */}
             {result.kind !== "audio" ? (
               <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
                 <span className="text-[11px] font-medium text-fg">{tt("Hızlı Chat Formatlama Komutları")}</span>
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
+                    disabled={pending}
                     onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
                     className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
                   >
@@ -1048,6 +927,7 @@ export function CreativeComposer({
                   </button>
                   <button
                     type="button"
+                    disabled={pending}
                     onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
                     className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
                   >
@@ -1055,6 +935,7 @@ export function CreativeComposer({
                   </button>
                   <button
                     type="button"
+                    disabled={pending}
                     onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
                     className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
                   >
@@ -1063,7 +944,8 @@ export function CreativeComposer({
                   {result.kind === "image" ? (
                     <button
                       type="button"
-                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür", "9:16", true)}
+                      disabled={pending}
+                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür", "9:16")}
                       className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
                     >
                       Videoya Çevir
@@ -1086,10 +968,11 @@ export function CreativeComposer({
                   />
                   <button
                     type="button"
+                    disabled={pending || !quickCmd.trim()}
                     onClick={() => {
                       if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
                     }}
-                    className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90"
+                    className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
                   >
                     {tt("Uygula")}
                   </button>

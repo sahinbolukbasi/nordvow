@@ -120,7 +120,19 @@ function CampaignRequestForm({ executionMode }: { executionMode?: "SELF" | "AJAN
  * Platform asistanı sohbeti. Rol bazlı karşılama + "bugün ne yapmalıyım" adımları, hızlı sorular,
  * bağlantı eylemleri ve satır içi başlatma formları (ajans: kampanya taslağı, marka: kampanya talebi).
  */
-export function CopilotChat({ welcome, compact = false, onClose }: { welcome: CopilotWelcome; compact?: boolean; onClose?: () => void }) {
+export function CopilotChat({
+  welcome,
+  compact = false,
+  expanded = false,
+  onToggleExpand,
+  onClose,
+}: {
+  welcome: CopilotWelcome;
+  compact?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  onClose?: () => void;
+}) {
   const tt = useTT();
   const storeKey = `infl-copilot:${welcome.userId}`;
   const [messages, setMessages] = useState<Msg[]>(() => [
@@ -199,8 +211,21 @@ export function CopilotChat({ welcome, compact = false, onClose }: { welcome: Co
             <span className="text-[11px] text-fg-passive">{welcome.role === "ADMIN" ? tt("Ajans") : welcome.role === "BRAND" ? tt("Marka") : tt("İçerik üreticisi")}{" "}{tt("modu · yönlendirme ve hızlı başlatma")}</span>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button type="button" onClick={reset} className="rounded-lg px-2 py-1 text-[12px] text-fg-muted hover:bg-surface-hover hover:text-fg">{tt("Yeni sohbet")}</button>
+          {onToggleExpand ? (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              aria-label={expanded ? tt("Asistanı küçült") : tt("Asistanı büyüt")}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-bg px-3 py-1 text-[12px] font-medium text-fg transition-standard hover:border-line-strong hover:bg-surface-hover"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                {expanded ? <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" /> : <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />}
+              </svg>
+              {expanded ? tt("Küçült") : tt("Büyüt")}
+            </button>
+          ) : null}
           {onClose ? (
             <button type="button" onClick={onClose} aria-label={tt("Asistanı kapat")} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-hover hover:text-fg">
               <XIcon size={16} />
@@ -209,7 +234,15 @@ export function CopilotChat({ welcome, compact = false, onClose }: { welcome: Co
         </div>
       </div>
 
-      <div className={cn("flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4", !compact && "max-h-[560px]")} role="log" aria-live="polite" aria-label={tt("Asistan sohbeti")}>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 transition-all duration-200",
+          compact ? "" : expanded ? "min-h-[60dvh] max-h-[72dvh]" : "max-h-[380px]",
+        )}
+        role="log"
+        aria-live="polite"
+        aria-label={tt("Asistan sohbeti")}
+      >
         {messages.map((m) =>
           m.from === "user" ? (
             <div key={m.id} className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-fg px-3.5 py-2 text-[14px] text-bg">
