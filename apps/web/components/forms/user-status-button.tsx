@@ -1,8 +1,9 @@
 "use client";
+import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
 import { Field, Input, Select } from "@/components/ui/form";
-import { createStaffUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
+import { createDirectUserAction, createStaffUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
 
 /** Satır içi askıya al / etkinleştir düğmesi. */
 export function UserStatusButton({ userId, status, name }: { userId: string; status: "ACTIVE" | "SUSPENDED"; name: string }) {
@@ -52,6 +53,50 @@ export function StaffUserForm() {
             </Select>
           )}
         </Field>
+      </div>
+    </ActionForm>
+  );
+}
+
+/** Admin: davet linki olmadan doğrudan Influencer, Marka, Ajans veya Admin ekleme formu. */
+export function DirectUserForm({ brands = [] }: { brands?: { id: string; name: string }[] }) {
+  const tt = useTT();
+  const [role, setRole] = useState<"INFLUENCER" | "BRAND" | "AGENCY" | "ADMIN">("INFLUENCER");
+  return (
+    <ActionForm action={createDirectUserAction} submitLabel={tt("Kullanıcıyı Doğrudan Ekle")} resetOnSuccess aria-label={tt("Doğrudan kullanıcı ekle")}>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <Field label={tt("Rol")}>
+          {(p) => (
+            <Select {...p} name="role" value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
+              <option value="INFLUENCER">{tt("Influencer")}</option>
+              <option value="BRAND">{tt("Marka")}</option>
+              <option value="AGENCY">{tt("Ajans (operasyon)")}</option>
+              <option value="ADMIN">{tt("Admin (tam yetki)")}</option>
+            </Select>
+          )}
+        </Field>
+        <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" required placeholder={tt("Örn. Ayşe Yılmaz")} />}</Field>
+        <Field label={tt("E-posta")}>{(p) => <Input {...p} name="email" type="email" required autoComplete="off" placeholder="ornek@alan.com" />}</Field>
+        <Field label={tt("Telefon (opsiyonel)")}>{(p) => <Input {...p} name="phone" type="tel" placeholder="+90 5XX XXX XX XX" />}</Field>
+        <Field label={tt("Geçici şifre")}>{(p) => <Input {...p} name="password" type="text" required minLength={8} autoComplete="new-password" placeholder={tt("En az 8 karakter")} />}</Field>
+        {role === "INFLUENCER" ? (
+          <Field label={tt("Kategori (opsiyonel)")}>{(p) => <Input {...p} name="category" placeholder={tt("Örn. Moda, Teknoloji, Yaşam")} />}</Field>
+        ) : null}
+        {role === "BRAND" ? (
+          <>
+            <Field label={tt("Mevcut markaya bağla (opsiyonel)")}>
+              {(p) => (
+                <Select {...p} name="brandId" defaultValue="">
+                  <option value="">{tt("Yeni marka oluştur")}</option>
+                  {brands.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label={tt("Yeni marka adı (yeni oluşturulacaksa)")}>{(p) => <Input {...p} name="companyName" placeholder={tt("Marka / Şirket adı")} />}</Field>
+          </>
+        ) : null}
       </div>
     </ActionForm>
   );
