@@ -9,7 +9,7 @@ export const LOCALES = ["tr", "en", "de", "fr"] as const;
 export type Locale = (typeof LOCALES)[number];
 export const LOCALE_LABEL: Record<Locale, string> = { tr: "Türkçe", en: "English", de: "Deutsch", fr: "Français" };
 
-export const CURRENCIES = ["TRY", "EUR", "CHF", "GBP", "USD"] as const;
+export const CURRENCIES = ["TRY", "EUR", "GBP", "USD"] as const;
 export type Currency = (typeof CURRENCIES)[number];
 
 export type Region = { code: string; name: string; nativeName: string; locale: Locale; intl: string; currency: Currency; timezone: string };
@@ -17,7 +17,7 @@ export const REGIONS: Region[] = [
   { code: "TR", name: "Türkiye", nativeName: "Türkiye", locale: "tr", intl: "tr-TR", currency: "TRY", timezone: "Europe/Istanbul" },
   { code: "DE", name: "Almanya", nativeName: "Deutschland", locale: "de", intl: "de-DE", currency: "EUR", timezone: "Europe/Berlin" },
   { code: "AT", name: "Avusturya", nativeName: "Österreich", locale: "de", intl: "de-AT", currency: "EUR", timezone: "Europe/Vienna" },
-  { code: "CH", name: "İsviçre", nativeName: "Schweiz", locale: "de", intl: "de-CH", currency: "CHF", timezone: "Europe/Zurich" },
+  { code: "CH", name: "İsviçre", nativeName: "Schweiz", locale: "de", intl: "de-CH", currency: "EUR", timezone: "Europe/Zurich" },
   { code: "FR", name: "Fransa", nativeName: "France", locale: "fr", intl: "fr-FR", currency: "EUR", timezone: "Europe/Paris" },
   { code: "BE", name: "Belçika", nativeName: "Belgique", locale: "fr", intl: "fr-BE", currency: "EUR", timezone: "Europe/Brussels" },
   { code: "NL", name: "Hollanda", nativeName: "Nederland", locale: "en", intl: "nl-NL", currency: "EUR", timezone: "Europe/Amsterdam" },
@@ -77,7 +77,6 @@ export const DEFAULT_FX_RATES: Record<Currency, number> = {
   USD: 1,
   TRY: 50.18,
   EUR: 0.86,
-  CHF: 0.80,
   GBP: 0.75,
 };
 

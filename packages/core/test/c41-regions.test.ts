@@ -24,7 +24,7 @@ describe("K41 bölgeler: dil, para birimi, ülke ayrımı, ülkeye göre uyum", 
 
   it("para birimi çevrilmez; kampanyada ülkeler aynı para birimini kullanmalı", () => {
     expect(currencyOf("AT")).toBe("EUR");
-    expect(currencyOf("CH")).toBe("CHF");
+    expect(currencyOf("CH")).toBe("EUR");
     expect(campaignCurrency(["DE", "FR", "BE"], "TR")).toEqual({ currency: "EUR", mixed: false });
     expect(campaignCurrency(["TR", "DE"], "TR").mixed).toBe(true);
     expect(campaignCurrency([], "GB").currency).toBe("GBP");

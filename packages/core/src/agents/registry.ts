@@ -16,6 +16,8 @@ import { checkIysSla, registerPendingConsents } from "../compliance/iys";
 import { remindKvkkFilings } from "../compliance/kvkk";
 import { warnClosingWindows } from "../messaging/inbox";
 import { syncStaleAccounts } from "../social/sync";
+import { runMultiAgentSocialPipelineAll } from "../social/multi-agent-analytics";
+import { refreshFx } from "../creative/pricing";
 import { runAllTrackers } from "./trackers";
 import { expireOffers } from "../domain/offers";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
@@ -72,6 +74,8 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "window-warnings", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => ({ created: await warnClosingWindows(), skipped: 0 }) },
   { name: "ads-budget-batch", schedule: "cron(0 * * * ? *)", intervalMs: HOUR, run: async () => ({ created: (await runBudgetBatch()).applied, skipped: 0 }) },
   { name: "social-sync", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { const r = await syncStaleAccounts(50); return { created: r.ok, skipped: r.checked - r.ok }; } },
+  { name: "social-multi-agent", schedule: "cron(0 8 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await runMultiAgentSocialPipelineAll(50); return { created: r.withData, skipped: r.processed - r.withData }; } },
+  { name: "fx-refresh", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { await refreshFx(); return { created: 1, skipped: 0 }; } },
   { name: "webhook-dedupe-ttl", schedule: "cron(30 3 * * ? *)", intervalMs: 24 * HOUR, run: async () => ({ created: await purgeExpiredDedupe(), skipped: 0 }) },
   { name: "trackers", schedule: "rate(1 hour)", intervalMs: HOUR, run: () => runAllTrackers() },
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },

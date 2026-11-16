@@ -24,8 +24,10 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids     = [aws_security_group.db.id]
   publicly_accessible        = false
   multi_az                   = false
-  backup_retention_period    = 7
-  deletion_protection        = false
+  backup_retention_period    = 30
+  backup_window              = "01:30-02:30"
+  copy_tags_to_snapshot      = true
+  deletion_protection        = true
   skip_final_snapshot        = false
   final_snapshot_identifier  = "${local.name}-final"
   auto_minor_version_upgrade = true
