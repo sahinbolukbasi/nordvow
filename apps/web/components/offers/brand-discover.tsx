@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import type { Platform } from "@infulancer/core/enums";
 import { CheckIcon, SearchIcon, XIcon } from "@/components/icons";
 import { PlatformIcon } from "@/components/platform-icon";
-import { SyncInfluencerButton } from "@/components/offers/sync-influencer-button";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, Input, Select, Textarea } from "@/components/ui/form";
 import { sendOffersAction } from "@/lib/actions/offers";
@@ -172,7 +171,6 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
                   <Link href={`/marka/kesfet/${c.id}`} className="text-[13px] text-fg-muted transition-standard hover:text-fg">
                     {tt("Detaylı profil")} →
                   </Link>
-                  <SyncInfluencerButton influencerId={c.id} />
                 </div>
               </li>
             );
@@ -223,8 +221,40 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
             ))}
             <button type="button" onClick={() => setItems((x) => [...x, { platform: "TIKTOK", contentType: "VIDEO", qty: 1, priceTl: "" }])} className="w-fit text-[13px] text-fg-muted hover:text-fg">{tt("+ İçerik ekle")}</button>
           </div>
-          <label className="flex items-start gap-2 text-[13px] text-fg-muted">
-            <input type="checkbox" checked={useRates} onChange={(e) => setUseRates(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-fg)]" />{tt("Her üreticinin kendi fiyatını kullan (listesi olmayana aşağıdaki fiyat)")}</label>
+          <div className="flex flex-col gap-2">
+            <span className="text-label text-fg-muted">{tt("Fiyatlandırma")}</span>
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface p-1" role="radiogroup" aria-label={tt("Fiyatlandırma modu")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={useRates}
+                onClick={() => setUseRates(true)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-standard",
+                  useRates ? "bg-fg text-bg shadow-sm" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {tt("Üretici fiyatı")}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!useRates}
+                onClick={() => setUseRates(false)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-standard",
+                  !useRates ? "bg-fg text-bg shadow-sm" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {tt("Özel fiyat")}
+              </button>
+            </div>
+            <p className="text-[12px] text-fg-muted">
+              {useRates
+                ? tt("Her üreticinin kendi fiyatını kullan (listesi olmayana aşağıdaki fiyat)")
+                : tt("Tüm seçili üreticiler için yukarıdaki içerik satırlarına girdiğiniz birim fiyat uygulanır.")}
+            </p>
+          </div>
           {useRates ? (
             <Input value={items[0]?.priceTl ?? ""} onChange={(e) => setItems((x) => x.map((y) => ({ ...y, priceTl: e.target.value })))} placeholder={`Listesi olmayanlar için birim fiyat (${cur})`} inputMode="decimal" aria-label={tt("Varsayılan birim fiyat")} />
           ) : null}

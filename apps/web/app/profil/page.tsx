@@ -6,12 +6,12 @@ import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { campaignStatusLabels, contentTypeLabels, formatKurus, platformLabels, roleLabels, taxStatusLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import { computeBalances } from "@infulancer/core/domain/ledger";
-import { syncSourceLabels } from "@infulancer/core/social/sync";
+import { syncInfluencer, syncSourceLabels } from "@infulancer/core/social/sync";
 import { WorkHistory } from "@/components/history/work-history";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
 import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
 import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
-import { OwnAccountForm, SyncOwnButton } from "@/components/forms/own-account-forms";
+import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
 import { AddPortfolioForm, PortfolioList, ShowcaseSettingsForm } from "@/components/showcase/showcase-forms";
@@ -85,6 +85,9 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       }),
     ]);
     avatar = pickAvatar(inf.socialAccounts, inf.avatarKey);
+    if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < Date.now() - 3_600_000)) {
+      void syncInfluencer(id).catch(() => {});
+    }
     headline = `İçerik üreticisi${inf.city ? ` · ${inf.city}` : ""}`;
     const tiktokAcc = accounts.find((a) => a.platform === "TIKTOK");
     const usedDeliverables = new Set(portfolio.map((i) => i.deliverableId).filter(Boolean));
@@ -132,7 +135,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <Card interactive={false} className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle>{tt("Hesap bağla")}</CardTitle>
-              {accounts.length ? <SyncOwnButton /> : null}
             </div>
             <p className="text-[13px] text-fg-muted">{tt("Kullanıcı adını ekle; takipçi ve profil fotoğrafın otomatik gelsin.")}</p>
             <OwnAccountForm />

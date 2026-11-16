@@ -1,6 +1,7 @@
 import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
+import { syncStaleAccounts } from "@infulancer/core/social/sync";
 import { categoryLabel } from "@infulancer/core/domain/categories";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
@@ -81,6 +82,10 @@ export default async function BrandDiscoverPage({ searchParams }: { searchParams
   const options: ContentOption[] = (Object.entries(platformRules) as [Platform, { contentTypes: readonly ContentType[] }][]).flatMap(([p, r]) =>
     r.contentTypes.map((ct) => ({ platform: p, contentType: ct, label: contentTypeLabels[ct] })),
   );
+  const staleAt = Date.now() - 6 * 3_600_000;
+  if (rows.some((r) => r.socialAccounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < staleAt))) {
+    void syncStaleAccounts(5).catch(() => {});
+  }
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title={tt("Influencer bul")} description={`${countryLabel(country)} kayıtlı içerik üreticileri; fiyatlar ${currencyOf(country)} cinsinden. Seçin, içerikleri belirleyin, tek tıkla teklif gönderin.`} />

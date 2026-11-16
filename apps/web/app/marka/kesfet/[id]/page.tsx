@@ -2,8 +2,8 @@ import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
+import { syncInfluencer } from "@infulancer/core/social/sync";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
-import { SyncInfluencerButton } from "@/components/offers/sync-influencer-button";
 import { ButtonLink } from "@/components/ui/form";
 import { requireActor } from "@/lib/auth-guard";
 export const metadata: Metadata = { title: "İçerik üreticisi profili" };
@@ -14,8 +14,15 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
   const tt = await getTT();
   await requireActor("BRAND");
   const { id } = await params;
-  const inf = await prisma.influencer.findFirst({ where: { id, showcaseVisible: true, user: { status: "ACTIVE" } }, select: { id: true } });
+  const inf = await prisma.influencer.findFirst({
+    where: { id, showcaseVisible: true, user: { status: "ACTIVE" } },
+    select: { id: true, socialAccounts: { select: { lastSyncedAt: true } } },
+  });
   if (!inf) notFound();
+  const staleAt = Date.now() - 3_600_000;
+  if (inf.socialAccounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < staleAt)) {
+    void syncInfluencer(inf.id).catch(() => {});
+  }
   return (
     <div className="flex flex-col gap-4">
       <ButtonLink href="/marka/kesfet" variant="ghost" size="sm" className="w-fit">{tt("← Influencer bul")}</ButtonLink>
@@ -23,7 +30,6 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
         influencerId={inf.id}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <SyncInfluencerButton influencerId={inf.id} />
             <ButtonLink href={`/marka/kesfet?sec=${inf.id}`} className="bg-neon text-black">{tt("Teklif gönder →")}</ButtonLink>
           </div>
         }
