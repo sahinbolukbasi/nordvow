@@ -131,6 +131,7 @@ export type RawScanLogEntry = {
 };
 
 export type InfluencerExplorerReport = {
+  realDataOnly?: boolean;
   influencerId: string;
   handle: string;
   generatedAt: string;
@@ -163,10 +164,6 @@ export type InfluencerExplorerReport = {
 
 function explorerConfigKey(influencerId: string): string {
   return `influencer.explorer.${influencerId}`;
-}
-
-function detHash(seed: string): Buffer {
-  return createHash("sha256").update(seed).digest();
 }
 
 const KNOWN_BRAND_MAP: Record<string, { name: string; category: string }> = {
@@ -323,6 +320,7 @@ export async function runInstagramExplorerForInfluencer(
   if (
     !opts.forceRefresh &&
     existingRow?.value &&
+    (existingRow.value as { realDataOnly?: boolean }).realDataOnly === true &&
     Date.now() - existingRow.updatedAt.getTime() < 30 * 60 * 1000
   ) {
     return existingRow.value as unknown as InfluencerExplorerReport;
@@ -360,7 +358,6 @@ export async function runInstagramExplorerForInfluencer(
 
   const igAcc = inf.socialAccounts.find((a) => a.platform === "INSTAGRAM") ?? inf.socialAccounts[0];
   const handle = (igAcc?.handle ?? inf.name.toLowerCase().replace(/\s+/g, "")).replace(/^@/, "");
-  const h = detHash(`${inf.id}:${handle}`);
 
   const rawLogs: RawScanLogEntry[] = [];
 
@@ -376,127 +373,49 @@ export async function runInstagramExplorerForInfluencer(
     detail: metaRes.detail,
   });
 
-  const baseFollowers = metaRes.followers ?? igAcc?.followers ?? 45_000;
-  const baseEr = igAcc ? Number(igAcc.engagementRate) : 0.034;
+  const baseFollowers = metaRes.followers ?? igAcc?.followers ?? 0;
+  const baseEr = igAcc ? Number(igAcc.engagementRate) : 0;
   const erPct = Number((baseEr * 100).toFixed(2));
-  const avgLikes = igAcc?.avgLikes ?? Math.round(baseFollowers * baseEr * 0.78);
-  const avgComments = igAcc?.avgComments ?? Math.max(12, Math.round(baseFollowers * baseEr * 0.065));
-  const avgSaves = Math.max(18, Math.round(avgLikes * (0.14 + (h[1]! % 14) / 100)));
-  const avgShares = Math.max(9, Math.round(avgLikes * (0.07 + (h[2]! % 9) / 100)));
-  const avgReelsViews = igAcc?.avgViews ?? Math.round(baseFollowers * (0.42 + (h[3]! % 38) / 100));
+  const avgLikes = igAcc?.avgLikes ?? 0;
+  const avgComments = igAcc?.avgComments ?? 0;
+  const avgSaves = 0;
+  const avgShares = 0;
+  const avgReelsViews = igAcc?.avgViews ?? 0;
 
   const botStart = Date.now();
 
-  // 2. 90 Günlük Tarihsel Zaman Serisi (DB Snapshot'ları + Günlük Trend İnterpolasyonu)
+  // 2. Gerçek Veritabanı Snapshot'larından Zaman Serisi (sentetik veri yok)
   const dbSnaps = igAcc?.snapshots ?? [];
-  const dailySeries: DailyGrowthPoint[] = [];
-  const now = new Date();
-  const dailyGrowthRate = (0.0008 + ((h[4]! % 18) - 3) * 0.00015); // günlük ~%0.05 - %0.30 büyüme
-
-  for (let i = 89; i >= 0; i--) {
-    const dayDate = new Date(now.getTime() - i * 86_400_000);
-    const isoDate = dayDate.toISOString().slice(0, 10);
-    const label = shortDayFmt.format(dayDate);
-
-    // O güne yakın gerçek DB snapshot'ı varsa onu baz al
-    const matchingSnap = dbSnaps.find((s) => s.takenAt.toISOString().slice(0, 10) === isoDate);
-    const wave = Math.sin((89 - i) * 0.35 + (h[5]! % 7)) * 0.004;
-    const factor = Math.max(0.72, 1 - i * dailyGrowthRate + wave);
-    const followersOnDay = matchingSnap ? matchingSnap.followers : Math.round(baseFollowers * factor);
-    const prevFollowers = dailySeries.length > 0 ? dailySeries[dailySeries.length - 1]!.followers : Math.round(followersOnDay * (1 - dailyGrowthRate));
-    const delta = followersOnDay - prevFollowers;
-    const dayEr = matchingSnap
-      ? Number((Number(matchingSnap.engagementRate) * 100).toFixed(2))
-      : Number(Math.max(0.8, erPct * (0.92 + Math.sin(i * 0.5) * 0.12)).toFixed(2));
-
-    const dayViews = Math.round(avgReelsViews * (0.85 + Math.cos(i * 0.4 + (h[6]! % 5)) * 0.22));
-    const dayLikes = Math.round(avgLikes * (0.88 + Math.sin(i * 0.45) * 0.18));
-    const dayComments = Math.max(5, Math.round(avgComments * (0.85 + Math.cos(i * 0.6) * 0.2)));
-    const daySaves = Math.max(8, Math.round(avgSaves * (0.86 + Math.sin(i * 0.38) * 0.22)));
-    const dayShares = Math.max(4, Math.round(avgShares * (0.85 + Math.cos(i * 0.52) * 0.2)));
-
-    const seedDay = (i + h[7]!) % 7;
-    const postsPub = seedDay === 1 || seedDay === 4 ? 1 : 0;
-    const reelsPub = seedDay === 0 || seedDay === 2 || seedDay === 5 ? 1 : 0;
-    const storiesPub = 2 + ((i + h[8]!) % 4);
-
-    dailySeries.push({
-      date: isoDate,
-      label,
-      followers: followersOnDay,
+  const dailySeries: DailyGrowthPoint[] = dbSnaps.map((snap, idx) => {
+    const prevFollowers = idx > 0 ? dbSnaps[idx - 1]!.followers : snap.followers;
+    const delta = snap.followers - prevFollowers;
+    return {
+      date: snap.takenAt.toISOString().slice(0, 10),
+      label: shortDayFmt.format(snap.takenAt),
+      followers: snap.followers,
       followersDelta: delta,
       growthRatePct: prevFollowers > 0 ? Number(((delta / prevFollowers) * 100).toFixed(2)) : 0,
-      engagementRatePct: dayEr,
-      avgViews: dayViews,
-      avgLikes: dayLikes,
-      avgComments: dayComments,
-      avgSaves: daySaves,
-      avgShares: dayShares,
-      postsPublished: postsPub,
-      reelsPublished: reelsPub,
-      storiesPublished: storiesPub,
-    });
-  }
-
-  const followers30dAgo = dailySeries[Math.max(0, dailySeries.length - 31)]?.followers ?? baseFollowers;
-  const followersGrowth30d = baseFollowers - followers30dAgo;
-  const followersGrowth30dPct = followers30dAgo > 0 ? Number(((followersGrowth30d / followers30dAgo) * 100).toFixed(1)) : 0;
-
-  const viewsLast15 = dailySeries.slice(-15).reduce((s, d) => s + d.avgViews, 0) / 15;
-  const viewsPrev15 = dailySeries.slice(-30, -15).reduce((s, d) => s + d.avgViews, 0) / 15;
-  const avgViewsGrowth30dPct = viewsPrev15 > 0 ? Number((((viewsLast15 - viewsPrev15) / viewsPrev15) * 100).toFixed(1)) : 14.5;
-
-  // 3. İçerik Türüne Göre Kırılım (Reels, Post, Carousel, Story)
-  const formatBreakdown: FormatBreakdownItem[] = [
-    {
-      format: "REELS",
-      label: "Instagram Reels (Dikey Video)",
-      sharePct: 45,
+      engagementRatePct: Number((Number(snap.engagementRate) * 100).toFixed(2)),
       avgViews: avgReelsViews,
-      avgLikes: Math.round(avgLikes * 1.18),
-      avgComments: Math.round(avgComments * 1.24),
-      avgSaves: Math.round(avgSaves * 1.35),
-      avgShares: Math.round(avgShares * 1.45),
-      erPct: Number((erPct * 1.22).toFixed(2)),
-      weeklyFrequency: 3,
-    },
-    {
-      format: "CAROUSEL",
-      label: "Kaydırmalı Gönderi (Carousel)",
-      sharePct: 25,
-      avgViews: Math.round(avgReelsViews * 0.62),
-      avgLikes: Math.round(avgLikes * 1.04),
-      avgComments: Math.round(avgComments * 1.05),
-      avgSaves: Math.round(avgSaves * 1.42),
-      avgShares: Math.round(avgShares * 0.95),
-      erPct: Number((erPct * 1.08).toFixed(2)),
-      weeklyFrequency: 1.5,
-    },
-    {
-      format: "POST",
-      label: "Tekli Fotoğraf Gönderisi (4:5)",
-      sharePct: 15,
-      avgViews: Math.round(avgReelsViews * 0.48),
-      avgLikes: Math.round(avgLikes * 0.88),
-      avgComments: Math.round(avgComments * 0.82),
-      avgSaves: Math.round(avgSaves * 0.76),
-      avgShares: Math.round(avgShares * 0.65),
-      erPct: Number((erPct * 0.86).toFixed(2)),
-      weeklyFrequency: 1.5,
-    },
-    {
-      format: "STORY",
-      label: "Instagram Hikaye (Story 9:16)",
-      sharePct: 15,
-      avgViews: Math.round(baseFollowers * 0.16),
-      avgLikes: Math.round(avgLikes * 0.32),
-      avgComments: Math.round(avgComments * 0.28),
-      avgSaves: Math.round(avgSaves * 0.22),
-      avgShares: Math.round(avgShares * 0.4),
-      erPct: Number((erPct * 0.64).toFixed(2)),
-      weeklyFrequency: 18,
-    },
-  ];
+      avgLikes,
+      avgComments,
+      avgSaves,
+      avgShares,
+      postsPublished: 0,
+      reelsPublished: 0,
+      storiesPublished: 0,
+    };
+  });
+
+  const firstSnap = dailySeries[0];
+  const lastSnap = dailySeries[dailySeries.length - 1];
+  const followersGrowth30d = firstSnap && lastSnap ? lastSnap.followers - firstSnap.followers : 0;
+  const followersGrowth30dPct =
+    firstSnap && firstSnap.followers > 0 ? Number(((followersGrowth30d / firstSnap.followers) * 100).toFixed(1)) : 0;
+  const avgViewsGrowth30dPct = 0;
+
+  // 3. İçerik Türüne Göre Kırılım (yalnız gerçek medya verisi varsa)
+  const formatBreakdown: FormatBreakdownItem[] = [];
 
   // 4. İşbirliği & Marka Geçmişi Tespiti (Platform Kampanyaları + Caption / Mention Taraması)
   const brandCollaborations: DetectedBrandCollab[] = [];
@@ -507,12 +426,12 @@ export async function runInstagramExplorerForInfluencer(
     const bCat = a.campaign.brand.category;
     const deliv = a.deliverables[0];
     const snap = deliv?.metricSnapshots[0];
-    const v = snap?.reach ?? Math.round(avgReelsViews * 0.92);
-    const l = snap?.likes ?? Math.round(avgLikes * 0.9);
-    const c = snap?.comments ?? Math.round(avgComments * 0.88);
-    const sv = snap?.saves ?? Math.round(avgSaves * 0.94);
-    const sh = snap?.shares ?? Math.round(avgShares * 0.9);
-    const er = baseFollowers > 0 ? Number((((l + c + sv) / baseFollowers) * 100).toFixed(2)) : erPct;
+    const v = snap?.reach ?? 0;
+    const l = snap?.likes ?? 0;
+    const c = snap?.comments ?? 0;
+    const sv = snap?.saves ?? 0;
+    const sh = snap?.shares ?? 0;
+    const er = baseFollowers > 0 ? Number((((l + c + sv) / baseFollowers) * 100).toFixed(2)) : 0;
     seenBrands.add(bName.toLocaleLowerCase("tr"));
     brandCollaborations.push({
       id: `collab-camp-${a.id}`,
@@ -564,55 +483,17 @@ export async function runInstagramExplorerForInfluencer(
     }
   }
 
-  // Bot taramasıyla tespit edilen geçmiş marka işbirlikleri (en az 3 kayıt olsun)
-  const fallbackBrands = [
-    { name: "Lumi Kozmetik", handle: "@lumikozmetik", cat: "Kozmetik & Cilt Bakımı", tag: "#işbirliği" },
-    { name: "Velvet Moda", handle: "@velvetmoda", cat: "Moda & Giyim", tag: "#reklam" },
-    { name: "Aroma Artisan", handle: "@aromaartisan", cat: "Gastronomi & Yaşam", tag: "Paid Partnership" },
-    { name: "NovaTech Türkiye", handle: "@novatechturkiye", cat: "Teknoloji", tag: "#işbirliği" },
-  ];
-
-  for (let idx = 0; idx < fallbackBrands.length && brandCollaborations.length < 4; idx++) {
-    const fb = fallbackBrands[(idx + h[9]!) % fallbackBrands.length]!;
-    if (seenBrands.has(fb.name.toLocaleLowerCase("tr"))) continue;
-    seenBrands.add(fb.name.toLocaleLowerCase("tr"));
-    const daysAgo = 9 + idx * 17 + (h[10 + idx]! % 8);
-    const mult = 0.84 + ((h[12 + idx]! % 18) / 100);
-    const l = Math.round(avgLikes * mult);
-    const c = Math.round(avgComments * mult);
-    const sv = Math.round(avgSaves * (mult + 0.05));
-    const sh = Math.round(avgShares * mult);
-    const v = Math.round(avgReelsViews * mult);
-    brandCollaborations.push({
-      id: `collab-bot-${idx}`,
-      brandName: fb.name,
-      brandHandle: fb.handle,
-      category: fb.cat,
-      lastWorkedAt: new Date(now.getTime() - daysAgo * 86_400_000).toISOString(),
-      contentType: idx % 2 === 0 ? "REELS" : "CAROUSEL",
-      views: v,
-      likes: l,
-      comments: c,
-      saves: sv,
-      shares: sh,
-      erPct: Number((erPct * mult).toFixed(2)),
-      disclosureTag: fb.tag,
-      source: "explorer_bot",
-      postUrl: `https://www.instagram.com/${handle}`,
-    });
-  }
-
-  // 5. Son Gönderi & Reels Performans Listesi (RecentMediaItem[])
+  // 5. Son Gönderi & Reels Performans Listesi (yalnız gerçek Meta API verisi varsa)
   const recentMedia: RecentMediaItem[] = [];
   if (metaRes.media.length > 0) {
     for (const m of metaRes.media.slice(0, 8)) {
       const cap = m.caption ?? "";
       const ext = extractBrandFromCaption(cap);
-      const l = m.like_count ?? avgLikes;
-      const c = m.comments_count ?? avgComments;
-      const sv = Math.round(l * 0.15);
-      const sh = Math.round(l * 0.08);
-      const v = Math.max(l * 6, avgReelsViews);
+      const l = m.like_count ?? 0;
+      const c = m.comments_count ?? 0;
+      const sv = 0;
+      const sh = 0;
+      const v = 0;
       recentMedia.push({
         id: m.id,
         mediaType: m.media_type === "VIDEO" ? "REELS" : m.media_type === "CAROUSEL_ALBUM" ? "CAROUSEL" : "POST",
@@ -624,65 +505,31 @@ export async function runInstagramExplorerForInfluencer(
         comments: c,
         saves: sv,
         shares: sh,
-        erPct: baseFollowers > 0 ? Number((((l + c + sv) / baseFollowers) * 100).toFixed(2)) : erPct,
+        erPct: baseFollowers > 0 ? Number((((l + c) / baseFollowers) * 100).toFixed(2)) : 0,
         isSponsored: ext.isSponsored,
         detectedBrand: ext.brandName,
         disclosureTag: ext.disclosureTag,
       });
     }
-  } else {
-    const sampleTopics = [
-      { type: "REELS" as const, text: `Günlük rutinimde vazgeçilmezim olan favori ürünlerimi denedim! ${brandCollaborations[0]?.brandHandle ?? "@lumikozmetik"} #işbirliği`, sponsored: true, brand: brandCollaborations[0]?.brandName ?? "Lumi Kozmetik", tag: "#işbirliği" },
-      { type: "REELS" as const, text: "Hafta sonu vlogu ve en çok sorduğunuz kombin detayları burada ✨ Kaydetmeyi unutmayın!", sponsored: false, brand: null, tag: null },
-      { type: "CAROUSEL" as const, text: "Son 1 ayda kullandığım ve gerçekten işe yarayan 5 ipucu (Kaydırmalı post →)", sponsored: false, brand: null, tag: null },
-      { type: "REELS" as const, text: `Yeni sezon koleksiyonundan favori parçalarım ${brandCollaborations[1]?.brandHandle ?? "@velvetmoda"} #reklam`, sponsored: true, brand: brandCollaborations[1]?.brandName ?? "Velvet Moda", tag: "#reklam" },
-      { type: "POST" as const, text: "Sabah kahvesi ve yeni proje hazırlıkları ☕ Sizin bugün planınız ne?", sponsored: false, brand: null, tag: null },
-      { type: "REELS" as const, text: "Takipçilerimin en çok sorduğu 3 soruyu 30 saniyede yanıtladım!", sponsored: false, brand: null, tag: null },
-    ];
-    for (let i = 0; i < sampleTopics.length; i++) {
-      const st = sampleTopics[i]!;
-      const mult = st.sponsored ? 0.91 : 1.06 - i * 0.03;
-      const v = Math.round(avgReelsViews * mult);
-      const l = Math.round(avgLikes * mult);
-      const c = Math.round(avgComments * mult);
-      const sv = Math.round(avgSaves * (st.type === "CAROUSEL" || st.type === "REELS" ? mult * 1.15 : mult));
-      const sh = Math.round(avgShares * mult);
-      recentMedia.push({
-        id: `media-${inf.id}-${i}`,
-        mediaType: st.type,
-        caption: st.text,
-        permalink: `https://www.instagram.com/${handle}`,
-        publishedAt: new Date(now.getTime() - (i * 3 + 1) * 86_400_000).toISOString(),
-        views: v,
-        likes: l,
-        comments: c,
-        saves: sv,
-        shares: sh,
-        erPct: Number((erPct * mult).toFixed(2)),
-        isSponsored: st.sponsored,
-        detectedBrand: st.brand,
-        disclosureTag: st.tag,
-      });
-    }
   }
 
-  // 6. Organik vs Sponsorlu Performans Kıyaslaması
+  // 6. Organik vs Sponsorlu Performans Kıyaslaması (yalnız gerçek veriden)
   const spAvgViews = brandCollaborations.length
     ? Math.round(brandCollaborations.reduce((s, c) => s + c.views, 0) / brandCollaborations.length)
-    : Math.round(avgReelsViews * 0.88);
+    : 0;
   const spAvgLikes = brandCollaborations.length
     ? Math.round(brandCollaborations.reduce((s, c) => s + c.likes, 0) / brandCollaborations.length)
-    : Math.round(avgLikes * 0.88);
+    : 0;
   const spAvgSaves = brandCollaborations.length
     ? Math.round(brandCollaborations.reduce((s, c) => s + c.saves, 0) / brandCollaborations.length)
-    : Math.round(avgSaves * 0.9);
+    : 0;
   const spErPct = brandCollaborations.length
     ? Number((brandCollaborations.reduce((s, c) => s + c.erPct, 0) / brandCollaborations.length).toFixed(2))
-    : Number((erPct * 0.89).toFixed(2));
-  const retentionRatio = avgReelsViews > 0 ? Math.min(115, Math.round((spAvgViews / avgReelsViews) * 100)) : 88;
+    : 0;
+  const retentionRatio = avgReelsViews > 0 && spAvgViews > 0 ? Math.min(115, Math.round((spAvgViews / avgReelsViews) * 100)) : 0;
 
   const organicVsSponsored: OrganicVsSponsoredStats = {
-    organicCount: Math.max(12, (igAcc?.postsCount ?? 80) - brandCollaborations.length),
+    organicCount: Math.max(0, (igAcc?.postsCount ?? recentMedia.length) - brandCollaborations.length),
     sponsoredCount: brandCollaborations.length,
     organicAvgViews: avgReelsViews,
     sponsoredAvgViews: spAvgViews,
@@ -695,14 +542,15 @@ export async function runInstagramExplorerForInfluencer(
     performanceRetentionPct: retentionRatio,
   };
 
-  // 7. Kitle, Yorum Duygu (Sentiment) & Bot/Pod Analizi
-  const positivePct = 66 + (h[15]! % 16);
-  const purchaseIntentPct = 18 + (h[16]! % 14);
-  const negativePct = 3 + (h[17]! % 5);
-  const neutralPct = Math.max(5, 100 - positivePct - negativePct);
-  const saveToLikeRatioPct = avgLikes > 0 ? Number(((avgSaves / avgLikes) * 100).toFixed(1)) : 16.4;
-  const botEst = Math.max(2, Math.min(24, (inf.riskScore ?? 12) > 40 ? 19 : 4 + (h[18]! % 7)));
-  const authScore = Math.max(65, 100 - botEst - (negativePct > 6 ? 4 : 0));
+  // 7. Kitle, Yorum Duygu (Sentiment) — sahte veri yok, yalnızca gerçek veri varsa hesaplanır
+  const hasRealData = baseFollowers > 0 || recentMedia.length > 0 || brandCollaborations.length > 0;
+  const positivePct = 0;
+  const purchaseIntentPct = 0;
+  const negativePct = 0;
+  const neutralPct = 0;
+  const saveToLikeRatioPct = avgLikes > 0 && avgSaves > 0 ? Number(((avgSaves / avgLikes) * 100).toFixed(1)) : 0;
+  const botEst = 0;
+  const authScore = 0;
 
   const sentiment: AudienceSentimentAnalysis = {
     positivePct,
@@ -711,28 +559,19 @@ export async function runInstagramExplorerForInfluencer(
     purchaseIntentPct,
     authenticityScore: authScore,
     botFollowerEstimatePct: botEst,
-    engagementPodRisk: botEst >= 18 ? "ORTA" : "DÜŞÜK",
+    engagementPodRisk: "DÜŞÜK",
     saveToLikeRatioPct,
-    commentQualityScore: Math.min(98, 78 + (h[19]! % 18)),
-    topKeywords: ["link var mı", "fiyatı nedir", "indirim kodu", "çok yakışmış", "nereden aldın", "hemen deneyeceğim"],
-    sampleInsights: [
-      `Yorumların %${purchaseIntentPct}'i doğrudan satın alma niyeti ("link", "kod", "fiyat", "nereden") taşıyor.`,
-      `Kaydetme / Beğeni oranı %${saveToLikeRatioPct} ile kategori ortalamasının (%11.0) üzerinde; içerikler rehber niteliğinde saklanıyor.`,
-      `Takipçi artış eğrisi doğal; ani yapay sıçrama veya engagement pod (yorum grubu) anomalisi tespit edilmedi (%${authScore} gerçek kitle).`,
-    ],
+    commentQualityScore: 0,
+    topKeywords: [],
+    sampleInsights: [],
   };
 
-  // 8. Marka Uyum ve Seçim Önceliği Skoru
-  const reliabilityScore = Math.min(99, Math.round(authScore * 0.95 + (inf.riskScore != null ? Math.max(0, (30 - inf.riskScore) * 0.2) : 4)));
-  const consistencyScore = Math.min(98, 82 + (h[20]! % 15));
-  const conversionPotentialScore = Math.min(99, Math.round(68 + purchaseIntentPct * 0.9 + Math.min(12, saveToLikeRatioPct * 0.5)));
-  const sponsoredRetentionScore = Math.min(99, Math.round(Math.min(100, retentionRatio) * 0.96));
-  const overallScore = Math.round(
-    reliabilityScore * 0.28 +
-      consistencyScore * 0.22 +
-      conversionPotentialScore * 0.28 +
-      sponsoredRetentionScore * 0.22,
-  );
+  // 8. Marka Uyum ve Seçim Önceliği Skoru (gerçek veri yoksa 0)
+  const reliabilityScore = 0;
+  const consistencyScore = 0;
+  const conversionPotentialScore = 0;
+  const sponsoredRetentionScore = 0;
+  const overallScore = 0;
 
   const scores: BrandFitScores = {
     overallScore,
@@ -740,14 +579,7 @@ export async function runInstagramExplorerForInfluencer(
     consistencyScore,
     conversionPotentialScore,
     sponsoredRetentionScore,
-    priorityTier:
-      overallScore >= 88
-        ? "A+ ÖNCELİKLİ"
-        : overallScore >= 78
-          ? "A UYGUN"
-          : overallScore >= 65
-            ? "B DENGELİ"
-            : "C İZLENMELİ",
+    priorityTier: "C İZLENMELİ",
   };
 
   rawLogs.push({
@@ -760,12 +592,11 @@ export async function runInstagramExplorerForInfluencer(
     detail: `90 günlük zaman serisi, ${brandCollaborations.length} marka işbirliği (${brandCollaborations.map((b) => b.brandName).join(", ")}), kaydetme (${avgSaves}) ve yorum duygu analizi (%${purchaseIntentPct} satın alma niyeti) tamamlandı.`,
   });
 
-  // 9. "Instagram Gezgini" AI Yorumlama ve Özetleme (AWS AgentCore / Bedrock)
+  // 9. "Instagram Gezgini" AI Yorumlama ve Özetleme (yalnız gerçek veri varsa)
   const brandNamesList = brandCollaborations.slice(0, 3).map((b) => b.brandName).join(", ");
-  let aiExecutiveSummary =
-    `Son 30 günde Reels izlenmeleri %${Math.abs(avgViewsGrowth30dPct)} ${avgViewsGrowth30dPct >= 0 ? "arttı" : "değişti"} (ort. ${avgReelsViews.toLocaleString("tr-TR")} izlenme) ve takipçi sayısı +${Math.max(0, followersGrowth30d).toLocaleString("tr-TR")} (%${followersGrowth30dPct}) büyüdü. ` +
-    `Kaydetme oranlarının yüksek olması (gönderi başına ort. ${avgSaves.toLocaleString("tr-TR")} kaydetme, beğeniye oranı %${saveToLikeRatioPct}) içeriğin niş, sadık ve satın almaya yatkın (%${purchaseIntentPct} satın alma niyetli yorum) bir kitleye ulaştığını gösteriyor. ` +
-    `Son dönemde ${brandNamesList} markalarıyla çalıştı ve sponsorlu içerikleri organik ortalamasının %${retentionRatio}'ini yakaladı.`;
+  let aiExecutiveSummary = hasRealData
+    ? `Takipçi sayısı ${baseFollowers.toLocaleString("tr-TR")} · Etkileşim oranı %${erPct}. ${brandCollaborations.length > 0 ? `Tespit edilen marka iş birlikleri: ${brandNamesList}.` : "Henüz marka iş birliği kaydı bulunmuyor."}`
+    : "Henüz canlı sosyal medya verisi veya kampanya geçmişi yok. Sosyal hesap senkronizasyonu veya agent taraması yapıldığında gerçek veriler burada görünecektir.";
 
   if (opts.forceRefresh && envStr("LLM_PROVIDER", "mock") === "bedrock") {
     const aiStart = Date.now();
@@ -810,16 +641,8 @@ export async function runInstagramExplorerForInfluencer(
     }
   }
 
-  const aiHighlights = [
-    `Reels & Dikey Video Gücü: Haftalık ort. 3 Reels yayını ile gönderi başına ${avgReelsViews.toLocaleString("tr-TR")} izlenme ve ${Math.round(avgSaves * 1.35).toLocaleString("tr-TR")} kaydetme yakalıyor.`,
-    `Sponsorlu İçerik İstikrarı: Geçmiş ${brandCollaborations.length} marka işbirliğinde organik erişimin %${retentionRatio}'ini koruyarak reklam körlüğüne takılmadı.`,
-    `Dönüşüm Odaklı Kitle: Yorumların %${purchaseIntentPct}'i ürün linki/fiyat sorusu içeriyor; kupon kodu ve Story link tıklaması odaklı kampanyalar için ${scores.priorityTier}.`,
-  ];
-
-  const aiRecommendation =
-    overallScore >= 85
-      ? "Önerilen Kurgular: 1x 9:16 Sesli Reels + 3x Linkli Story paketi. Yüksek kaydetme oranı nedeniyle ürün inceleme ve kullanım rehberi kurgularında maksimum ROI sağlar."
-      : "Önerilen Kurgular: 1x Kaydırmalı Gönderi (Carousel) + 2x Story. Farkındalık ve katalog tanıtımı için dengeli maliyet avantajı sunar.";
+  const aiHighlights: string[] = [];
+  const aiRecommendation = "";
 
   const verificationStatus: VerificationStatus = metaRes.ok
     ? "META_API_VERIFIED"
@@ -828,6 +651,7 @@ export async function runInstagramExplorerForInfluencer(
       : "EXPLORER_BOT";
 
   const report: InfluencerExplorerReport = {
+    realDataOnly: true,
     influencerId: inf.id,
     handle,
     generatedAt: new Date().toISOString(),
@@ -842,9 +666,9 @@ export async function runInstagramExplorerForInfluencer(
     avgComments,
     avgSaves,
     avgShares,
-    weeklyPosts: 3,
-    weeklyReels: 3,
-    weeklyStories: 18,
+    weeklyPosts: 0,
+    weeklyReels: 0,
+    weeklyStories: 0,
     aiExecutiveSummary,
     aiHighlights,
     aiRecommendation,
