@@ -79,3 +79,4 @@ resource "aws_backup_selection" "main" {
     aws_s3_bucket.assets.arn,
   ]
 }
+

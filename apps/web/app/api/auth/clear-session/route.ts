@@ -26,3 +26,4 @@ export function GET(req: NextRequest) {
   }
   return res;
 }
+

@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "../db";
 import { audit } from "../audit";
+import { runOnboardingQuickScan } from "../social/multi-agent-analytics";
 import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
@@ -186,9 +187,13 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
     if (app.invite.createdById !== actor.userId) {
       await tx.notification.create({ data: { userId: app.invite.createdById, title: "Davet ettiğiniz kişi onaylandı", body: `${app.user.name} platforma katıldı.`, href: null } });
     }
-    return app;
+    return { app, influencerId: app.user.influencerId };
   });
-  await audit.append({ actor: toAuditActor(actor), action: "SIGNUP_APPROVED", entityType: "SignupApplication", entityId: applicationId, data: { userId: result.userId, role: result.targetRole } });
+  await audit.append({ actor: toAuditActor(actor), action: "SIGNUP_APPROVED", entityType: "SignupApplication", entityId: applicationId, data: { userId: result.app.userId, role: result.app.targetRole } });
+  const approvedInf = await prisma.user.findUnique({ where: { id: result.app.userId }, select: { influencerId: true } });
+  if (approvedInf?.influencerId) {
+    void runOnboardingQuickScan(approvedInf.influencerId).catch(() => {});
+  }
 }
 
 export async function rejectApplication(actorIn: Actor, applicationId: string, note: string) {

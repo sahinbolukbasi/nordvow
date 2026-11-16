@@ -8,6 +8,7 @@ import { envStr } from "@infulancer/core/env";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { AuditAgentControls } from "@/components/agent/agent-forms";
 import { CustomAgentCard, CustomAgentForm, InstagramExplorer, SyncCampaignInstagramButton } from "@/components/agent/agentcore-center";
+import { LiveAgentMonitor } from "@/components/agent/live-agent-monitor";
 import { TrackerGallery, TrackerList } from "@/components/agent/tracker-ui";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 const SECTIONS = [
+  { id: "telemetri", label: "Canlı Ajanlar & Loglar" },
   { id: "kampanya", label: "Kampanya & Analitik" },
   { id: "instagram", label: "Instagram Gezgini" },
   { id: "ozel", label: "Özel Agent (AgentCore)" },
@@ -32,7 +34,7 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
   const tt = await getTT();
   await requireActor("ADMIN");
   const sp = await searchParams;
-  const section = SECTIONS.find((s) => s.id === one(sp.bolum))?.id ?? "kampanya";
+  const section = SECTIONS.find((s) => s.id === one(sp.bolum))?.id ?? "telemetri";
 
   const [campaigns, customRow, openCount] = await Promise.all([
     prisma.campaign.findMany({
@@ -81,7 +83,9 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
         ))}
       </nav>
 
-      {section === "kampanya" ? (
+      {section === "telemetri" ? (
+        <LiveAgentMonitor />
+      ) : section === "kampanya" ? (
         <CampaignAgentsView campaigns={campaigns} selectedCampaignId={selectedCampaignId} customAgents={customAgents} />
       ) : section === "instagram" ? (
         <InstagramOnlyView />

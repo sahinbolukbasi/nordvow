@@ -36,11 +36,83 @@ export type FollowerSampleProfile = {
   lastPostDaysAgo: number | null;
 };
 
+export type TelemetryErrorCode =
+  | "META_API_190"
+  | "RATE_LIMIT_429"
+  | "PERMISSION_DENIED"
+  | "AGENT_TIMEOUT"
+  | "NOT_CONFIGURED"
+  | "UNKNOWN_ERROR";
+
+export type TelemetryErrorEntry = {
+  error_code: TelemetryErrorCode;
+  failed_step: string;
+  message: string;
+  retry_count: number;
+  next_retry_at: string;
+};
+
+export type AgentExecutionEntry = {
+  agent: "DataIngestionWorker" | "ContentReelsAgent" | "SentimentNLPAgent" | "BotDetectorAgent";
+  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  items_scanned: number;
+  duration_ms: number;
+  summary: string;
+};
+
+export type StandardizedTelemetryJson = {
+  user_profile: {
+    user_id: string;
+    username: string;
+    account_status: "ACTIVE" | "PENDING" | "SUSPENDED" | "REJECTED";
+    onboarding_completed: boolean;
+    onboarding_scan_status: "COMPLETED" | "IN_PROGRESS" | "FAILED";
+    daily_sync_status: "ACTIVE" | "PAUSED" | "TOKEN_EXPIRED" | "ERROR";
+    last_sync_timestamp: string | null;
+  };
+  daily_metrics: {
+    followers_total: number;
+    followers_daily_change: string;
+    new_posts_count_24h: number;
+    new_likes_24h: number;
+    new_comments_24h: number;
+    new_reels_plays_24h: number;
+    engagement_rate_percent: number;
+  };
+  agent_analysis: {
+    quick_summary: string;
+    audience_health: {
+      organic_percent: number;
+      bot_suspicious_percent: number;
+      anomaly_detected: boolean;
+    };
+    sentiment_breakdown: {
+      positive_percent: number;
+      neutral_question_percent: number;
+      negative_percent: number;
+      spam_bot_comments_percent: number;
+      urgent_action_comments: { username: string; comment: string; intent: "PURCHASE_INTENT" | "NEGATIVE" }[];
+    };
+    top_performing_recent_media: {
+      media_id: string;
+      type: string;
+      reason: string;
+    } | null;
+  };
+  admin_telemetry: {
+    agents_executed: AgentExecutionEntry[];
+    errors: TelemetryErrorEntry[];
+  };
+};
+
 export type IngestedAccountData = {
   influencerId: string;
+  userId: string | null;
+  accountStatus: "ACTIVE" | "PENDING" | "SUSPENDED" | "REJECTED";
   handle: string;
   fetchedAt: string;
   apiConnected: boolean;
+  apiErrorCode: TelemetryErrorCode | null;
   apiMessage: string;
   followers: number;
   prevFollowers: number | null;
@@ -52,6 +124,7 @@ export type IngestedAccountData = {
   reels: IngestedMediaItem[];
   comments: IngestedComment[];
   followerSample: FollowerSampleProfile[];
+  durationMs: number;
 };
 
 export type ContentAgentResult = {
@@ -62,6 +135,7 @@ export type ContentAgentResult = {
   reelsViralityPct: number;
   bestHourTr: number | null;
   bestDayTr: string | null;
+  durationMs: number;
 };
 
 export type SentimentAgentResult = {
@@ -72,19 +146,23 @@ export type SentimentAgentResult = {
   spamBotPct: number;
   topTopics: string[];
   urgentAlerts: { username: string; text: string; kind: "NEGATIVE" | "PURCHASE_INTENT" }[];
+  durationMs: number;
 };
 
 export type BotDetectionAgentResult = {
   sampleSize: number;
   organicFollowerPct: number;
   suspiciousBotPct: number;
+  anomalyDetected: boolean;
   flaggedReasons: string[];
+  durationMs: number;
 };
 
 export type MultiAgentDailyReport = {
   influencerId: string;
   handle: string;
   generatedAt: string;
+  mode: "ONBOARDING_QUICK_SCAN" | "DAILY_WORKER";
   dataAvailable: boolean;
   ingestion: IngestedAccountData;
   contentAgent: ContentAgentResult;
@@ -93,6 +171,7 @@ export type MultiAgentDailyReport = {
   actionPlan: string[];
   rootCauseNotes: string[];
   markdownReport: string;
+  telemetry: StandardizedTelemetryJson;
 };
 
 const TR_DAYS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
@@ -105,13 +184,33 @@ function reportConfigKey(influencerId: string): string {
   return `social.multi_agent_report.${influencerId}`;
 }
 
+function classifyMetaError(status: number, message: string, code?: number): TelemetryErrorCode {
+  const m = message.toLowerCase();
+  if (code === 190 || m.includes("token") || m.includes("oauth") || m.includes("expired")) return "META_API_190";
+  if (status === 429 || code === 4 || code === 17 || m.includes("rate limit")) return "RATE_LIMIT_429";
+  if (status === 403 || code === 10 || code === 200 || m.includes("permission")) return "PERMISSION_DENIED";
+  if (m.includes("timeout") || m.includes("abort")) return "AGENT_TIMEOUT";
+  return "UNKNOWN_ERROR";
+}
+
+/** Kayıtlı son Multi-Agent telemetri raporunu okur. */
+export async function getMultiAgentReport(influencerId: string): Promise<MultiAgentDailyReport | null> {
+  const row = await prisma.configValue.findUnique({ where: { key: reportConfigKey(influencerId) }, select: { value: true } });
+  if (!row?.value) return null;
+  const val = row.value as Partial<MultiAgentDailyReport>;
+  if (!val.telemetry) return null;
+  return val as MultiAgentDailyReport;
+}
+
 /**
  * 1. VERİ ÇEKME VE GÜNLÜK SENKRONİZASYON PROTOKOLÜ (Yalnız gerçek Meta Graph API & DB verisi).
  */
 export async function ingestMetaAccountSnapshot(influencerId: string): Promise<IngestedAccountData | null> {
+  const start = Date.now();
   const inf = await prisma.influencer.findUnique({
     where: { id: influencerId },
     include: {
+      user: { select: { id: true, status: true } },
       socialAccounts: {
         orderBy: { followers: "desc" },
         include: { snapshots: { orderBy: { takenAt: "desc" }, take: 2 } },
@@ -131,6 +230,7 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     envStr("META_SYSTEM_USER_TOKEN", "");
 
   let apiConnected = false;
+  let apiErrorCode: TelemetryErrorCode | null = null;
   let apiMessage = "Meta Graph API kimlik bilgileri yapılandırılmadı.";
   let followers = igAcc?.followers ?? 0;
   let followsCount = 0;
@@ -139,19 +239,20 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
   const reels: IngestedMediaItem[] = [];
   const comments: IngestedComment[] = [];
 
-  if (igUser && token && handle) {
+  if (!igUser || !token) {
+    apiErrorCode = "NOT_CONFIGURED";
+  } else if (handle) {
     try {
       const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,followers_count,follows_count,media_count,profile_picture_url,media.limit(20){id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count,comments.limit(20){id,text,username,timestamp}}}`;
       const url = `https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
       const json = (await res.json().catch(() => ({}))) as {
-        error?: { message?: string };
+        error?: { message?: string; code?: number };
         business_discovery?: {
           id?: string;
           followers_count?: number;
           follows_count?: number;
           media_count?: number;
-          profile_picture_url?: string;
           media?: {
             data?: {
               id: string;
@@ -212,9 +313,11 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
         }
       } else {
         apiMessage = json.error?.message ?? `Meta Graph API yanıt vermedi (HTTP ${res.status}).`;
+        apiErrorCode = classifyMetaError(res.status, apiMessage, json.error?.code);
       }
     } catch (e) {
       apiMessage = `Meta Graph API hatası: ${(e as Error).message}`;
+      apiErrorCode = classifyMetaError(0, apiMessage);
     }
   }
 
@@ -232,7 +335,6 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
   const prevFollowers = prevSnap ? prevSnap.followers : null;
   const prevErPct = prevSnap ? Number((Number(prevSnap.engagementRate) * 100).toFixed(2)) : null;
 
-  // Gerçek API verisi çekildiyse günlük snapshot kaydet
   if (apiConnected && igAcc) {
     const todayKey = new Date().toISOString().slice(0, 10);
     const alreadyToday = latestSnap?.takenAt.toISOString().slice(0, 10) === todayKey;
@@ -266,9 +368,12 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
 
   return {
     influencerId: inf.id,
+    userId: inf.user?.id ?? null,
+    accountStatus: inf.user?.status ?? "ACTIVE",
     handle,
     fetchedAt: new Date().toISOString(),
     apiConnected,
+    apiErrorCode,
     apiMessage,
     followers,
     prevFollowers,
@@ -279,12 +384,14 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     posts: posts.slice(0, 20),
     reels: reels.slice(0, 20),
     comments,
-    followerSample: [], // Public discovery endpoint takipçi listesi dönmez; OAuth/webhook ile beslendiğinde dolar.
+    followerSample: [],
+    durationMs: Date.now() - start,
   };
 }
 
-/** Ajan 1: İçerik ve Algoritma Performans Analisti (Content & Reels Agent) */
+/** Ajan 1: İçerik ve Algoritma Performans Analisti */
 export function runContentAndReelsAgent(data: IngestedAccountData): ContentAgentResult {
+  const start = Date.now();
   const all = [...data.posts, ...data.reels];
   const scored = all
     .map((m) => ({
@@ -363,14 +470,15 @@ export function runContentAndReelsAgent(data: IngestedAccountData): ContentAgent
     }
   }
 
-  return { top3, bottom3, formatStats: formats, reelsLikeToPlayPct, reelsViralityPct, bestHourTr, bestDayTr };
+  return { top3, bottom3, formatStats: formats, reelsLikeToPlayPct, reelsViralityPct, bestHourTr, bestDayTr, durationMs: Date.now() - start };
 }
 
-/** Ajan 2: Yorum ve Duygu Analizi Uzmanı (Sentiment & NLP Agent) */
+/** Ajan 2: Yorum ve Duygu Analizi Uzmanı */
 export function runSentimentNlpAgent(comments: IngestedComment[]): SentimentAgentResult {
+  const start = Date.now();
   const total = comments.length;
   if (total === 0) {
-    return { totalComments: 0, positivePct: 0, neutralQuestionPct: 0, negativePct: 0, spamBotPct: 0, topTopics: [], urgentAlerts: [] };
+    return { totalComments: 0, positivePct: 0, neutralQuestionPct: 0, negativePct: 0, spamBotPct: 0, topTopics: [], urgentAlerts: [], durationMs: Date.now() - start };
   }
 
   let pos = 0;
@@ -409,16 +517,11 @@ export function runSentimentNlpAgent(comments: IngestedComment[]): SentimentAgen
     }
 
     for (const w of lower.split(/[^a-zçğıöşü0-9]+/)) {
-      if (w.length >= 4 && !STOP_WORDS.has(w)) {
-        wordCounts.set(w, (wordCounts.get(w) ?? 0) + 1);
-      }
+      if (w.length >= 4 && !STOP_WORDS.has(w)) wordCounts.set(w, (wordCounts.get(w) ?? 0) + 1);
     }
   }
 
-  const topTopics = [...wordCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([w]) => w);
+  const topTopics = [...wordCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([w]) => w);
 
   return {
     totalComments: total,
@@ -428,18 +531,25 @@ export function runSentimentNlpAgent(comments: IngestedComment[]): SentimentAgen
     spamBotPct: Math.round((spam / total) * 100),
     topTopics,
     urgentAlerts,
+    durationMs: Date.now() - start,
   };
 }
 
-/** Ajan 3: Kitle Kalitesi ve Bot Tespit Denetçisi (Audience & Bot Detection Agent) */
+/** Ajan 3: Kitle Kalitesi ve Bot Tespit Denetçisi */
 export function runAudienceBotDetectionAgent(data: IngestedAccountData): BotDetectionAgentResult {
+  const start = Date.now();
   const sample = data.followerSample;
+  const followerDelta = data.prevFollowers !== null ? data.followers - data.prevFollowers : 0;
+  const spikeAnomaly = data.prevFollowers && data.prevFollowers > 100 ? followerDelta / data.prevFollowers > 0.15 : false;
+
   if (sample.length === 0) {
     return {
       sampleSize: 0,
       organicFollowerPct: 0,
       suspiciousBotPct: 0,
-      flaggedReasons: [],
+      anomalyDetected: spikeAnomaly,
+      flaggedReasons: spikeAnomaly ? ["Günlük takipçi artışında %15 üzeri ani sıçrama tespit edildi"] : [],
+      durationMs: Date.now() - start,
     };
   }
 
@@ -476,16 +586,19 @@ export function runAudienceBotDetectionAgent(data: IngestedAccountData): BotDete
   if (randomDigits) flaggedReasons.push(`${randomDigits} hesapta rastgele sayı dizili kullanıcı adı`);
   if (followRatio) flaggedReasons.push(`${followRatio} hesapta yüksek takip / düşük takipçi oranı (>2000 / <50)`);
   if (ghost) flaggedReasons.push(`${ghost} hayalet/inaktif hesap (0 gönderi veya >1 yıl pasif)`);
+  if (spikeAnomaly) flaggedReasons.push("Günlük takipçi artışında %15 üzeri ani sıçrama tespit edildi");
 
   return {
     sampleSize: sample.length,
     organicFollowerPct: 100 - botPct,
     suspiciousBotPct: botPct,
+    anomalyDetected: spikeAnomaly || botPct >= 25,
     flaggedReasons,
+    durationMs: Date.now() - start,
   };
 }
 
-/** Ajan 4: Baş Stratejist ve Raporlama Lideri (Lead Growth Strategist Agent) */
+/** Ajan 4: Baş Stratejist ve Raporlama Lideri */
 export async function runLeadGrowthStrategistAgent(params: {
   data: IngestedAccountData;
   content: ContentAgentResult;
@@ -510,9 +623,7 @@ export async function runLeadGrowthStrategistAgent(params: {
   const actionPlan: string[] = [];
   if (content.top3.length > 0) {
     const best = content.top3[0]!;
-    actionPlan.push(
-      `En yüksek etkileşim alan ${best.mediaType} formatına (${best.topic}) odaklanarak benzer kanca (hook) kurgusuyla yeni içerik üretin.`,
-    );
+    actionPlan.push(`En yüksek etkileşim alan ${best.mediaType} formatına (${best.topic}) odaklanarak benzer kanca (hook) kurgusuyla yeni içerik üretin.`);
   }
   if (sentiment.urgentAlerts.length > 0) {
     actionPlan.push(`${sentiment.urgentAlerts.length} adet kritik/satın alma niyetli yoruma öncelikli yanıt verin.`);
@@ -534,14 +645,8 @@ export async function runLeadGrowthStrategistAgent(params: {
         maxTokens: 250,
         temperature: 0.2,
       });
-      const lines = out.text
-        .split("\n")
-        .map((l) => l.replace(/^[\d.\-*•\s]+/, "").trim())
-        .filter((l) => l.length > 10)
-        .slice(0, 3);
-      if (lines.length) {
-        actionPlan.splice(0, actionPlan.length, ...lines);
-      }
+      const lines = out.text.split("\n").map((l) => l.replace(/^[\d.\-*•\s]+/, "").trim()).filter((l) => l.length > 10).slice(0, 3);
+      if (lines.length) actionPlan.splice(0, actionPlan.length, ...lines);
     } catch {
       /* deterministik gerçek veri önerileri korunur */
     }
@@ -579,8 +684,13 @@ export async function runLeadGrowthStrategistAgent(params: {
   return { actionPlan, rootCauseNotes, markdownReport };
 }
 
-/** Tek bir influencer için 4 aşamalı Multi-Agent veri bilimi & büyüme raporunu çalıştırır. */
-export async function runMultiAgentSocialPipeline(influencerId: string): Promise<MultiAgentDailyReport | null> {
+/** Tek bir influencer için 4 aşamalı Multi-Agent veri bilimi & Admin Telemetry raporunu çalıştırır. */
+export async function runMultiAgentSocialPipeline(
+  influencerId: string,
+  opts: { mode?: "ONBOARDING_QUICK_SCAN" | "DAILY_WORKER" } = {},
+): Promise<MultiAgentDailyReport | null> {
+  const mode = opts.mode ?? "DAILY_WORKER";
+  const prevReport = await getMultiAgentReport(influencerId).catch(() => null);
   const data = await ingestMetaAccountSnapshot(influencerId);
   if (!data) return null;
 
@@ -594,11 +704,135 @@ export async function runMultiAgentSocialPipeline(influencerId: string): Promise
     bot: botAgent,
   });
 
+  // 24 saatlik deltalar (önceki rapora ve medya zaman damgasına göre)
+  const dayAgoMs = Date.now() - 24 * 60 * 60 * 1000;
+  const allMedia = [...data.posts, ...data.reels];
+  const newPosts24h = allMedia.filter((m) => new Date(m.timestamp).getTime() >= dayAgoMs).length;
+  const prevLikesSum = prevReport ? [...prevReport.ingestion.posts, ...prevReport.ingestion.reels].reduce((s, m) => s + m.likes, 0) : 0;
+  const prevCommentsSum = prevReport ? [...prevReport.ingestion.posts, ...prevReport.ingestion.reels].reduce((s, m) => s + m.commentsCount, 0) : 0;
+  const prevPlaysSum = prevReport ? prevReport.ingestion.reels.reduce((s, m) => s + m.plays, 0) : 0;
+
+  const curLikesSum = allMedia.reduce((s, m) => s + m.likes, 0);
+  const curCommentsSum = allMedia.reduce((s, m) => s + m.commentsCount, 0);
+  const curPlaysSum = data.reels.reduce((s, m) => s + m.plays, 0);
+
+  const followerDelta = data.prevFollowers !== null ? data.followers - data.prevFollowers : 0;
+  const prevRetry = prevReport?.telemetry.admin_telemetry.errors[0]?.retry_count ?? 0;
+
+  const errors: TelemetryErrorEntry[] = [];
+  if (data.apiErrorCode) {
+    errors.push({
+      error_code: data.apiErrorCode,
+      failed_step: "Meta Graph API Data Ingestion",
+      message: data.apiMessage,
+      retry_count: prevRetry + 1,
+      next_retry_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+  }
+
+  const agentsExecuted: AgentExecutionEntry[] = [
+    {
+      agent: "DataIngestionWorker",
+      status: data.apiConnected ? "SUCCESS" : "FAILED",
+      items_scanned: allMedia.length,
+      duration_ms: data.durationMs,
+      summary: data.apiConnected ? `Tarandı (${allMedia.length} Medya)` : data.apiMessage,
+    },
+    {
+      agent: "ContentReelsAgent",
+      status: "SUCCESS",
+      items_scanned: allMedia.length,
+      duration_ms: contentAgent.durationMs,
+      summary: `Tarandı (${data.posts.length} Post, ${data.reels.length} Reels)`,
+    },
+    {
+      agent: "SentimentNLPAgent",
+      status: "SUCCESS",
+      items_scanned: sentimentAgent.totalComments,
+      duration_ms: sentimentAgent.durationMs,
+      summary: `Tarandı (${sentimentAgent.totalComments} Yorum)`,
+    },
+    {
+      agent: "BotDetectorAgent",
+      status: "SUCCESS",
+      items_scanned: botAgent.sampleSize,
+      duration_ms: botAgent.durationMs,
+      summary: botAgent.sampleSize > 0 ? `Tarandı (${botAgent.sampleSize} Profil) - %${botAgent.organicFollowerPct} Organik` : "Takipçi örneklemi bekleniyor",
+    },
+  ];
+
+  const hasData = data.followers > 0 || allMedia.length > 0;
+  const topMedia = contentAgent.top3[0];
+  const dailySyncStatus: StandardizedTelemetryJson["user_profile"]["daily_sync_status"] =
+    data.apiErrorCode === "META_API_190"
+      ? "TOKEN_EXPIRED"
+      : data.apiErrorCode && data.apiErrorCode !== "NOT_CONFIGURED"
+        ? "ERROR"
+        : data.apiConnected
+          ? "ACTIVE"
+          : "PAUSED";
+
+  const telemetry: StandardizedTelemetryJson = {
+    user_profile: {
+      user_id: data.userId ?? data.influencerId,
+      username: `@${data.handle}`,
+      account_status: data.accountStatus,
+      onboarding_completed: prevReport?.telemetry.user_profile.onboarding_completed || data.apiConnected || mode === "ONBOARDING_QUICK_SCAN",
+      onboarding_scan_status: data.apiConnected ? "COMPLETED" : "FAILED",
+      daily_sync_status: dailySyncStatus,
+      last_sync_timestamp: data.apiConnected ? data.fetchedAt : (prevReport?.telemetry.user_profile.last_sync_timestamp ?? null),
+    },
+    daily_metrics: {
+      followers_total: data.followers,
+      followers_daily_change: `${followerDelta >= 0 ? "+" : ""}${followerDelta}`,
+      new_posts_count_24h: newPosts24h,
+      new_likes_24h: prevReport ? Math.max(0, curLikesSum - prevLikesSum) : 0,
+      new_comments_24h: prevReport ? Math.max(0, curCommentsSum - prevCommentsSum) : 0,
+      new_reels_plays_24h: prevReport ? Math.max(0, curPlaysSum - prevPlaysSum) : 0,
+      engagement_rate_percent: data.erPct,
+    },
+    agent_analysis: {
+      quick_summary:
+        strategist.actionPlan[0] ??
+        (hasData
+          ? `@${data.handle} için ${allMedia.length} içerik ve ${sentimentAgent.totalComments} yorum analiz edildi.`
+          : "Meta Graph API bağlantısı bekleniyor; henüz gerçek veri yok."),
+      audience_health: {
+        organic_percent: botAgent.organicFollowerPct,
+        bot_suspicious_percent: botAgent.suspiciousBotPct,
+        anomaly_detected: botAgent.anomalyDetected,
+      },
+      sentiment_breakdown: {
+        positive_percent: sentimentAgent.positivePct,
+        neutral_question_percent: sentimentAgent.neutralQuestionPct,
+        negative_percent: sentimentAgent.negativePct,
+        spam_bot_comments_percent: sentimentAgent.spamBotPct,
+        urgent_action_comments: sentimentAgent.urgentAlerts.map((a) => ({
+          username: `@${a.username.replace(/^@/, "")}`,
+          comment: a.text,
+          intent: a.kind,
+        })),
+      },
+      top_performing_recent_media: topMedia
+        ? {
+            media_id: topMedia.id,
+            type: topMedia.mediaType,
+            reason: topMedia.reason,
+          }
+        : null,
+    },
+    admin_telemetry: {
+      agents_executed: agentsExecuted,
+      errors,
+    },
+  };
+
   const report: MultiAgentDailyReport = {
     influencerId: data.influencerId,
     handle: data.handle,
     generatedAt: data.fetchedAt,
-    dataAvailable: data.followers > 0 || data.posts.length > 0 || data.reels.length > 0,
+    mode,
+    dataAvailable: hasData,
     ingestion: data,
     contentAgent,
     sentimentAgent,
@@ -606,18 +840,24 @@ export async function runMultiAgentSocialPipeline(influencerId: string): Promise
     actionPlan: strategist.actionPlan,
     rootCauseNotes: strategist.rootCauseNotes,
     markdownReport: strategist.markdownReport,
+    telemetry,
   };
 
   await prisma.configValue.upsert({
     where: { key: reportConfigKey(influencerId) },
-    create: { key: reportConfigKey(influencerId), value: report as never, verified: data.apiConnected, note: `Multi-Agent Günlük Rapor (@${data.handle})` },
+    create: { key: reportConfigKey(influencerId), value: report as never, verified: data.apiConnected, note: `Multi-Agent Telemetri (@${data.handle})` },
     update: { value: report as never, verified: data.apiConnected },
   });
 
   return report;
 }
 
-/** Zamanlayıcı (Cron) için tüm aktif influencer'larda günlük Multi-Agent pipeline'ını çalıştırır. */
+/** Faz 1: Kullanıcı kabulünde / onayında sıfırıncı gün (T-0) hızlı ön analiz pipeline'ı. */
+export async function runOnboardingQuickScan(influencerId: string): Promise<MultiAgentDailyReport | null> {
+  return runMultiAgentSocialPipeline(influencerId, { mode: "ONBOARDING_QUICK_SCAN" });
+}
+
+/** Faz 2: Zamanlayıcı (Cron) için tüm aktif influencer'larda günlük Multi-Agent pipeline'ını çalıştırır. */
 export async function runMultiAgentSocialPipelineAll(limit = 50): Promise<{ processed: number; withData: number }> {
   const list = await prisma.influencer.findMany({
     where: { user: { status: "ACTIVE" } },
@@ -628,7 +868,7 @@ export async function runMultiAgentSocialPipelineAll(limit = 50): Promise<{ proc
   let processed = 0;
   let withData = 0;
   for (const inf of list) {
-    const r = await runMultiAgentSocialPipeline(inf.id);
+    const r = await runMultiAgentSocialPipeline(inf.id, { mode: "DAILY_WORKER" });
     if (r) {
       processed++;
       if (r.dataAvailable) withData++;

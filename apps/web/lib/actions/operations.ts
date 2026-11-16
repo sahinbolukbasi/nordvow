@@ -8,6 +8,7 @@ import { adjustCredits, ensureStarterCredits, InsufficientCreditsError, setCredi
 import { CreativeRejectedError, handleFalWebhook } from "@infulancer/core/creative/fal";
 import { ModelUnavailableError, resolveModel, seedModelRegistry } from "@infulancer/core/creative/registry";
 import { getConfig, setConfig } from "@infulancer/core/config/store";
+import { runMultiAgentSocialPipeline, runMultiAgentSocialPipelineAll } from "@infulancer/core/social/multi-agent-analytics";
 import type { Aspect } from "@infulancer/core/creative/adapters";
 import { submitGeneration } from "@infulancer/core/creative/generate";
 import { DomainError } from "@infulancer/core/domain/errors";
@@ -176,6 +177,54 @@ export async function manageCreditAction(_p: ActionState, fd: FormData): Promise
           ? `${input.amount.toLocaleString("tr-TR")} kredi düşüldü.`
           : `Bakiye ${input.amount.toLocaleString("tr-TR")} olarak güncellendi.`;
     return { ok: true, message: msg };
+  });
+}
+
+/** Yönetici: Belirli bir influencer için 4 ajanlı Meta Graph API analizini ve telemetriyi şimdi çalıştırır. */
+export async function runMultiAgentScanAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  return attempt(async () => {
+    const influencerId = str(fd, "influencerId");
+    const report = await runMultiAgentSocialPipeline(influencerId, { mode: "DAILY_WORKER" });
+    if (!report) throw new DomainError("BULUNAMADI", "Influencer bulunamadı.");
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "MULTI_AGENT_SCAN_RUN",
+      entityType: "Influencer",
+      entityId: influencerId,
+      data: {
+        apiConnected: report.ingestion.apiConnected,
+        errors: report.telemetry.admin_telemetry.errors.map((e) => e.error_code),
+      },
+    });
+    revalidateAll();
+    return {
+      ok: true,
+      message: report.ingestion.apiConnected
+        ? `@${report.handle} için 4 ajanlı analiz ve telemetri güncellendi.`
+        : `@${report.handle} taraması tamamlandı (Meta API durumu: ${report.ingestion.apiMessage}).`,
+    };
+  });
+}
+
+/** Yönetici: Tüm aktif influencer'lar için 4 ajanlı Meta Graph API analizini toplu çalıştırır. */
+export async function runAllMultiAgentScansAction(_p: ActionState): Promise<ActionState> {
+  void _p;
+  const actor = await requireActor("ADMIN");
+  return attempt(async () => {
+    const r = await runMultiAgentSocialPipelineAll(50);
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "MULTI_AGENT_SCAN_ALL",
+      entityType: "AgentJobRun",
+      entityId: "social-multi-agent",
+      data: r,
+    });
+    revalidateAll();
+    return {
+      ok: true,
+      message: `${r.processed} influencer tarandı (${r.withData} hesapta gerçek veri bulundu).`,
+    };
   });
 }
 

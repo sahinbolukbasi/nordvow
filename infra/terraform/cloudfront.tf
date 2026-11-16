@@ -38,7 +38,7 @@ resource "aws_cloudfront_distribution" "app" {
   http_version    = "http2and3"
   is_ipv6_enabled = true
   # Özel alan adları yalnız sertifika doğrulandıktan sonra bağlanır (aksi halde dağıtım hata verir).
-  aliases         = var.domain_validated ? local.domain_aliases : []
+  aliases = var.domain_validated ? local.domain_aliases : []
 
   origin {
     origin_id   = "alb"

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { ensureStarterCredits, topUp } from "@infulancer/core/creative/credits";
+import { runOnboardingQuickScan } from "@infulancer/core/social/multi-agent-analytics";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
@@ -199,6 +200,10 @@ export async function createDirectUserAction(_p: ActionState, fd: FormData): Pro
       } else {
         await ensureStarterCredits(tenantId, input.initialCredits);
       }
+    }
+
+    if (created.influencerId) {
+      void runOnboardingQuickScan(created.influencerId).catch(() => {});
     }
 
     await audit.append({

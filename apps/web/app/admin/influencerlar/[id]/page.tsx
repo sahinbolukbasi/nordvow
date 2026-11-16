@@ -9,6 +9,8 @@ import {
   taxStatusLabels,
 } from "@infulancer/core/domain/labels";
 import { computeBalances, holdDays } from "@infulancer/core/domain/ledger";
+import { getMultiAgentReport } from "@infulancer/core/social/multi-agent-analytics";
+import { AdminTelemetryPanel } from "@/components/agent/admin-telemetry-panel";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { BarChart } from "@/components/charts/charts";
 import { BalanceCards } from "@/components/finance/balance-cards";
@@ -59,7 +61,7 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
   if (!inf) notFound();
 
   const deliverableIds = inf.assignments.flatMap((a) => a.deliverables.map((d) => d.id));
-  const [stats, balances, runs] = await Promise.all([
+  const [stats, balances, runs, telemetryReport] = await Promise.all([
     computeInfluencerStats([inf.id], now),
     computeBalances(inf.id, now),
     prisma.agentRun.findMany({
@@ -74,6 +76,7 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
       include: { resolvedBy: { select: { name: true } } },
       take: 50,
     }),
+    getMultiAgentReport(inf.id),
   ]);
   const st = stats.get(inf.id);
 
@@ -110,6 +113,8 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
           </div>
         }
       />
+
+      <AdminTelemetryPanel influencerId={inf.id} report={telemetryReport} />
 
       {/* Admin Operasyonel Metrikleri */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

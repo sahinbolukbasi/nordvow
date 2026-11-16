@@ -1,0 +1,8 @@
+; AWS SES DKIM, SPF ve DMARC DNS Kayıtları (nordvow.com)
+; Cloudflare -> DNS -> Records -> Import and Export -> Import DNS records
+sbsja5qt2rp3zo4rwbbaefxflisbndho._domainkey.nordvow.com.	1	IN	CNAME	sbsja5qt2rp3zo4rwbbaefxflisbndho.dkim.amazonses.com.
+tk2hyc66azuup6updhnkbnckjrk4gfat._domainkey.nordvow.com.	1	IN	CNAME	tk2hyc66azuup6updhnkbnckjrk4gfat.dkim.amazonses.com.
+opqdbf7tltr6cgvbftu2nez4f6iiw45r._domainkey.nordvow.com.	1	IN	CNAME	opqdbf7tltr6cgvbftu2nez4f6iiw45r.dkim.amazonses.com.
+nordvow.com.	1	IN	TXT	"v=spf1 include:amazonses.com ~all"
+_dmarc.nordvow.com.	1	IN	TXT	"v=DMARC1; p=none; rua=mailto:info@nordvow.com"
+
