@@ -1,15 +1,16 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
+import Link from "next/link";
 import { idleState } from "@/lib/action-state";
 import {
   confirmShipmentAddressAction,
   markShipmentDeliveredAction,
 } from "@/lib/actions/shipping";
-import { Button, Field, Input, Select } from "@/components/ui/form";
+import { Button } from "@/components/ui/form";
 import { Card, CardTitle } from "@/components/ui/card";
 import type { ContentTriggerRule, ShipmentStatus } from "@infulancer/core/enums";
-import type { ProductDetails } from "@infulancer/core/shipping/types";
+import { buildCarrierTrackingUrl, type ProductDetails } from "@infulancer/core/shipping/types";
 import type { SavedAddressRow } from "./offer-shipment-modal";
 
 const STEPS: { key: ShipmentStatus; label: string }[] = [
@@ -63,22 +64,10 @@ export function InfluencerShipmentCard({
     confirmShipmentAddressAction,
     idleState,
   );
-  const [variants, setVariants] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
-    for (const v of productDetails.variants ?? []) {
-      if (v.options[0]) init[v.label] = v.options[0];
-    }
-    return init;
-  });
-
   const defaultAddr = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
-  const [recipientName, setRecipientName] = useState(defaultAddr?.recipientName ?? "");
-  const [recipientPhone, setRecipientPhone] = useState(defaultAddr?.recipientPhone ?? "");
-  const [addressLine, setAddressLine] = useState(defaultAddr?.addressLine ?? "");
-  const [city, setCity] = useState(defaultAddr?.city ?? "");
-  const [district, setDistrict] = useState(defaultAddr?.district ?? "");
-
   const currentIdx = STEP_INDEX[shipment.status];
+  const trackingHref =
+    shipment.trackingUrl || buildCarrierTrackingUrl(shipment.carrierName, shipment.trackingNumber);
 
   const handleCopy = async () => {
     if (!shipment.trackingNumber) return;
@@ -166,9 +155,9 @@ export function InfluencerShipmentCard({
               {copied ? "Kopyalandı ✓" : "Kopyala"}
             </Button>
           </div>
-          {shipment.trackingUrl ? (
+          {trackingHref ? (
             <a
-              href={shipment.trackingUrl}
+              href={trackingHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center rounded-xl border border-line bg-surface px-3 py-1.5 text-[12px] font-medium text-fg hover:border-fg/40"
@@ -179,106 +168,48 @@ export function InfluencerShipmentCard({
         </div>
       ) : null}
 
-      {/* Adres onayı bekleniyorsa inline form */}
+      {/* Adres yoksa Profil Ayarlarına yönlendir, varsa tek tıkla profil adresini onayla */}
       {shipment.status === "PENDING_ADDRESS" ? (
-        <form action={addrAction} className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <p className="text-[13px] font-medium text-amber-800 dark:text-amber-300">
-            Ürünün gönderilebilmesi için lütfen teslimat adresinizi ve varsa varyant tercihinizi onaylayın.
-          </p>
-          <input type="hidden" name="shipmentId" value={shipment.id} />
-          <input type="hidden" name="selectedVariant" value={JSON.stringify(variants)} />
-          <input type="hidden" name="saveAddress" value="1" />
-
-          {(productDetails.variants ?? []).length > 0 ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {productDetails.variants.map((v) => (
-                <Field key={v.label} label={v.label}>
-                  {(p) => (
-                    <Select
-                      {...p}
-                      value={variants[v.label] ?? v.options[0] ?? ""}
-                      onChange={(e) =>
-                        setVariants((prev) => ({ ...prev, [v.label]: e.target.value }))
-                      }
-                    >
-                      {v.options.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                </Field>
-              ))}
+        !defaultAddr ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-[13px] text-amber-800 dark:text-amber-300">
+            <span>
+              Kargo çıkışının yapılabilmesi için lütfen Profil Ayarları sayfasından teslimat adresinizi ekleyin.
+            </span>
+            <Link
+              href="/profil?sekme=kargo"
+              className="rounded-full bg-fg px-4 py-1.5 text-xs font-medium text-bg hover:opacity-90"
+            >
+              Profil Ayarlarından Adres Ekle →
+            </Link>
+          </div>
+        ) : (
+          <form action={addrAction} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <input type="hidden" name="shipmentId" value={shipment.id} />
+            <input type="hidden" name="recipientName" value={defaultAddr.recipientName} />
+            <input type="hidden" name="recipientPhone" value={defaultAddr.recipientPhone} />
+            <input type="hidden" name="addressLine" value={defaultAddr.addressLine} />
+            <input type="hidden" name="city" value={defaultAddr.city} />
+            <input type="hidden" name="district" value={defaultAddr.district} />
+            <input type="hidden" name="postalCode" value={defaultAddr.postalCode ?? ""} />
+            <div className="text-[13px]">
+              <p className="font-medium text-fg">
+                Kayıtlı Adresiniz ({defaultAddr.label})
+              </p>
+              <p className="text-fg-muted">
+                {defaultAddr.addressLine}, {defaultAddr.district}/{defaultAddr.city}
+              </p>
+              {addrState.message ? <p className="mt-1 text-xs text-fg">{addrState.message}</p> : null}
             </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Alıcı Adı Soyadı">
-              {(p) => (
-                <Input
-                  {...p}
-                  name="recipientName"
-                  required
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Telefon">
-              {(p) => (
-                <Input
-                  {...p}
-                  name="recipientPhone"
-                  required
-                  value={recipientPhone}
-                  onChange={(e) => setRecipientPhone(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="İl">
-              {(p) => (
-                <Input
-                  {...p}
-                  name="city"
-                  required
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="İlçe">
-              {(p) => (
-                <Input
-                  {...p}
-                  name="district"
-                  required
-                  value={district}
-                  onChange={(e) => setDistrict(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Açık Adres" className="sm:col-span-2">
-              {(p) => (
-                <Input
-                  {...p}
-                  name="addressLine"
-                  required
-                  value={addressLine}
-                  onChange={(e) => setAddressLine(e.target.value)}
-                />
-              )}
-            </Field>
-          </div>
-          {addrState.message ? (
-            <p className="text-[12px] text-fg">{addrState.message}</p>
-          ) : null}
-          <div className="flex justify-end">
-            <Button type="submit" disabled={addrPending}>
-              {addrPending ? "Onaylanıyor…" : "Teslimat Adresini Onayla"}
-            </Button>
-          </div>
-        </form>
+            <div className="flex items-center gap-2">
+              <Link href="/profil?sekme=kargo" className="text-xs text-fg-muted underline">
+                Adresi Değiştir
+              </Link>
+              <Button type="submit" disabled={addrPending}>
+                {addrPending ? "Onaylanıyor…" : "Profil Adresimle Onayla"}
+              </Button>
+            </div>
+          </form>
+        )
       ) : null}
 
       {/* İçerik Yükleme Kilidi / Bilgilendirmesi */}

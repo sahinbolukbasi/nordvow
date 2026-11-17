@@ -38,12 +38,15 @@ export const forwardTransitions: readonly Edge[] = [
   { from: "TASLAK", to: "ATANDI", roles: ["ADMIN"] },
   { from: "ATANDI", to: "BRIEF_GONDERILDI", roles: ["ADMIN"] },
   { from: "BRIEF_GONDERILDI", to: "ICERIK_YUKLENDI", roles: ["ADMIN", "INFLUENCER"] },
-  { from: "ICERIK_YUKLENDI", to: "ONAYLANDI", roles: ["ADMIN"] },
-  { from: "ICERIK_YUKLENDI", to: "REVIZYON", roles: ["ADMIN"] },
+  { from: "ICERIK_YUKLENDI", to: "ONAYLANDI", roles: ["ADMIN", "BRAND", "SYSTEM"] },
+  { from: "ICERIK_YUKLENDI", to: "REVIZYON", roles: ["ADMIN", "BRAND"] },
+  { from: "ICERIK_YUKLENDI", to: "TAMAMLANDI", roles: ["ADMIN", "BRAND", "SYSTEM"] },
   { from: "REVIZYON", to: "ICERIK_YUKLENDI", roles: ["ADMIN", "INFLUENCER"] },
   { from: "ONAYLANDI", to: "YAYINLANDI", roles: ["ADMIN", "INFLUENCER"] },
+  { from: "ONAYLANDI", to: "TAMAMLANDI", roles: ["ADMIN", "BRAND", "SYSTEM"] },
   { from: "YAYINLANDI", to: "METRIK_BEKLIYOR", roles: ["SYSTEM", "ADMIN"] },
-  { from: "METRIK_BEKLIYOR", to: "TAMAMLANDI", roles: ["ADMIN"] },
+  { from: "YAYINLANDI", to: "TAMAMLANDI", roles: ["ADMIN", "BRAND", "SYSTEM"] },
+  { from: "METRIK_BEKLIYOR", to: "TAMAMLANDI", roles: ["ADMIN", "BRAND", "SYSTEM"] },
 ];
 
 export function isBackward(from: DeliverableStatus, to: DeliverableStatus): boolean {
@@ -137,8 +140,8 @@ export async function transitionDeliverable(tx: Tx, input: TransitionInput): Pro
   });
   if (!deliverable) throw new DomainError("BULUNAMADI", "İş bulunamadı.");
 
-  if (actor.role === "BRAND") {
-    throw new DomainError("YETKISIZ", "Markalar durum değiştiremez; inceleme notu bırakabilir.");
+  if (actor.role === "BRAND" && !["ONAYLANDI", "REVIZYON", "TAMAMLANDI"].includes(to)) {
+    throw new DomainError("YETKISIZ", "Markalar yalnızca onay, revizyon veya tamamlama işlemi yapabilir.");
   }
   if (actor.role === "INFLUENCER" && deliverable.assignment.influencerId !== actor.influencerId) {
     throw new DomainError("BULUNAMADI", "İş bulunamadı.");
@@ -159,25 +162,6 @@ export async function transitionDeliverable(tx: Tx, input: TransitionInput): Pro
     if (!url) throw new DomainError("DOGRULAMA", "Yayınlandı işaretlemek için paylaşım bağlantısı zorunlu.");
     data.postUrl = normalizeUrl(url);
     data.publishedAt = new Date();
-  }
-
-  if (to === "TAMAMLANDI") {
-    const snapshots = await tx.metricSnapshot.findMany({
-      where: { deliverableId: deliverable.id },
-      select: { source: true, screenshotAssetId: true },
-    });
-    if (snapshots.length === 0) {
-      throw new DomainError("KURAL_IHLALI", "Metrik girişi yapılmadan iş tamamlanamaz.");
-    }
-    if (
-      isStory(deliverable) &&
-      !snapshots.some((s) => s.source === "EKRAN_GORUNTUSU" && s.screenshotAssetId)
-    ) {
-      throw new DomainError(
-        "KURAL_IHLALI",
-        "Story için ekran görüntülü metrik girişi yapılmadan iş tamamlanamaz.",
-      );
-    }
   }
 
   await tx.deliverable.update({ where: { id: deliverable.id }, data });

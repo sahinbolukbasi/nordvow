@@ -15,7 +15,9 @@ import { WhatsAppConnectCard } from "@/components/profile/whatsapp-connect-card"
 import { getOrCreateWhatsAppLink } from "@infulancer/core/messaging/user-whatsapp-ai";
 import { envStr } from "@infulancer/core/env";
 import { shipmentStatusLabels, type SenderAddress } from "@infulancer/core/shipping/types";
+import { listInfluencerAddresses } from "@infulancer/core/shipping/service";
 import { BrandSenderAddressForm } from "@/components/shipping/brand-sender-address-form";
+import { InfluencerAddressForm } from "@/components/shipping/influencer-address-form";
 import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { TikTokCreatorPanel } from "@/components/tiktok/tiktok-creator-panel";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
@@ -79,7 +81,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   if (actor.role === "INFLUENCER" && actor.influencerId) {
     const id = actor.influencerId;
     const now = new Date();
-    const [inf, balances, offers, accounts, cards, portfolio, published] = await Promise.all([
+    const [inf, balances, offers, accounts, cards, portfolio, published, savedAddresses] = await Promise.all([
       prisma.influencer.findUniqueOrThrow({ where: { id }, select: { iban: true, ibanHolder: true, taxStatus: true, city: true, avatarKey: true, headline: true, bio: true, showcaseVisible: true, showPrices: true, showCollaborations: true, socialAccounts: { select: { platform: true, avatarUrl: true } } } }),
       computeBalances(id, now),
       prisma.offer.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
@@ -92,6 +94,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         take: 50,
         select: { id: true, platform: true, contentType: true, publishedAt: true, assignment: { select: { campaign: { select: { brand: { select: { name: true } } } } } } },
       }),
+      listInfluencerAddresses(id),
     ]);
     avatar = pickAvatar(inf.socialAccounts, inf.avatarKey);
     if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < now.getTime() - 3_600_000)) {
@@ -231,6 +234,20 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <ButtonLink href="/influencer/teklifler" variant="secondary" size="sm" className="w-fit">{tt("Teklifleri yanıtla →")}</ButtonLink>
           <OfferRows offers={offers} />
         </div>
+      ),
+    });
+    const defaultAddress = savedAddresses.find((a) => a.isDefault) ?? savedAddresses[0] ?? null;
+    tabs.push({
+      id: "kargo",
+      label: "Teslimat Adresim",
+      content: (
+        <Card interactive={false} className="flex flex-col gap-3">
+          <CardTitle>{tt("Ürün Gönderimi İçin Teslimat Adresim")}</CardTitle>
+          <p className="text-[13px] text-fg-muted">
+            {tt("Ürün gönderimli kampanyalarda kargolarınız burada kayıtlı adresinize gönderilir. Kampanya sırasında tekrar adres girmenize gerek kalmaz.")}
+          </p>
+          <InfluencerAddressForm initial={defaultAddress} />
+        </Card>
       ),
     });
   }

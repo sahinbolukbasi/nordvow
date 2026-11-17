@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadBrandCampaignReport } from "@infulancer/core/access/brand-report";
+import { autoApproveStaleDeliverables } from "@infulancer/core/domain/deliverable-auto-approve";
 import { isDomainError } from "@infulancer/core/domain/errors";
 import {
   campaignStatusLabels,
@@ -65,6 +66,7 @@ export default async function BrandCampaignPage({
   const { id } = await params;
   const { hafta, gonderildi } = await searchParams;
   const now = new Date();
+  await autoApproveStaleDeliverables(now).catch(() => 0);
 
   // Yalnız core DTO'su (bedel/komisyon/bütçe içermez); başka markanın kampanyası → 404.
   const report = await loadBrandCampaignReport(actor, id, now).catch((err: unknown) => {

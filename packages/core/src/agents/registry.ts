@@ -20,6 +20,7 @@ import { runMultiAgentSocialPipelineAll } from "../social/multi-agent-analytics"
 import { refreshFx } from "../creative/pricing";
 import { runAllTrackers } from "./trackers";
 import { expireOffers } from "../domain/offers";
+import { autoApproveStaleDeliverables } from "../domain/deliverable-auto-approve";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
 import { pollActiveShipments } from "../shipping/service";
 import {
@@ -86,6 +87,7 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "webhook-dedupe-ttl", schedule: "cron(30 3 * * ? *)", intervalMs: 24 * HOUR, run: async () => ({ created: await purgeExpiredDedupe(), skipped: 0 }) },
   { name: "trackers", schedule: "rate(1 hour)", intervalMs: HOUR, run: () => runAllTrackers() },
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },
+  { name: "deliverable-auto-approve", schedule: "rate(15 minutes)", intervalMs: 15 * MIN, run: async () => ({ created: await autoApproveStaleDeliverables(), skipped: 0 }) },
   { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await expireOffers(), skipped: 0 }) },
   { name: "influencer-recommendation", schedule: "cron(0 6 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runInfluencerRecommendationAll()) },
   { name: "cargo-tracking-sync", schedule: "rate(30 minutes)", intervalMs: 30 * MIN, run: async () => { const r = await pollActiveShipments(50); return { created: r.updated, skipped: r.checked - r.updated }; } },

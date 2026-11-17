@@ -7,6 +7,7 @@ import { NavlungoAdapter } from "./adapters/navlungo";
 import { decryptShippingSecret, encryptShippingSecret, maskShippingSecret } from "./crypto";
 import {
   brandShippingIntegrationSchema,
+  buildCarrierTrackingUrl,
   campaignShippingConfigSchema,
   confirmAddressSchema,
   parseProductDetails,
@@ -480,7 +481,7 @@ export async function dispatchSingleShipment(params: {
       provider: params.provider,
       carrierName: created.carrierName,
       trackingNumber: created.trackingNumber,
-      trackingUrl: created.trackingUrl,
+      trackingUrl: created.trackingUrl || buildCarrierTrackingUrl(created.carrierName ?? params.provider, created.trackingNumber),
       barcodeLabelUrl: created.barcodeLabelUrl,
       externalShipmentId: created.externalShipmentId,
       estimatedDeliveryDate: created.estimatedDeliveryDate,

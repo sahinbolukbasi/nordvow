@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import type { Actor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
 import { assertCanEditDraft, draftStatus } from "@infulancer/core/domain/campaign-draft";
-import { isWizardStep, prevStep, WIZARD_STEPS, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
+import { isWizardStep, prevStepFor, visibleWizardSteps, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
 import { isDomainError } from "@infulancer/core/domain/errors";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
 import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
@@ -24,15 +24,16 @@ import { getCampaignShippingConfig } from "@infulancer/core/shipping/service";
 const tl = (k: bigint | number) => (Number(k) > 0 ? (Number(k) / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : "");
 
 /** Sihirbaz adım çubuğu: tamamlananlar işaretli, aktif adım vurgulu; taslak açılmadan diğer adımlar kilitli. */
-async function Steps({ base, active, done }: { base: string | null; active: WizardStepKey; done: Set<string> }) {
+async function Steps({ base, active, done, includeShipping = false }: { base: string | null; active: WizardStepKey; done: Set<string>; includeShipping?: boolean }) {
   const tt = await getTT();
-  const idx = WIZARD_STEPS.findIndex((s) => s.key === active);
+  const steps = visibleWizardSteps(includeShipping);
+  const idx = steps.findIndex((s) => s.key === active);
   return (
     <nav aria-label={tt("Kampanya oluşturma adımları")}>
-      <p className="mb-2 text-[12px] text-fg-passive tabular-nums">{tt("Adım")}{" "}{idx + 1} / {WIZARD_STEPS.length}
+      <p className="mb-2 text-[12px] text-fg-passive tabular-nums">{tt("Adım")}{" "}{Math.max(1, idx + 1)} / {steps.length}
       </p>
-      <ol className="grid grid-cols-4 gap-2 md:grid-cols-8">
-        {WIZARD_STEPS.map((s, i) => {
+      <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-8">
+        {steps.map((s, i) => {
           const cur = s.key === active;
           const inner = (
             <>
@@ -101,14 +102,23 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
   }
   const step: WizardStepKey = isWizardStep(stepRaw) ? stepRaw : "temel";
   const base = wizardBase(actor.role, campaignId);
-  const back = prevStep(step);
+  const [{ campaign: c, checks, ready, plan }, cfg] = await Promise.all([
+    draftStatus(campaignId),
+    getCampaignShippingConfig(campaignId),
+  ]);
+  const includeShipping = c.objective === "urun_gonderimi" || cfg.requiresProductShipment;
+  const steps = visibleWizardSteps(includeShipping);
+  const back = prevStepFor(step, includeShipping);
   const backHref = back ? `${base}?adim=${back}` : "";
-  const { campaign: c, checks, ready, plan } = await draftStatus(campaignId);
   const done = new Set(checks.filter((x) => x.ok && (x.key !== "medya" || c._count.assets > 0) && (x.key !== "influencer" || c.shortlistInfluencerIds.length > 0)).map((x) => x.key));
   if (ready) done.add("ozet");
-  const meta = WIZARD_STEPS.find((s) => s.key === step)!;
-  const idx = WIZARD_STEPS.findIndex((s) => s.key === step);
-  const brand = await prisma.brand.findUniqueOrThrow({ where: { id: c.brandId }, select: { name: true } });
+  const meta = steps.find((s) => s.key === step) ?? steps[0]!;
+  const idx = Math.max(0, steps.findIndex((s) => s.key === step));
+  const [brand, brandIntegrations] = await Promise.all([
+    prisma.brand.findUniqueOrThrow({ where: { id: c.brandId }, select: { name: true } }),
+    prisma.brandShippingIntegration.findMany({ where: { brandId: c.brandId }, select: { senderAddress: true } }),
+  ]);
+  const brandHasSenderAddress = brandIntegrations.some((i) => Boolean(i.senderAddress));
 
   let body: React.ReactNode = null;
   if (step === "temel") {
@@ -150,8 +160,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
       />
     );
   } else if (step === "urun") {
-    const cfg = await getCampaignShippingConfig(c.id);
-    body = <ProductShippingStep id={c.id} backHref={backHref} initial={cfg} />;
+    body = <ProductShippingStep id={c.id} backHref={backHref} initial={cfg} hasBrandSenderAddress={brandHasSenderAddress} />;
   } else if (step === "influencer") {
     const rows = await prisma.influencer.findMany({
       // Çoklu ülke ve global influencer seçimi: vitrinde görünür tüm influencerlar listelenir, hedef ülke olanlar üstte sıralanır.
@@ -232,7 +241,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         description={`${isBrand ? "" : `${brand.name} · `}${c.status === "AKTIF" ? "Aktif" : "Taslak"}${c.submittedAt ? " · kaydedildi" : ""}. Her adımın altındaki “Kaydet ve devam” bilgileri kaydeder.`}
         actions={<CampaignDeleteButton campaignId={c.id} campaignName={c.name} />}
       />
-      <Steps base={base} active={step} done={done} />
+      <Steps base={base} active={step} done={done} includeShipping={includeShipping} />
       <Card interactive={false} className="flex flex-col gap-2">
         <div className="flex flex-col gap-1">
           <h2 className="text-section">

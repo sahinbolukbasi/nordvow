@@ -60,11 +60,52 @@ export const productVariantSchema = z.object({
 
 export const productDetailsSchema = z.object({
   name: z.string().trim().max(160).default(""),
-  description: z.string().trim().max(1000).default(""),
+  description: z.string().trim().max(2000).default(""),
   imageUrl: z.string().trim().max(500).optional().nullable(),
   estimatedValueTry: z.number().min(0).max(1_000_000).optional().nullable(),
+  productUrls: z.array(z.string().trim().max(1000)).max(20).default([]),
+  preferredCarrier: z
+    .enum(["NAVLUNGO", "YURTICI", "ARAS", "MNG", "UPS", "HEPSIJET", "KOLAY_GELSIN", "CUSTOM_MANUAL"])
+    .optional()
+    .nullable(),
   variants: z.array(productVariantSchema).max(10).default([]),
 });
+
+/** Kargo firması ve takip numarasına göre doğrudan sorgulama linki üretir. */
+export function buildCarrierTrackingUrl(
+  carrierOrProvider: string | null | undefined,
+  trackingNumber: string | null | undefined,
+): string {
+  const code = trackingNumber?.trim();
+  if (!code) return "";
+  const c = (carrierOrProvider ?? "").toUpperCase();
+  const enc = encodeURIComponent(code);
+  if (c.includes("YURTICI") || c.includes("YURTİÇİ")) {
+    return `https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=${enc}`;
+  }
+  if (c.includes("ARAS")) {
+    return `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${enc}`;
+  }
+  if (c.includes("MNG") || c.includes("DHL")) {
+    return `https://www.mngkargo.com.tr/gonderitakip?gonderiNo=${enc}`;
+  }
+  if (c.includes("UPS")) {
+    return `https://www.ups.com/track?tracknum=${enc}`;
+  }
+  if (c.includes("HEPSIJET") || c.includes("HEPSİJET")) {
+    return `https://www.hepsijet.com/gonderi-takibi/${enc}`;
+  }
+  if (c.includes("KOLAY")) {
+    return `https://kolaygelsin.com/takip?code=${enc}`;
+  }
+  if (c.includes("PTT")) {
+    return `https://gonderitakip.ptt.gov.tr/Track/Verify?q=${enc}`;
+  }
+  if (c.includes("SURAT") || c.includes("SÜRAT")) {
+    return `https://www.suratkargo.com.tr/KargoTakip/?kargotakipno=${enc}`;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(`${carrierOrProvider || "kargo"} takip ${code}`)}`;
+}
 
 export type ProductVariantDef = z.infer<typeof productVariantSchema>;
 export type ProductDetails = z.infer<typeof productDetailsSchema>;
@@ -77,6 +118,8 @@ export const campaignShippingConfigSchema = z.object({
     description: "",
     imageUrl: null,
     estimatedValueTry: null,
+    productUrls: [],
+    preferredCarrier: "YURTICI",
     variants: [],
   }),
   contentTriggerRule: z.enum(["AFTER_DELIVERY", "ANYTIME"]).default("AFTER_DELIVERY"),
@@ -209,33 +252,19 @@ export interface ICargoProvider {
   ): CargoWebhookNormalized | null;
 }
 
-export function buildCarrierTrackingUrl(provider: ShippingProvider | string, trackingNumber: string): string {
-  const code = encodeURIComponent(trackingNumber.trim());
-  switch (provider) {
-    case "NAVLUNGO":
-      return `https://app.navlungo.com/track/${code}`;
-    case "YURTICI":
-      return `https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=${code}`;
-    case "ARAS":
-      return `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${code}`;
-    case "MNG":
-      return `https://www.mngkargo.com.tr/gonderitakip?gonderino=${code}`;
-    case "UPS":
-      return `https://www.ups.com/track?loc=tr_TR&tracknum=${code}`;
-    case "HEPSIJET":
-      return `https://www.hepsijet.com/gonderi-takibi/${code}`;
-    case "KOLAY_GELSIN":
-      return `https://kolaygelsin.com/gonderi-takip?trackingNumber=${code}`;
-    default:
-      return `https://www.google.com/search?q=kargo+takip+${code}`;
-  }
-}
-
 export function parseProductDetails(raw: unknown): ProductDetails {
   const res = productDetailsSchema.safeParse(raw ?? {});
   return res.success
     ? res.data
-    : { name: "", description: "", imageUrl: null, estimatedValueTry: null, variants: [] };
+    : {
+        name: "",
+        description: "",
+        imageUrl: null,
+        estimatedValueTry: null,
+        productUrls: [],
+        preferredCarrier: "YURTICI",
+        variants: [],
+      };
 }
 
 export function parseShippingAddress(raw: unknown): ShippingAddress | null {

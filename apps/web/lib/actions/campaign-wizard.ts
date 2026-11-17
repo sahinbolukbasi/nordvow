@@ -13,7 +13,8 @@ import {
 } from "@infulancer/core/domain/campaign-draft";
 import { upsertCampaignShippingConfig } from "@infulancer/core/shipping/service";
 import { campaignShippingConfigSchema } from "@infulancer/core/shipping/types";
-import { nextStep, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
+import { nextStepFor, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
+import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, intOrNull, lines, optStr, revalidateAll, str, tags, tlToKurus } from "@/lib/action-utils";
@@ -36,7 +37,9 @@ async function finish(a: Actor, id: string, step: WizardStepKey, fd: FormData, r
   if (!res.ok) return res;
   revalidateAll();
   if (str(fd, "intent") === "stay") return { ok: true, message: "Taslak kaydedildi." };
-  const next = nextStep(step);
+  const c = await prisma.campaign.findUnique({ where: { id }, select: { objective: true } });
+  const includeShipping = c?.objective === "urun_gonderimi";
+  const next = nextStepFor(step, includeShipping);
   redirect(`${wizardBase(a.role, id)}?adim=${next ?? "ozet"}`);
 }
 

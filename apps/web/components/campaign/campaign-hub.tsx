@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button, Input, Textarea } from "@/components/ui/form";
 import { StatusDot } from "@/components/ui/status";
 import {
+  brandReviewDeliverableAction,
   deleteCampaignAction,
   influencerMarkDeliverableDoneAction,
   runCampaignStoryAgentAction,
@@ -289,32 +290,81 @@ export function CampaignHub({
                             <span className="text-[12px] font-medium text-fg">
                               {r.deliverablesDone} / {r.deliverablesTotal} {tt("tamamlandı")}
                             </span>
-                            <ul className="flex flex-col gap-1">
-                              {r.deliverableItems.map((d) => (
-                                <li key={d.id} className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                                      d.isDone
-                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                        : "bg-surface-muted text-fg-muted",
-                                    )}
-                                  >
-                                    {d.isDone ? "✓ Yaptı" : "⏳ Bekliyor"}
-                                  </span>
-                                  <span className="text-fg">{d.label}</span>
-                                  {d.postUrl ? (
-                                    <a
-                                      href={d.postUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-[11px] underline opacity-80 hover:opacity-100"
-                                    >
-                                      {tt("Paylaşım ↗")}
-                                    </a>
-                                  ) : null}
-                                </li>
-                              ))}
+                            <ul className="flex flex-col gap-1.5">
+                              {r.deliverableItems.map((d) => {
+                                const awaitingReview =
+                                  d.status === "ICERIK_YUKLENDI" ||
+                                  d.status === "YAYINLANDI" ||
+                                  d.status === "METRIK_BEKLIYOR";
+                                const isCompleted = d.status === "TAMAMLANDI";
+                                const publishedMs = d.publishedAt ? new Date(d.publishedAt).getTime() : null;
+                                const remainingHours =
+                                  publishedMs != null
+                                    ? Math.max(0, Math.ceil((publishedMs + 24 * 3_600_000 - Date.now()) / 3_600_000))
+                                    : 24;
+                                return (
+                                  <li key={d.id} className="flex flex-col gap-1 rounded-md border border-border/60 bg-surface-muted/20 px-2 py-1.5 text-[12px]">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                          isCompleted
+                                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                            : d.isDone
+                                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                              : "bg-surface-muted text-fg-muted",
+                                        )}
+                                      >
+                                        {isCompleted
+                                          ? "✓ Onaylandı / Hak Ediş"
+                                          : d.isDone
+                                            ? "✓ Yaptı (Onay Bekliyor)"
+                                            : "⏳ Bekliyor"}
+                                      </span>
+                                      <span className="text-fg">{d.label}</span>
+                                      {d.postUrl ? (
+                                        <a
+                                          href={d.postUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[11px] underline opacity-80 hover:opacity-100"
+                                        >
+                                          {tt("Paylaşım ↗")}
+                                        </a>
+                                      ) : null}
+                                    </div>
+                                    {awaitingReview ? (
+                                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                        <span className="text-[11px] text-fg-muted">
+                                          {remainingHours > 0
+                                            ? tt(`Otomatik onay: ~${remainingHours} saat`)
+                                            : tt("Otomatik onay süresi doldu")}
+                                        </span>
+                                        <ActionForm action={brandReviewDeliverableAction} className="inline-flex">
+                                          <input type="hidden" name="deliverableId" value={d.id} />
+                                          <input type="hidden" name="decision" value="ONAY" />
+                                          <button
+                                            type="submit"
+                                            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                          >
+                                            {tt("Onayla & Hak Edişe Aktar")}
+                                          </button>
+                                        </ActionForm>
+                                        <ActionForm action={brandReviewDeliverableAction} className="inline-flex">
+                                          <input type="hidden" name="deliverableId" value={d.id} />
+                                          <input type="hidden" name="decision" value="REVIZYON" />
+                                          <button
+                                            type="submit"
+                                            className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                                          >
+                                            {tt("Revizyon İste")}
+                                          </button>
+                                        </ActionForm>
+                                      </div>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </div>
                         )}

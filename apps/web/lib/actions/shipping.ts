@@ -109,6 +109,42 @@ export async function saveBrandSenderAddressAction(
   });
 }
 
+export async function saveInfluencerAddressAction(
+  _p: ActionState,
+  fd: FormData,
+): Promise<ActionState> {
+  const actor = await requireActor("INFLUENCER");
+  return attempt(async () => {
+    const label = optStr(fd, "label") ?? "Varsayılan Adres";
+    const recipientName = str(fd, "recipientName");
+    const recipientPhone = str(fd, "recipientPhone");
+    const addressLine = str(fd, "addressLine");
+    const city = str(fd, "city");
+    const district = str(fd, "district");
+    const postalCode = optStr(fd, "postalCode");
+
+    await prisma.influencerAddress.updateMany({
+      where: { influencerId: actor.influencerId!, isDefault: true },
+      data: { isDefault: false },
+    });
+    await prisma.influencerAddress.create({
+      data: {
+        influencerId: actor.influencerId!,
+        label,
+        recipientName,
+        recipientPhone,
+        addressLine,
+        city,
+        district,
+        postalCode,
+        isDefault: true,
+      },
+    });
+    revalidateAll();
+    return { ok: true, message: "Teslimat adresiniz kaydedildi." };
+  });
+}
+
 export async function saveCampaignShippingConfigAction(
   campaignId: string,
   input: {
@@ -119,6 +155,17 @@ export async function saveCampaignShippingConfigAction(
       description: string;
       imageUrl?: string | null;
       estimatedValueTry?: number | null;
+      productUrls?: string[];
+      preferredCarrier?:
+        | "NAVLUNGO"
+        | "YURTICI"
+        | "ARAS"
+        | "MNG"
+        | "UPS"
+        | "HEPSIJET"
+        | "KOLAY_GELSIN"
+        | "CUSTOM_MANUAL"
+        | null;
       variants: { label: string; options: string[] }[];
     };
     contentTriggerRule: "AFTER_DELIVERY" | "ANYTIME";
@@ -127,7 +174,13 @@ export async function saveCampaignShippingConfigAction(
 ): Promise<ActionState> {
   await requireActor("BRAND", "ADMIN");
   return attempt(async () => {
-    await upsertCampaignShippingConfig(campaignId, input);
+    await upsertCampaignShippingConfig(campaignId, {
+      ...input,
+      productDetails: {
+        ...input.productDetails,
+        productUrls: input.productDetails.productUrls ?? [],
+      },
+    });
     revalidateAll();
     return { ok: true, message: "Ürün gönderim ayarları kaydedildi." };
   });

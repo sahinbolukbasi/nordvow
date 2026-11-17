@@ -8,7 +8,7 @@ import {
 import { Button, Input, Select } from "@/components/ui/form";
 import { Card } from "@/components/ui/card";
 import type { ShipmentStatus, ShippingMode, ShippingProvider } from "@infulancer/core/enums";
-import { shipmentStatusLabels } from "@infulancer/core/shipping/types";
+import { buildCarrierTrackingUrl, shipmentStatusLabels } from "@infulancer/core/shipping/types";
 import type { BrandIntegrationRow } from "./brand-integrations-panel";
 
 export type DashboardShipmentRow = {
@@ -319,14 +319,14 @@ export function CampaignShippingDashboard({
                               {s.carrierName ?? "Kargo"} · {s.trackingNumber}
                             </span>
                             <div className="flex gap-2 text-[11px]">
-                              {s.trackingUrl ? (
+                              {(s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber)) ? (
                                 <a
-                                  href={s.trackingUrl}
+                                  href={(s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber))!}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="underline underline-offset-2 text-fg-muted hover:text-fg"
                                 >
-                                  Takip Et
+                                  Takip Et ↗
                                 </a>
                               ) : null}
                               {s.barcodeLabelUrl ? (

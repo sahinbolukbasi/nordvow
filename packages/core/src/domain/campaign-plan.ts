@@ -31,6 +31,19 @@ export function prevStep(k: WizardStepKey): WizardStepKey | null {
   const i = WIZARD_STEPS.findIndex((s) => s.key === k);
   return i > 0 ? WIZARD_STEPS[i - 1]!.key : null;
 }
+export function visibleWizardSteps(includeShipping: boolean) {
+  return includeShipping ? WIZARD_STEPS : WIZARD_STEPS.filter((s) => s.key !== "urun");
+}
+export function nextStepFor(k: WizardStepKey, includeShipping: boolean): WizardStepKey | null {
+  const steps = visibleWizardSteps(includeShipping);
+  const i = steps.findIndex((s) => s.key === k);
+  return i >= 0 ? (steps[i + 1]?.key ?? null) : nextStep(k);
+}
+export function prevStepFor(k: WizardStepKey, includeShipping: boolean): WizardStepKey | null {
+  const steps = visibleWizardSteps(includeShipping);
+  const i = steps.findIndex((s) => s.key === k);
+  return i > 0 ? steps[i - 1]!.key : null;
+}
 
 export const OBJECTIVES = [
   { id: "bilinirlik", title: "Bilinirlik", text: "Geniş kitleye ulaş" },

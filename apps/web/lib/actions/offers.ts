@@ -178,12 +178,62 @@ export async function respondOfferAction(_p: ActionState, fd: FormData): Promise
       if (users.length) await tx.notification.createMany({ data: users.map((u) => ({ userId: u.id, title: `${inf.name} teklifinizi ${label}`, body: input.note ?? o.title, href: "/marka/teklifler" })) });
       await notifyAdmins(tx, { title: `Teklif ${label}: ${inf.name}`, body: input.decision === "KABUL" ? "Kampanyaya eklemek için Teklifler sayfasına gidin." : (input.note ?? ""), href: "/admin/teklifler" });
     });
+    let targetDeliverableId: string | null = null;
+    if (input.decision === "KABUL" && o.campaignId) {
+      const existingAssign = await prisma.assignment.findFirst({
+        where: { campaignId: o.campaignId, influencerId: actor.influencerId! },
+        include: { deliverables: { where: { status: { not: "IPTAL" } }, orderBy: { plannedAt: "asc" }, take: 1, select: { id: true } } },
+      });
+      if (existingAssign?.deliverables[0]) {
+        targetDeliverableId = existingAssign.deliverables[0].id;
+        if (existingAssign.contractStatus !== "KABUL") {
+          await prisma.assignment.update({ where: { id: existingAssign.id }, data: { contractStatus: "KABUL" } });
+        }
+      } else {
+        const camp = await prisma.campaign.findUnique({ where: { id: o.campaignId }, select: { startsAt: true, endsAt: true, platforms: true } });
+        const firstItem = Array.isArray(o.items) ? (o.items[0] as { platform?: string; contentType?: string } | undefined) : undefined;
+        const platform = (firstItem?.platform === "TIKTOK" || firstItem?.platform === "YOUTUBE" ? firstItem.platform : camp?.platforms[0] ?? "INSTAGRAM") as "INSTAGRAM" | "TIKTOK" | "YOUTUBE";
+        const contentType = (firstItem?.contentType ?? (platform === "TIKTOK" ? "VIDEO" : platform === "YOUTUBE" ? "SHORTS" : "REELS")) as "REELS" | "VIDEO" | "SHORTS";
+        const assign = existingAssign ?? (await prisma.assignment.create({
+          data: {
+            campaignId: o.campaignId,
+            influencerId: actor.influencerId!,
+            feeKurus: o.totalKurus,
+            commissionKurus: 0,
+            contractStatus: "KABUL",
+          },
+        }));
+        const d = await prisma.deliverable.create({
+          data: {
+            assignmentId: assign.id,
+            platform,
+            contentType,
+            status: "ATANDI",
+            disclosureRequired: false,
+            plannedAt: o.publishBy ?? camp?.endsAt ?? new Date(Date.now() + 7 * 86_400_000),
+            approvalDeadline: camp?.startsAt ?? new Date(),
+          },
+        });
+        targetDeliverableId = d.id;
+      }
+    }
     await audit.append({ actor: toAuditActor(actor), action: input.decision === "KABUL" ? "OFFER_ACCEPTED" : "OFFER_DECLINED", entityType: "Offer", entityId: o.id, data: { note: input.note } });
     revalidateAll();
-    return { ok: true, message: input.decision, data: { decision: input.decision } };
+    return {
+      ok: true,
+      message: input.decision,
+      data: {
+        decision: input.decision,
+        ...(targetDeliverableId ? { targetDeliverableId } : {}),
+      },
+    };
   });
-  // Yanıtlanan teklif "bekleyen" listesinden düşer; sonuç sayfa üstünde gösterilsin diye yönlendirilir.
-  if (res.ok) redirect(`/influencer/teklifler?sonuc=${res.data?.decision === "KABUL" ? "kabul" : "red"}&sekme=gecmis`);
+  if (res.ok) {
+    if (res.data?.decision === "KABUL" && res.data?.targetDeliverableId) {
+      redirect(`/influencer/isler/${res.data.targetDeliverableId}`);
+    }
+    redirect(`/influencer/teklifler?sonuc=${res.data?.decision === "KABUL" ? "kabul" : "red"}&sekme=gecmis`);
+  }
   return res;
 }
 

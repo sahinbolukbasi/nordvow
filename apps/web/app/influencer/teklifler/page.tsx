@@ -1,5 +1,6 @@
 import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { creativePricing } from "@infulancer/core/creative/pricing";
@@ -30,14 +31,29 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
   const { sekme, sonuc } = await searchParams;
   const id = actor.influencerId!;
   const now = new Date();
-  const [offers, open, mine, me, pricing, savedAddresses] = await Promise.all([
+  const [offers, open, mine, me, pricing, savedAddresses, myAssignments] = await Promise.all([
     prisma.offer.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
     prisma.campaignOpenCall.findMany({ where: { status: "ACIK", OR: [{ deadline: null }, { deadline: { gte: now } }] }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.campaignApplication.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, include: { openCall: { select: { title: true, tenantId: true } } } }),
     prisma.influencer.findUnique({ where: { id }, select: { country: true } }),
     creativePricing(),
     listInfluencerAddresses(id),
+    prisma.assignment.findMany({
+      where: { influencerId: id, contractStatus: "KABUL" },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: {
+        campaign: { select: { id: true, name: true, status: true, startsAt: true, endsAt: true, brand: { select: { name: true } } } },
+        deliverables: { where: { status: { not: "IPTAL" } }, orderBy: { plannedAt: "asc" }, take: 1, select: { id: true, status: true } },
+      },
+    }),
   ]);
+  const deliverableByCampaign = new Map<string, string>();
+  for (const a of myAssignments) {
+    if (a.deliverables[0]) deliverableByCampaign.set(a.campaignId, a.deliverables[0].id);
+  }
+  const activeCampaigns = myAssignments.filter((a) => a.campaign.status === "AKTIF" || a.campaign.status === "TASLAK");
+  const completedCampaigns = myAssignments.filter((a) => a.campaign.status === "KAPANDI" || a.campaign.status === "IPTAL");
   const offerCampaignIds = [...new Set(offers.map((o) => o.campaignId).filter((x): x is string => Boolean(x)))];
   const shippingConfigs = new Map(
     (
@@ -129,20 +145,27 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                   {fmtDate(o.createdAt)} {expiryText(o.expiresAt, o.status)}
                   {o.responseNote ? ` · Not: ${o.responseNote}` : ""}
                 </span>
-                {actionable && (o.status === "GONDERILDI" || (o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) ? (
-                  shipCfg && productDetails ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <OfferAcceptWithShipment
-                        offerId={o.id}
-                        productDetails={productDetails}
-                        savedAddresses={savedAddresses}
-                      />
+                <div className="flex flex-wrap items-center gap-2">
+                  {o.campaignId && deliverableByCampaign.get(o.campaignId) ? (
+                    <ButtonLink href={`/influencer/isler/${deliverableByCampaign.get(o.campaignId)}`} variant="secondary" size="sm">
+                      {tt("Kampanyaya Git →")}
+                    </ButtonLink>
+                  ) : null}
+                  {actionable && (o.status === "GONDERILDI" || (o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) ? (
+                    shipCfg && productDetails ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <OfferAcceptWithShipment
+                          offerId={o.id}
+                          productDetails={productDetails}
+                          savedAddresses={savedAddresses}
+                        />
+                        <RespondOffer id={o.id} />
+                      </div>
+                    ) : (
                       <RespondOffer id={o.id} />
-                    </div>
-                  ) : (
-                    <RespondOffer id={o.id} />
-                  )
-                ) : null}
+                    )
+                  ) : null}
+                </div>
               </div>
             </li>
           );
@@ -227,9 +250,64 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
         defaultTab={defaultTab}
         tabs={[
           { id: "gelen", label: `Yanıt bekleyen (${pending.length})`, content: offerCards(pending, true, "Yanıt bekleyen teklif yok. Fiyat listenizi doldurun; markalar sizi bulsun.") },
+          {
+            id: "aktif",
+            label: `Aktif Kampanyalar (${activeCampaigns.length})`,
+            content: activeCampaigns.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-[13px] text-fg-muted">{tt("Şu an aktif kampanyanız bulunmuyor.")}</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {activeCampaigns.map((a) => {
+                  const href = a.deliverables[0] ? `/influencer/isler/${a.deliverables[0].id}` : "/influencer";
+                  return (
+                    <li key={a.id}>
+                      <Link href={href} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-4 transition-standard hover:border-fg/40">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs text-fg-muted">{a.campaign.brand.name}</span>
+                          <span className="text-[15px] font-semibold text-fg">{a.campaign.name}</span>
+                          <span className="text-xs text-fg-passive">{fmtDate(a.campaign.startsAt)} – {fmtDate(a.campaign.endsAt)}</span>
+                        </div>
+                        <span className="text-xs font-medium text-fg underline underline-offset-4">{tt("Kampanyayı Aç →")}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            ),
+          },
           { id: "cagrilar", label: `Açık çağrılar (${openNotApplied.length})`, content: calls },
           { id: "basvurularim", label: `Başvurularım (${mine.length})`, content: applications },
-          { id: "gecmis", label: `Tüm teklifler (${offers.length})`, content: offerCards(offers, false, "Henüz teklif yok.") },
+          {
+            id: "gecmis",
+            label: `Geçmiş & Tamamlananlar (${offers.length + completedCampaigns.length})`,
+            content: (
+              <div className="flex flex-col gap-5">
+                {completedCampaigns.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    <h2 className="text-sm font-semibold text-fg">{tt("Tamamlanan / Geçmiş Kampanyalar")}</h2>
+                    <ul className="flex flex-col gap-2">
+                      {completedCampaigns.map((a) => {
+                        const href = a.deliverables[0] ? `/influencer/isler/${a.deliverables[0].id}` : "/influencer";
+                        return (
+                          <li key={a.id}>
+                            <Link href={href} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-4 transition-standard hover:border-fg/40">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-xs text-fg-muted">{a.campaign.brand.name}</span>
+                                <span className="text-[15px] font-semibold text-fg">{a.campaign.name}</span>
+                                <span className="text-xs text-fg-passive">{fmtDate(a.campaign.startsAt)} – {fmtDate(a.campaign.endsAt)}</span>
+                              </div>
+                              <span className="text-xs font-medium text-fg underline underline-offset-4">{tt("Detaya Git →")}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+                {offerCards(offers, false, "Henüz teklif yok.")}
+              </div>
+            ),
+          },
         ]}
       />
     </div>
