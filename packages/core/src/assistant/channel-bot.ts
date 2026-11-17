@@ -42,7 +42,7 @@ type LinkedUser = {
 
 type LinkRecord = { userId: string; linkedAt: string; via?: string };
 type OtpRecord = { userId: string; code: string; expiresAt: number };
-export type BotTurnMeta = { username?: string | null };
+export type BotTurnMeta = { username?: string | null; isFirst?: boolean };
 
 const USER_SELECT = { id: true, name: true, email: true, role: true, brandId: true, influencerId: true } as const;
 const APP_BASE = () => envStr("APP_URL", "https://nordvow.com").replace(/\/$/, "");
@@ -116,14 +116,36 @@ async function matchByInstagram(username: string | null | undefined): Promise<Li
       OR: [
         { handle: { equals: u, mode: "insensitive" } },
         { handle: { equals: `@${u}`, mode: "insensitive" } },
-        { profileUrl: { contains: `instagram.com/${u}`, mode: "insensitive" } },
+        { profileUrl: { endsWith: `/${u}`, mode: "insensitive" } },
+        { profileUrl: { endsWith: `/${u}/`, mode: "insensitive" } },
       ],
     },
     select: { influencerId: true },
-    take: 2,
+    take: 5,
   });
-  if (accounts.length !== 1) return null;
-  return prisma.user.findFirst({ where: { influencerId: accounts[0]!.influencerId, status: "ACTIVE" }, select: USER_SELECT });
+  const infIds = [...new Set(accounts.map((a) => a.influencerId))];
+  if (infIds.length === 1) {
+    const active = await prisma.user.findFirst({ where: { influencerId: infIds[0]!, status: "ACTIVE" }, select: USER_SELECT });
+    if (active) return active;
+  }
+  const apps = await prisma.signupApplication.findMany({
+    where: { status: "APPROVED", user: { status: "ACTIVE" } },
+    select: { user: { select: USER_SELECT }, data: true },
+    take: 500,
+  });
+  const uLow = u.toLocaleLowerCase("en");
+  const matchedUsers = apps
+    .filter((a) => {
+      const ig = String((a.data as Record<string, unknown> | null)?.instagram ?? "")
+        .trim()
+        .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "")
+        .replace(/^@/, "")
+        .replace(/\/.*$/, "")
+        .toLocaleLowerCase("en");
+      return ig === uLow;
+    })
+    .map((a) => a.user);
+  return matchedUsers.length === 1 ? matchedUsers[0]! : null;
 }
 
 async function resolveLinkedUser(contact: BotContact, meta: BotTurnMeta): Promise<{ user: LinkedUser | null; justMatched: boolean }> {
@@ -242,6 +264,68 @@ async function balanceData(u: LinkedUser, tenantId: string): Promise<string> {
   return `${s} Panel: ${APP_BASE()}/creative`;
 }
 
+async function couponsData(u: LinkedUser): Promise<string> {
+  const base = APP_BASE();
+  if (u.role === "INFLUENCER" && u.influencerId) {
+    const grants = await prisma.couponGrant.findMany({
+      where: { influencerId: u.influencerId },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: { coupon: { select: { title: true, valueType: true, value: true, validUntil: true } } },
+    });
+    if (!grants.length) return `Henüz tanımlanmış bir kuponun yok. Kuponlar ve davetler: ${base}/influencer/davetlerim`;
+    const lines = grants.map((g, i) => {
+      const val = g.coupon.valueType === "YUZDE" ? `%${g.coupon.value}` : formatKurus(Number(g.coupon.value));
+      return `${i + 1}. ${g.coupon.title} (${val}) · Kod: ${g.code} · Durum: ${g.status} · Kart: ${base}/kupon/${g.id}`;
+    });
+    return `Kuponların:\n${lines.join("\n")}\nTümü: ${base}/influencer/davetlerim`;
+  }
+  const link = u.role === "BRAND" ? `${base}/marka/kuponlar` : `${base}/admin/kuponlar`;
+  return `Kupon yönetimi panelin: ${link}`;
+}
+
+async function eventsData(u: LinkedUser): Promise<string> {
+  const base = APP_BASE();
+  if (u.role === "INFLUENCER" && u.influencerId) {
+    const invites = await prisma.eventInvite.findMany({
+      where: { OR: [{ influencerId: u.influencerId }, { userId: u.id }] },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: {
+        event: { select: { id: true, title: true, startsAt: true, venueName: true } },
+        ticket: { select: { id: true, code: true, status: true } },
+      },
+    });
+    if (!invites.length) return `Henüz etkinlik davetin veya biletin yok. Etkinlikler ve davetler: ${base}/influencer/davetlerim`;
+    const lines = invites.map((inv, i) => {
+      const dateStr = inv.event.startsAt.toLocaleDateString("tr-TR");
+      const ticketStr = inv.ticket ? `Bilet: ${base}/bilet/${inv.ticket.id} (${inv.ticket.status})` : `Davet durumu: ${inv.status}`;
+      return `${i + 1}. ${inv.event.title} (${dateStr}${inv.event.venueName ? ` · ${inv.event.venueName}` : ""}) — ${ticketStr}`;
+    });
+    return `Etkinliklerin ve biletlerin:\n${lines.join("\n")}\nTümü: ${base}/influencer/davetlerim`;
+  }
+  const link = u.role === "BRAND" ? `${base}/marka/etkinlikler` : `${base}/admin/etkinlikler`;
+  return `Etkinlik yönetimi panelin: ${link}`;
+}
+
+async function notificationsData(u: LinkedUser): Promise<string> {
+  const base = APP_BASE();
+  const rows = await prisma.notification.findMany({
+    where: { userId: u.id },
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    select: { title: true, body: true, href: true, readAt: true, createdAt: true },
+  });
+  const panel = u.role === "INFLUENCER" ? `${base}/influencer` : u.role === "BRAND" ? `${base}/marka` : `${base}/admin`;
+  if (!rows.length) return `Yeni bildirimin yok. Panelin: ${panel}`;
+  const lines = rows.map((n, i) => {
+    const badge = n.readAt ? "" : "[Yeni] ";
+    const link = n.href ? ` · ${n.href.startsWith("http") ? n.href : `${base}${n.href}`}` : "";
+    return `${i + 1}. ${badge}${n.title}: ${n.body}${link}`;
+  });
+  return `Son bildirimlerin:\n${lines.join("\n")}\nPanel: ${panel}`;
+}
+
 async function watchCreativeAndNotify(tenantId: string, convId: string, jobId: string, userId: string) {
   for (let i = 0; i < 36; i++) {
     await new Promise((r) => setTimeout(r, 5000));
@@ -271,6 +355,9 @@ type Intent =
   | "offer_respond"
   | "jobs"
   | "balance"
+  | "coupons"
+  | "events"
+  | "notifications"
   | "shorten"
   | "create_image"
   | "create_video"
@@ -281,32 +368,35 @@ type Intent =
 
 type AiDecision = { intent: Intent; args: Record<string, unknown>; reply: string };
 
-function systemPrompt(user: LinkedUser | null, channel: ChannelProvider, contactName: string | null, justMatched: boolean): string {
+function systemPrompt(user: LinkedUser | null, channel: ChannelProvider, contactName: string | null, justMatched: boolean, isFirst = false): string {
   const base = APP_BASE();
   const who = user
-    ? `Konuştuğun kişi TANINDI: ${user.name} (${ROLE_TR[user.role]}). ${justMatched ? "Bu ilk tanıma; ona adıyla sıcak bir şekilde hitap et ve hesabını tanıdığını kısaca belirt." : "Ona adıyla hitap edebilirsin."}`
-    : `Konuştuğun kişi sistemde henüz tanınmadı${contactName ? ` (görünen adı: ${contactName})` : ""}. Kayıtlıysa e-postasını yazarak hesabını bağlayabileceğini doğal bir dille söyle; değilse platformu kısaca tanıt ve ${base}/giris adresine yönlendir.`;
+    ? `Konuştuğun kişi TANINDI: ${user.name} (${ROLE_TR[user.role]}). ${justMatched || isFirst ? `Bu ilk tanıma/hoş geldin mesajı; ona adıyla sıcak bir şekilde "Nordvow'a hoş geldin!" de, hesabını tanıdığını belirt ve buradan Nordvow AI'a istediğini sorabileceğini (marka iş birlikleri, teklifler, kuponlar, etkinlik biletleri, bildirimler ve tüm sistem işlemleri) söyle, panel linkini (${base}) paylaş.` : "Ona adıyla hitap edebilirsin."}`
+    : `Konuştuğun kişi sistemde henüz tanınmadı${contactName ? ` (görünen adı: ${contactName})` : ""}. ${isFirst ? "Ona sıcak bir şekilde Nordvow'a hoş geldin de ve buradan Nordvow AI'a istediğini sorabileceğini belirt. " : ""}Kayıtlıysa sisteme kayıtlı e-postasını veya @instagram kullanıcı adını yazarak hesabını bağlayabileceğini söyle; kayıtlı değilse ${base}/giris adresine yönlendir.`;
   return [
-    `Sen Nordvow'un ${channel === "WHATSAPP" ? "WhatsApp" : "Instagram"} hattındaki asistanısın. Nordvow; markaları, ajansları ve influencerları buluşturan, kampanya/teklif yönetimi ve AI Creative Stüdyo (görsel/video üretimi) sunan bir platformdur. Site: ${base}.`,
+    `Sen Nordvow AI — Nordvow'un ${channel === "WHATSAPP" ? "WhatsApp" : "Instagram"} hattındaki akıllı asistanısın. Nordvow; markaları, ajansları ve influencerları buluşturan, kampanya/teklif yönetimi, kupon/etkinlik bileti, bildirim ve AI Creative Stüdyo (görsel/video üretimi) sunan bir platformdur. Site: ${base}.`,
     who,
-    `ÜSLUP: Karşında gerçek bir müşteri temsilcisi varmış gibi samimi, doğal, kısa ve akıcı Türkçe yaz. Robotik liste/menü dökme, madde işaretlerini yalnız gerçekten gerekirse kullan. 1-3 cümle yeterli. Emoji ölçülü (en fazla 1). Kullanıcının dilinde yanıt ver. Doğrudan "bot musun" diye sorulursa dürüstçe Nordvow'un dijital asistanı olduğunu söyle. Asla kart/şifre/IBAN isteme. Bilmediğin konuda uydurma; ekibe ileteceğini söyle.`,
+    `ÜSLUP: Karşında gerçek bir müşteri temsilcisi varmış gibi samimi, doğal, kısa ve akıcı Türkçe yaz. Robotik liste/menü dökme, madde işaretlerini yalnız gerçekten gerekirse kullan. 1-3 cümle yeterli. Emoji ölçülü (en fazla 1). Kullanıcının dilinde yanıt ver. Doğrudan "bot musun" diye sorulursa dürüstçe Nordvow AI dijital asistanı olduğunu söyle. Asla kart/şifre/IBAN isteme. Bilmediğin konuda uydurma; ekibe ileteceğini söyle.`,
     `Kullanıcının mesajından NİYETİ çıkar ve SADECE şu JSON'u döndür (başka metin yok):`,
     `{"intent":"<niyet>","args":{...},"reply":"<kullanıcıya gidecek doğal yanıt>"}`,
     `Niyetler:`,
-    `- chat: selamlaşma, sohbet, genel soru, platform hakkında bilgi (reply'ı sen yaz)`,
-    `- offers: teklifleri görmek istiyor`,
+    `- chat: selamlaşma, sohbet, genel soru, Nordvow AI / platform hakkında bilgi (reply'ı sen yaz, uygun sayfa linkini ver)`,
+    `- offers: marka iş birliklerini / teklifleri görmek istiyor`,
     `- offer_respond: bir teklifi kabul/red ediyor. args: {"index": <1'den başlayan sıra>, "decision": "KABUL"|"RED", "note": "<varsa neden>"}`,
     `- jobs: işlerini / kampanyalarını soruyor`,
     `- balance: bakiye, kredi, ödeme durumunu soruyor`,
+    `- coupons: kuponlarını / hediye çeklerini soruyor`,
+    `- events: etkinlik davetlerini / biletlerini soruyor`,
+    `- notifications: bildirimlerini soruyor`,
     `- shorten: link kısaltmak istiyor. args: {"url": "<https://...>"}`,
     `- create_image: görsel/resim üretmek istiyor. args: {"prompt": "<ayrıntılı üretim açıklaması>", "aspect": "9:16"|"1:1"|"4:5"|"16:9"}`,
     `- create_video: video üretmek istiyor. args: {"prompt": "...", "aspect": "..."}`,
-    `- link_account: hesabını bağlamak istiyor ve e-posta verdi. args: {"email": "<eposta>"}  (e-posta yoksa intent=chat ve e-postasını iste)`,
+    `- link_account: hesabını bağlamak istiyor ve e-posta veya @instagram kullanıcı adı verdi. args: {"email": "<eposta>", "instagram": "<kullanici_adi>"}  (ikisi de yoksa intent=chat ve e-postasını veya @kullanıcı adını iste)`,
     `- lead: marka/influencer başvurusu, iş birliği talebi, şikayet veya ekibin ilgilenmesi gereken talep. args: {"summary": "<kısa özet>"}`,
     `- human: açıkça bir yetkiliyle/insanla görüşmek istiyor`,
     `- unlink: hesap bağlantısını kaldırmak istiyor`,
-    user ? `Tanınan kullanıcı için offers/jobs/balance/shorten/create_* kullanılabilir.` : `Tanınmayan kullanıcı için offers/jobs/balance/shorten/create_* yerine intent=chat seç ve önce hesabını bağlamasını iste.`,
-    `Bilgi gerektiren niyetlerde (offers, jobs, balance) reply kısa bir geçiş cümlesi olsun; verileri sistem ekleyecek.`,
+    user ? `Tanınan kullanıcı için offers/jobs/balance/coupons/events/notifications/shorten/create_* kullanılabilir.` : `Tanınmayan kullanıcı için offers/jobs/balance/coupons/events/notifications/shorten/create_* yerine intent=chat seç ve önce hesabını bağlamasını iste.`,
+    `Bilgi gerektiren niyetlerde (offers, jobs, balance, coupons, events, notifications) reply kısa bir geçiş cümlesi olsun; verileri sistem ekleyecek.`,
   ].join("\n");
 }
 
@@ -318,12 +408,12 @@ async function history(convId: string): Promise<ChatTurn[]> {
     .map((r) => ({ role: r.direction === "INBOUND" ? ("user" as const) : ("assistant" as const), text: r.body!.slice(0, 600) }));
 }
 
-async function decide(user: LinkedUser | null, channel: ChannelProvider, contact: BotContact, convId: string, text: string, justMatched: boolean): Promise<AiDecision | null> {
+async function decide(user: LinkedUser | null, channel: ChannelProvider, contact: BotContact, convId: string, text: string, justMatched: boolean, isFirst = false): Promise<AiDecision | null> {
   if (envStr("LLM_PROVIDER", "mock") !== "bedrock") return null;
   try {
     const turns = await history(convId);
     if (!turns.length || turns[turns.length - 1]!.role !== "user") turns.push({ role: "user", text });
-    const out = await converseChat({ system: systemPrompt(user, channel, contact.name, justMatched), turns, maxTokens: 350, temperature: 0.4 });
+    const out = await converseChat({ system: systemPrompt(user, channel, contact.name, justMatched, isFirst), turns, maxTokens: 350, temperature: 0.4 });
     const j = parseJsonObject(out.text);
     if (!j || typeof j.intent !== "string") return out.text.trim() ? { intent: "chat", args: {}, reply: out.text.trim().slice(0, 900) } : null;
     return { intent: j.intent as Intent, args: (j.args as Record<string, unknown>) ?? {}, reply: String(j.reply ?? "").trim() };
@@ -356,11 +446,16 @@ function fallbackDecision(text: string, user: LinkedUser | null): AiDecision {
   const url = text.match(/https?:\/\/\S+/i)?.[0];
   const email = text.match(/[^\s@]+@[^\s@]+\.[^\s@]+/)?.[0];
   if (email) return { intent: "link_account", args: { email }, reply: "" };
+  const igHandle = !user ? text.trim().match(/^@([a-z0-9._]{2,30})$/i)?.[1] : undefined;
+  if (igHandle) return { intent: "link_account", args: { instagram: igHandle }, reply: "" };
   if (/^(cikis|baglantiyi kes)$/.test(n)) return { intent: "unlink", args: {}, reply: "" };
   if (user) {
     const offer = n.match(/teklif\w*\s+(kabul|red)\w*\s+(\d+)\s*(.*)$/);
     if (offer) return { intent: "offer_respond", args: { decision: offer[1] === "kabul" ? "KABUL" : "RED", index: Number(offer[2]), note: offer[3] }, reply: "" };
-    if (n.includes("teklif")) return { intent: "offers", args: {}, reply: "" };
+    if (n.includes("teklif") || n.includes("is birlig") || n.includes("isbirlig")) return { intent: "offers", args: {}, reply: "" };
+    if (/(kupon|hediye cek)/.test(n)) return { intent: "coupons", args: {}, reply: "" };
+    if (/(etkinlik|bilet|davet)/.test(n)) return { intent: "events", args: {}, reply: "" };
+    if (/(bildirim|duyuru|haber)/.test(n)) return { intent: "notifications", args: {}, reply: "" };
     if (/(isler|islerim|kampanya)/.test(n)) return { intent: "jobs", args: {}, reply: "" };
     if (/(bakiye|kredi)/.test(n)) return { intent: "balance", args: {}, reply: "" };
     if (url && /(kisalt|link)/.test(n)) return { intent: "shorten", args: { url }, reply: "" };
@@ -368,8 +463,10 @@ function fallbackDecision(text: string, user: LinkedUser | null): AiDecision {
     if (cr) return { intent: norm(cr[1]!) === "video" ? "create_video" : "create_image", args: { prompt: cr[2] }, reply: "" };
   }
   if (/(yetkili|insan|temsilci|canli destek)/.test(n)) return { intent: "human", args: {}, reply: "" };
-  if (text.length >= 25) return { intent: "lead", args: { summary: text.slice(0, 300) }, reply: "" };
-  const hi = user ? `Merhaba ${firstName(user.name)}! Nasıl yardımcı olabilirim? Tekliflerini, işlerini, kredini sorabilir ya da görsel/video üretmemi isteyebilirsin.` : `Merhaba, Nordvow'a hoş geldiniz! Size nasıl yardımcı olabilirim? Kayıtlıysanız e-posta adresinizi yazarak hesabınızı bağlayabilirsiniz; değilseniz ${APP_BASE()}/giris adresinden başlayabilirsiniz.`;
+  if (text.length >= 25 && !/(merhaba|selam|nasilsin|nordvow|yardim)/.test(n)) return { intent: "lead", args: { summary: text.slice(0, 300) }, reply: "" };
+  const hi = user
+    ? `Nordvow'a hoş geldin ${firstName(user.name)}! Buradan Nordvow AI'a istediğini sorabilirsin — marka iş birliklerin, tekliflerin, kuponların, etkinlik biletlerin, bildirimlerin veya görsel/video üretimi için yazman yeterli. Panel: ${APP_BASE()}`
+    : `Nordvow'a hoş geldin! Buradan Nordvow AI'a istediğini sorabilirsin. Kayıtlıysan e-posta adresini veya @instagram kullanıcı adını yazarak hesabını bağlayabilirsin; değilsen ${APP_BASE()}/giris adresinden başlayabilirsin.`;
   return { intent: "chat", args: {}, reply: hi };
 }
 
@@ -403,19 +500,19 @@ export async function handleChannelBotTurn(
       await remember(contact, otp.userId, "otp");
       await prisma.configValue.deleteMany({ where: { key: otpKey(channel, contact.externalId) } });
       const u = await prisma.user.findFirst({ where: { id: otp.userId }, select: { name: true } });
-      await reply(tenantId, convId, `Harika, hesabın bağlandı ${firstName(u?.name)}! ✅ Artık tekliflerini, işlerini, kredini buradan sorabilir, görsel ya da video ürettirebilirsin.`);
+      await reply(tenantId, convId, `Harika, hesabın bağlandı ${firstName(u?.name)}! ✅ Artık buradan Nordvow AI'a istediğini sorabilirsin — marka iş birliklerin, tekliflerin, kuponların, etkinlik biletlerin ve tüm sistem işlemlerin için yazman yeterli. Panel: ${APP_BASE()}`);
       return { handled: true };
     }
   }
 
   const { user, justMatched } = await resolveLinkedUser(contact, meta);
-  const d = (await decide(user, channel, contact, convId, text, justMatched)) ?? fallbackDecision(text, user);
+  const d = (await decide(user, channel, contact, convId, text, justMatched, meta.isFirst)) ?? fallbackDecision(text, user);
   const lead = d.reply;
 
   // Tanınmayan kullanıcı veri/eylem isterse önce bağlama
-  const needsUser: Intent[] = ["offers", "offer_respond", "jobs", "balance", "shorten", "create_image", "create_video"];
+  const needsUser: Intent[] = ["offers", "offer_respond", "jobs", "balance", "coupons", "events", "notifications", "shorten", "create_image", "create_video"];
   if (!user && needsUser.includes(d.intent)) {
-    await reply(tenantId, convId, lead || `Bunu yapabilmem için önce hesabını tanımam gerekiyor. Nordvow'a kayıtlı e-posta adresini yazar mısın? Hesabın yoksa ${APP_BASE()}/giris adresinden hemen oluşturabilirsin.`);
+    await reply(tenantId, convId, lead || `Bunu yapabilmem için önce hesabını tanımam gerekiyor. Nordvow'a kayıtlı e-posta adresini veya @instagram kullanıcı adını yazar mısın? Hesabın yoksa ${APP_BASE()}/giris adresinden hemen oluşturabilirsin.`);
     return { handled: true };
   }
 
@@ -427,9 +524,16 @@ export async function handleChannelBotTurn(
     }
     case "link_account": {
       const email = String(d.args.email ?? "").trim().toLowerCase();
-      const u = email ? await prisma.user.findFirst({ where: { email, status: "ACTIVE" }, select: { id: true } }) : null;
+      const igArg = String(d.args.instagram ?? "").trim().replace(/^@/, "");
+      let u: { id: string } | null = email
+        ? await prisma.user.findFirst({ where: { email, status: "ACTIVE" }, select: { id: true } })
+        : null;
+      if (!u && igArg) {
+        const matched = await matchByInstagram(igArg);
+        if (matched) u = { id: matched.id };
+      }
       if (!u) {
-        await reply(tenantId, convId, `Bu e-postayla aktif bir Nordvow hesabı bulamadım. Adresi kontrol eder misin? Hesabın yoksa ${APP_BASE()}/giris üzerinden kaydolabilirsin.`);
+        await reply(tenantId, convId, `Bu bilgiyle aktif bir Nordvow hesabı bulamadım. Kayıtlı e-posta adresini veya @instagram kullanıcı adını kontrol eder misin? Hesabın yoksa ${APP_BASE()}/giris üzerinden kaydolabilirsin.`);
         return { handled: true };
       }
       const otp = String(randomInt(100000, 999999));
@@ -472,6 +576,18 @@ export async function handleChannelBotTurn(
     }
     case "balance": {
       await reply(tenantId, convId, await phrase(user, text, await balanceData(user!, tenantId)));
+      return { handled: true };
+    }
+    case "coupons": {
+      await reply(tenantId, convId, await phrase(user, text, await couponsData(user!)));
+      return { handled: true };
+    }
+    case "events": {
+      await reply(tenantId, convId, await phrase(user, text, await eventsData(user!)));
+      return { handled: true };
+    }
+    case "notifications": {
+      await reply(tenantId, convId, await phrase(user, text, await notificationsData(user!)));
       return { handled: true };
     }
     case "shorten": {

@@ -3,10 +3,20 @@
 import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
 import type { BlogAudience, BlogStatus } from "@infulancer/core/enums";
-import {
-  BLOG_AUDIENCE_LABELS,
-  BLOG_CATEGORIES,
-} from "@infulancer/core/blog/service";
+
+const BLOG_CATEGORIES = [
+  "Influencer Pazarlama",
+  "Marka Stratejisi",
+  "İçerik Üretimi",
+  "Kargo & Lojistik",
+  "SEO & Büyüme",
+] as const;
+
+const BLOG_AUDIENCE_LABELS: Record<BlogAudience, string> = {
+  ALL: "Herkes (Marka & Influencer)",
+  INFLUENCER: "Influencerlar",
+  BRAND: "Markalar",
+};
 import {
   deleteBlogPostAction,
   saveBlogPostAction,

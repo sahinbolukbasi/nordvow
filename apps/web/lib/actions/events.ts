@@ -125,8 +125,8 @@ export async function inviteEventAction(_p: ActionState, fd: FormData): Promise<
       // Davet edilenlere çok kanallı bildirim.
       try {
         const full = await prisma.event.findUnique({ where: { id: eventId }, select: { title: true, startsAt: true } });
-        const invited = await prisma.influencer.findMany({ where: { id: { in: r.map((x) => x.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { select: { platform: true, handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true } } } });
-        const recipients = invited.filter((i) => i.user).map((i) => ({ userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, vars: { ad: i.name, baslik: full?.title ?? "", tarih: full ? fmtDateTime(full.startsAt) : "", link: `/influencer/davetlerim` } }));
+        const invited = await prisma.influencer.findMany({ where: { id: { in: r.map((x) => x.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { where: { platform: "INSTAGRAM" }, select: { platform: true, handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true, locale: true } } } });
+        const recipients = invited.filter((i) => i.user).map((i) => ({ userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, locale: i.user!.locale, vars: { ad: i.name, baslik: full?.title ?? "", tarih: full ? fmtDateTime(full.startsAt) : "", link: `/influencer/davetlerim` } }));
         if (recipients.length) await dispatchNotification("EVENT_INVITED", recipients);
       } catch { /* bildirim hatası daveti bozmasın */ }
       revalidateAll();
@@ -155,6 +155,28 @@ export async function respondInviteAction(_p: ActionState, fd: FormData): Promis
     if (actor.role === "BRAND" && !(await canBrandManageEvent(inv.event, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     await respondInvite(inviteId, accept, holderName);
     await audit.append({ actor: toAuditActor(actor), action: "EVENT_INVITE_RESPONSE", entityType: "EventInvite", entityId: inviteId, data: { accept } });
+    if (accept && inv.influencerId) {
+      try {
+        const ticket = await prisma.eventTicket.findUnique({ where: { inviteId }, select: { id: true, code: true } });
+        const inf = await prisma.influencer.findUnique({
+          where: { id: inv.influencerId },
+          select: { name: true, socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true, locale: true } } },
+        });
+        const ev = await prisma.event.findUnique({ where: { id: inv.event.id }, select: { title: true } });
+        if (ticket && inf?.user) {
+          await dispatchNotification("EVENT_TICKET_ISSUED", [
+            {
+              userId: inf.user.id,
+              email: inf.user.email,
+              phone: inf.user.phone,
+              instagram: inf.socialAccounts[0]?.handle ?? null,
+              locale: inf.user.locale,
+              vars: { ad: inf.name, baslik: ev?.title ?? "Etkinlik", kod: ticket.code, link: `/bilet/${ticket.id}` },
+            },
+          ]);
+        }
+      } catch { /* bildirim hatası bilet yanıtını bozmasın */ }
+    }
     revalidateAll();
     return { ok: true, message: accept ? "Katılımınız onaylandı; biletiniz hazır." : "Katılmayacağınız kaydedildi." };
   });
