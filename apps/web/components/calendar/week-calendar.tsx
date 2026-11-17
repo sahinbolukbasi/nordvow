@@ -66,6 +66,7 @@ export function WeekCalendar({
   emptyText?: string;
 }) {
   const tt = useTT();
+  const [weekMode, setWeekMode] = useState<"hourly" | "matrix">("hourly");
   const [override, setOverride] = useState<Override>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -156,9 +157,102 @@ export function WeekCalendar({
     </div>
   );
 
+  const hourlyGrid = (() => {
+    const bucket = new Map<string, { card: CalendarCard; influencerName: string }[]>();
+    for (const r of rows) {
+      for (const raw of r.cards) {
+        const c = view(raw);
+        const h = Number.parseInt(c.time.slice(0, 2), 10);
+        const hour = Number.isFinite(h) && h >= 0 && h <= 23 ? h : 12;
+        const key = `${c.day}|${hour}`;
+        bucket.set(key, [...(bucket.get(key) ?? []), { card: c, influencerName: r.name }]);
+      }
+    }
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    return (
+      <div className="overflow-x-auto rounded-[8px] border border-border">
+        <div role="grid" aria-label={tt("Haftalık saatlik paylaşım takvimi")} className="grid min-w-[980px] grid-cols-[72px_repeat(7,minmax(128px,1fr))]">
+          <div role="row" className="contents">
+            <div role="columnheader" className="sticky left-0 z-10 border-b border-border bg-surface px-3 py-3 text-label text-fg-muted">
+              {tt("Saat")}
+            </div>
+            {days.map((d) => (
+              <div
+                key={d}
+                role="columnheader"
+                className={cn("border-b border-l border-border bg-surface px-3 py-3 text-label", d === today ? "text-fg" : "text-fg-muted")}
+              >
+                {fmtDayLabel(d)}
+                {d === today ? <span className="sr-only">{" "}{tt("(bugün)")}</span> : null}
+              </div>
+            ))}
+          </div>
+          {hours.map((hour) => {
+            const label = `${String(hour).padStart(2, "0")}:00`;
+            return (
+              <div role="row" key={hour} className="contents">
+                <div role="rowheader" className="sticky left-0 z-10 flex items-start justify-end border-b border-border bg-bg px-3 py-2 text-[12px] font-medium tabular-nums text-fg-muted">
+                  {label}
+                </div>
+                {days.map((day) => {
+                  const list = (bucket.get(`${day}|${hour}`) ?? []).sort((a, b) => a.card.time.localeCompare(b.card.time));
+                  return (
+                    <div
+                      key={`${day}-${hour}`}
+                      role="gridcell"
+                      className={cn(
+                        "flex flex-col gap-1.5 border-b border-l border-border p-1.5",
+                        list.length === 0 ? "min-h-10" : "min-h-14",
+                        day === today && "bg-surface/20",
+                      )}
+                    >
+                      {list.map(({ card, influencerName }) => (
+                        <div key={card.id} className="flex flex-col gap-0.5">
+                          <span className="truncate px-1 text-[10px] font-medium text-fg-muted">{influencerName}</span>
+                          <CardBody
+                            card={card}
+                            onTime={editable && !card.locked ? () => setTimeCard(card) : undefined}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  })();
+
   return (
     <div className="flex flex-col gap-3">
-      {editable ? (
+      <div className="flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={() => setWeekMode("hourly")}
+          className={cn(
+            "rounded-full px-3 py-1 text-[12px] font-medium transition-standard",
+            weekMode === "hourly" ? "bg-fg text-bg" : "border border-line bg-bg text-fg-muted hover:text-fg",
+          )}
+        >
+          {tt("Saatlik görünüm")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setWeekMode("matrix")}
+          className={cn(
+            "rounded-full px-3 py-1 text-[12px] font-medium transition-standard",
+            weekMode === "matrix" ? "bg-fg text-bg" : "border border-line bg-bg text-fg-muted hover:text-fg",
+          )}
+        >
+          {tt("Influencer görünümü")}
+        </button>
+      </div>
+      {weekMode === "hourly" ? (
+        hourlyGrid
+      ) : editable ? (
         <DndContext
           id="week-calendar"
           sensors={sensors}

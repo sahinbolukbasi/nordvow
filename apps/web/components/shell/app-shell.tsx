@@ -5,6 +5,7 @@ import { roleLabels } from "@infulancer/core/domain/labels";
 import { SearchIcon } from "@/components/icons";
 import { getSessionUser, requireActor } from "@/lib/auth-guard";
 import { AccountMenu } from "./account-menu";
+import { MobileDrawer } from "./mobile-drawer";
 import { MobileTabBar } from "./mobile-tab-bar";
 import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
@@ -67,8 +68,20 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
       </a>
       <Sidebar role={navRole} perm={permCtx} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-line bg-bg/70 px-4 backdrop-blur-xl md:px-8">
-          <span className="inline-flex items-center gap-2 text-[15px] font-semibold tracking-tight md:hidden"><NordvowMark size={22} />{BRAND_NAME}</span>
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-line bg-bg/70 px-3 backdrop-blur-xl sm:gap-4 sm:px-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-2 md:hidden">
+            <MobileDrawer
+              role={navRole}
+              perm={permCtx}
+              userName={user?.name ?? ""}
+              userEmail={user?.email ?? ""}
+              roleLabel={t(`role.${navRole}`, roleLabels[navRole])}
+            />
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-[15px] font-semibold tracking-tight">
+              <NordvowMark size={22} />
+              <span className="truncate">{BRAND_NAME}</span>
+            </span>
+          </div>
           {role === "ADMIN" ? (
             <form action="/admin/ara" method="get" role="search" className="hidden max-w-md flex-1 sm:block">
               <label htmlFor="global-search" className="sr-only">
@@ -87,9 +100,11 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
               </div>
             </form>
           ) : null}
-          <div className="ml-auto flex items-center gap-2">
-            <RegionSwitcher />
-            <ThemeToggle />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div className="hidden sm:flex sm:items-center sm:gap-2">
+              <RegionSwitcher />
+              <ThemeToggle />
+            </div>
             <NotificationBell userId={actor.userId} />
             <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
           </div>

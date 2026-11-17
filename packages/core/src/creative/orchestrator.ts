@@ -19,7 +19,20 @@ export type StoryChatbotPayload = {
   };
 };
 
-export const STORY_DIRECTOR_SYSTEM_PROMPT = `Sen uzman bir Instagram Story Kreatif Direktörü ve fal.ai Prompt Mühendisisin. Amacın; kullanıcıyla doğal, kısa ve yönlendirici bir sohbet kurarak en iyi 9:16 dikey Instagram Story görselini üretmek için gereken bilgileri toplamak ve hazır olduğunda fal.ai API parametrelerini üretmektir.
+export function stripMarkdownStars(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,!?:;)]|$)/g, "$1$2")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
+export const STORY_DIRECTOR_SYSTEM_PROMPT = `Sen uzman bir Instagram Story Kreatif Direktörü ve fal.ai Prompt Mühendisisin. Amacın; kullanıcıyla doğal, akıcı, kısa ve yönlendirici bir sohbet kurarak en iyi 9:16 dikey Instagram Story görselini üretmek için gereken bilgileri toplamak ve hazır olduğunda fal.ai API parametrelerini üretmektir.
+
+BİÇİM VE ÜSLUP KURALLARI:
+- Yanıtlarını akıcı, doğal ve anlaşılır düz Türkçe cümlelerle yaz.
+- Kesinlikle yıldız (** veya *), markdown başlığı (#) veya kod bloğu kullanma.
 
 TOPLANMASI GEREKEN 4 TEMEL BİLGİ (SLOTS):
 1. \`subject\`: Görselin ana konusu/sahnesi (ne, nerede, ne yapıyor?).
@@ -213,6 +226,7 @@ export async function runStoryChatbotConverse(opts: {
         typeof data.fal_payload.prompt === "string"
       ) {
         if (opts.forceReady) data.status = "ready";
+        data.assistant_reply = stripMarkdownStars(data.assistant_reply);
         return data;
       }
     } catch (e) {
@@ -239,10 +253,10 @@ export async function runStoryChatbotConverse(opts: {
     return {
       status: "needs_info",
       assistant_reply:
-        `Harika bir başlangıç! **"${lastMsg}"** için en etkileyici Instagram görselini hazırlamam için 2 kısa detayı netleştirelim:\n\n` +
-        `1. **Görsel tarzı ve ışık nasıl olsun?** (Örn: Doğal sabah güneşi, lüks karanlık stüdyo çekimi, minimal pastel tonlar)\n` +
-        `2. **Görselin içinde bir başlık/yazı yer alsın mı**, yoksa sonradan Instagram'da yazı ekleyebilmeniz için üst kısmı ferah mı bırakalım?\n\n` +
-        `*(Dilerseniz "sen seç" yazabilir veya aşağıdaki hazır kartlardan birine tıklayarak detayı sohbet kutusuna ekleyebilirsiniz.)*`,
+        `Harika bir başlangıç! "${lastMsg}" fikri için en etkileyici Instagram görselini hazırlayabilmem adına iki küçük detayı netleştirelim:\n\n` +
+        `1. Görsel tarzı ve ışık nasıl olsun? Örneğin doğal sabah güneşi, lüks karanlık stüdyo çekimi ya da minimal pastel tonlar tercih edebiliriz.\n` +
+        `2. Görselin içinde yazılı bir başlık yer alsın mı, yoksa sonradan Instagram'da yazı ekleyebilmeniz için üst kısmı sade mi bırakalım?\n\n` +
+        `Dilerseniz "sen seç" yazabilir veya aşağıdaki hazır seçeneklerden birine dokunabilirsiniz.`,
       missing_slots: ["style_mood", "text_overlay"],
       fal_payload: {
         model_endpoint: opts.tier === "economy" ? "fal-ai/flux/schnell" : "fal-ai/flux/dev",
@@ -266,7 +280,7 @@ export async function runStoryChatbotConverse(opts: {
 
   return {
     status: "ready",
-    assistant_reply: `Harika! Tüm detaylar tamamlandı. Görselinizi **${endpoint}** modeliyle (${aspect} formatında) üretiyor ve altına hazır Instagram Post/Story metninizi ekliyorum.`,
+    assistant_reply: `Harika, tüm detaylar hazır! Görselinizi ${aspect} formatında üretmeye başlıyorum; hemen ardından kullanıma hazır paylaşım metninizi de ekleyeceğim.`,
     missing_slots: [],
     fal_payload: {
       model_endpoint: endpoint,

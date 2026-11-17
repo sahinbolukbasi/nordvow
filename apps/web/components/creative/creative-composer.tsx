@@ -1230,7 +1230,12 @@ export function CreativeComposer({
             ) : (
               <div key={msg.id} className="mr-auto flex w-full max-w-2xl flex-col gap-2.5">
                 <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-fg">
-                  {msg.text}
+                  {msg.text
+                    .replace(/\*\*([^*]+)\*\*/g, "$1")
+                    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,!?:;)]|$)/g, "$1$2")
+                    .replace(/^#{1,6}\s+/gm, "")
+                    .replace(/\*\*/g, "")
+                    .trim()}
                 </div>
 
                 {/* fal.ai Medya Orkestratörü & Bedrock Structured Output JSON Özeti */}
