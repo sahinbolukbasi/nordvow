@@ -184,22 +184,24 @@ export function ProductShippingStep({
           </div>
         </div>
 
-        {/* 4. Kargo Firması Seçimi */}
-        <Field label="Kargo Firması Seçimi">
-          {(p) => (
-            <Select
-              {...p}
-              value={preferredCarrier}
-              onChange={(e) => setPreferredCarrier(e.target.value as ShippingProvider)}
-            >
-              {CARRIER_OPTIONS.map((prov) => (
-                <option key={prov} value={prov}>
-                  {shippingProviderLabels[prov]}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
+        {/* 4. Kargo Firması Seçimi (yalnız Anlaşmalı Kargo Entegrasyonu seçildiğinde) */}
+        {shippingMode === "INTEGRATED_CARGO" ? (
+          <Field label="Kargo Firması Seçimi">
+            {(p) => (
+              <Select
+                {...p}
+                value={preferredCarrier}
+                onChange={(e) => setPreferredCarrier(e.target.value as ShippingProvider)}
+              >
+                {CARRIER_OPTIONS.map((prov) => (
+                  <option key={prov} value={prov}>
+                    {shippingProviderLabels[prov]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        ) : null}
       </div>
 
       {state.message ? (

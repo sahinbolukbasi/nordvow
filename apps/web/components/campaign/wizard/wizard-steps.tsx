@@ -285,7 +285,7 @@ export function ScheduleStep({
       </div>
       <div className="flex flex-col gap-2">
         <input type="hidden" name="brandTotalFee" value={feeDigits} />
-        <Field label={tt("Toplam Bütçe")} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Kampanya toplam bütçeniz (influencer bedelleri dahil)."} Global influencer'lar için güncel kur üzerinden otomatik dönüştürülür.`}>
+        <Field label={tt("Toplam Bütçe")}>
           {(p) => (
             <Input
               {...p}
@@ -301,12 +301,6 @@ export function ScheduleStep({
             />
           )}
         </Field>
-        {minorPreview > 0 ? (
-          <div className="rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-[12px] text-fg-muted">
-            <span className="font-medium text-fg">{tt("Seçili Para Birimi Tutarı:")}</span>{" "}
-            {formatDualMinor(minorPreview, baseCur, { viewerCurrency: baseCur })}
-          </div>
-        ) : null}
       </div>
     </StepForm>
   );
