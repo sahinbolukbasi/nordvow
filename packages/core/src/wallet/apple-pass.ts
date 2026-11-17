@@ -89,8 +89,8 @@ export function applePassJson(
     backgroundColor: "rgb(20,20,31)",
     foregroundColor: "rgb(255,255,255)",
     labelColor: "rgb(185,185,205)",
-    barcodes: [{ format: "PKBarcodeFormatQR", message: code, messageEncoding: "iso-8859-1", altText: code }],
-    barcode: { format: "PKBarcodeFormatQR", message: code, messageEncoding: "iso-8859-1", altText: code },
+    barcodes: [{ format: "PKBarcodeFormatQR", message: code, messageEncoding: "utf-8", altText: code }],
+    barcode: { format: "PKBarcodeFormatQR", message: code, messageEncoding: "utf-8", altText: code },
     ...(data.kind === "ticket" ? { eventTicket: fields } : { coupon: fields }),
   };
 

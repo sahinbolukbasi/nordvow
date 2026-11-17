@@ -150,7 +150,7 @@ export const defaultConfig: { [K in ConfigKey]: Entry<K> } = {
     ],
   },
   "pricing.markup": { verified: false, note: "Ürün kararı", value: { messageMarkupPct: 0, creditUsd: 0.05, creditMarkup: [3, 5] } },
-  "pricing.creative": { verified: false, note: "USD/TRY her başlangıçta open.er-api.com'dan güncellenir (autoFx). Markup ürün kararı.", value: { usdTry: 50.18, markup: 3, minTry: 2, autoFx: true, fxUpdatedAt: null } },
+  "pricing.creative": { verified: false, note: "USD/TRY her başlangıçta open.er-api.com'dan güncellenir (autoFx). Markup ürün kararı.", value: { usdTry: 34.5, markup: 1.5, minTry: 0.5, autoFx: true, fxUpdatedAt: null } },
   "creative.starterCreditsTry": { verified: true, note: "Yeni gelen marka ve influencer hesaplarına tanımlanan hoş geldin kredisi (TL)", value: 250 },
   "tax.gvk103.fourthBracketTry": { verified: false, note: "gib.gov.tr'den yıllık okunup girilmeli", value: { year: 2026, amount: null } },
   "tiktok.contentPosting": { verified: true, note: "Audit öncesi", value: { unauditedMaxUsersPer24h: 5 } },

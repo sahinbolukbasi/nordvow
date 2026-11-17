@@ -31,6 +31,14 @@ resource "aws_cloudfront_origin_request_policy" "all_viewer_country" {
   }
 }
 
+resource "aws_cloudfront_origin_access_control" "assets" {
+  name                              = "${local.name}-assets-oac"
+  description                       = "S3 media/* içerikleri için CloudFront OAC"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 resource "aws_cloudfront_distribution" "app" {
   enabled         = true
   comment         = local.name
@@ -53,6 +61,12 @@ resource "aws_cloudfront_distribution" "app" {
     }
   }
 
+  origin {
+    origin_id                = "s3-assets"
+    domain_name              = aws_s3_bucket.assets.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.assets.id
+  }
+
   default_cache_behavior {
     target_origin_id         = "alb"
     viewer_protocol_policy   = "redirect-to-https"
@@ -67,6 +81,17 @@ resource "aws_cloudfront_distribution" "app" {
   ordered_cache_behavior {
     path_pattern           = "/_next/static/*"
     target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+    cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
+  }
+
+  # Tanıtım, etkinlik ve kupon medyaları (S3 doğrudan CloudFront kenar önbelleğinden sunulur).
+  ordered_cache_behavior {
+    path_pattern           = "/media/*"
+    target_origin_id       = "s3-assets"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]

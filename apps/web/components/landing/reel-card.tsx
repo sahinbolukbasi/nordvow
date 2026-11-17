@@ -68,11 +68,10 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
           ref={ref}
           src={video.src}
           poster={video.poster}
-          autoPlay
           muted
           loop
           playsInline
-          preload="auto"
+          preload="metadata"
           onClick={toggle}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}

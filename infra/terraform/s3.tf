@@ -10,6 +10,28 @@ resource "aws_s3_bucket_public_access_block" "assets" {
   restrict_public_buckets = true
 }
 
+data "aws_iam_policy_document" "assets_cloudfront" {
+  statement {
+    sid       = "AllowCloudFrontReadMedia"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.assets.arn}/media/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.app.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "assets_cloudfront" {
+  bucket = aws_s3_bucket.assets.id
+  policy = data.aws_iam_policy_document.assets_cloudfront.json
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "assets" {
   bucket = aws_s3_bucket.assets.id
   rule {

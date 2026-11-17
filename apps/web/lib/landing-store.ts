@@ -24,7 +24,7 @@ const mediaUrl = z
     (v) =>
       v === "" ||
       /^https?:\/\/[^\s"'<>]+$/i.test(v) ||
-      /^\/(landing|api\/media)\/[\w.\-/]+$/.test(v),
+      /^\/(landing|media|api\/media)\/[\w.\-/]+$/.test(v),
     { error: "Geçerli bir https:// adresi veya yüklenmiş medya yolu girin." },
   );
 const text = (max: number, min = 1) => z.string().trim().min(min, { error: "Boş bırakılamaz." }).max(max, { error: `En fazla ${max} karakter.` });

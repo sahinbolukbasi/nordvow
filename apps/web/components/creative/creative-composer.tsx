@@ -984,7 +984,7 @@ export function CreativeComposer({
   return (
     <div
       className={cn(
-        "grid min-h-[68dvh] flex-1 w-full grid-cols-1 gap-3 lg:min-h-0 lg:overflow-hidden",
+        "grid h-[calc(100dvh-10.5rem)] min-h-[480px] flex-1 w-full grid-cols-1 gap-3 overflow-hidden",
         historyOpen && panelOpen && result
           ? "lg:grid-cols-[260px_minmax(0,1fr)_370px] xl:grid-cols-[260px_minmax(0,1fr)_400px]"
           : historyOpen

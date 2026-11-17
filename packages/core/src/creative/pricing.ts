@@ -13,7 +13,7 @@ import { getConfig, setConfig } from "../config/store";
 export type CreativePricing = { usdTry: number; markup: number; minTry: number; autoFx: boolean; fxUpdatedAt: string | null; fx?: Record<string, number> };
 
 /** 1 USD karşılığı (open.er-api.com yoksa son bilinen). Hesap kendi para biriminde fiyatlanır; gösterimde çevrim yapılmaz. */
-const FX_FALLBACK: Record<string, number> = { TRY: 50.18, EUR: 0.86, GBP: 0.75, USD: 1 };
+const FX_FALLBACK: Record<string, number> = { TRY: 34.5, EUR: 0.92, GBP: 0.79, USD: 1 };
 const ceilCents = (n: number) => Math.ceil(n * 100 - 1e-9) / 100;
 /** TL birim fiyatından hesabın para birimine oran (USD üzerinden; ör. EUR = fx.EUR / fx.TRY). */
 export function rateFromTry(p: Pick<CreativePricing, "usdTry" | "fx">, currency: string): number {
@@ -59,9 +59,9 @@ export function unitPriceTry(unitPriceUsd: number, p: Pick<CreativePricing, "usd
   return Math.round(unitPriceUsd * p.usdTry * p.markup * 1000) / 1000;
 }
 
-/** Bir işin bakiyeden düşecek tutarı (tam TL, en az minTry). */
+/** Bir işin bakiyeden düşecek tutarı (2 hane hassasiyet, en az minTry). */
 export function jobChargeTry(creditsPerUnit: number, units: number, minTry: number): number {
-  return Math.max(minTry, Math.ceil(creditsPerUnit * units - 1e-9));
+  return Math.max(minTry, ceilCents(creditsPerUnit * units));
 }
 
 /** USD/TRY, EUR ve GBP kurlarını canlı açık kaynaktan çeker; başarısızsa mevcut değer kalır. */
@@ -73,7 +73,7 @@ export async function refreshFx(fetcher: typeof fetch = fetch): Promise<Creative
     const j = (await res.json()) as { result?: string; rates?: Record<string, number> };
     const rate = j.rates?.TRY;
     // Akıl sağlığı kontrolü: bozuk/aşırı veri fiyatları bozmasın.
-    if (j.result === "success" && typeof rate === "number" && rate > 1 && rate < 1000 && Math.abs(rate - cur.usdTry) / cur.usdTry < 0.5) {
+    if (j.result === "success" && typeof rate === "number" && rate > 5 && rate < 200) {
       const fx: Record<string, number> = { USD: 1, TRY: Math.round(rate * 100) / 100 };
       for (const c of ["EUR", "GBP"]) {
         const v = j.rates?.[c];

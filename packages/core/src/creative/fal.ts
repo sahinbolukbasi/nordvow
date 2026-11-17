@@ -4,7 +4,7 @@ import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chargeIn, creativePricing } from "./pricing";
+import { chargeIn, creativePricing, unitPriceTry } from "./pricing";
 import { tenantCurrency } from "./tenant";
 import { prisma } from "../db";
 import { envStr } from "../env";
@@ -824,7 +824,8 @@ export async function submitCreative(input: {
     throw new CreativeRejectedError(`${model.key} için üst sınır ${model.maxUnits} ${model.unit}.`);
   }
   const pricing = await creativePricing();
-  const credits = chargeIn(Number(model.creditsPerUnit), input.units, pricing, await tenantCurrency(input.tenantId));
+  const effectiveCpu = Number(model.unitPriceUsd) > 0 ? unitPriceTry(Number(model.unitPriceUsd), pricing) : Number(model.creditsPerUnit);
+  const credits = chargeIn(effectiveCpu, input.units, pricing, await tenantCurrency(input.tenantId));
   const hold = await placeHold(input.tenantId, credits);
   const job = await prisma.creativeJob.create({
     data: { tenantId: input.tenantId, campaignId: input.campaignId, modelKey: model.key, modelId: model.modelId, prompt: input.prompt, promptHash, units: input.units, creditHoldId: hold.id, inputUploadId: input.inputUploadId ?? null, status: "HELD" },

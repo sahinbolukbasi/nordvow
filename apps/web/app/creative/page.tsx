@@ -8,7 +8,7 @@ import { AGENCY_TENANT, tenantCurrency } from "@infulancer/core/creative/tenant"
 import { ownTenant } from "@/lib/creative-tenant";
 import { PhonePreviewButton } from "@/components/creative/phone-preview-button";
 import { allowedDurations, modelSpec, supportedAspects } from "@infulancer/core/creative/adapters";
-import { rateFromTry, creativePricing } from "@infulancer/core/creative/pricing";
+import { rateFromTry, creativePricing, unitPriceTry } from "@infulancer/core/creative/pricing";
 import { reconcileStaleJobs } from "@infulancer/core/creative/fal";
 import { PricingForm } from "@/components/creative/pricing-form";
 import { CreditRequestForm } from "@/components/creative/credit-request-form";
@@ -127,7 +127,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
       key: m.key,
       kind: asKind(m.kind)!,
       unit: m.unit,
-      creditsPerUnit: Number(m.creditsPerUnit) * rate,
+      creditsPerUnit: (Number(m.unitPriceUsd) > 0 ? unitPriceTry(Number(m.unitPriceUsd), pricing) : Number(m.creditsPerUnit)) * rate,
       maxUnits: m.maxUnits,
       durations: allowedDurations(m.key),
       aspects: supportedAspects(m.key),

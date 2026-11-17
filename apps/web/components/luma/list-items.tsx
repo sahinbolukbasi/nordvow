@@ -47,11 +47,11 @@ export function EventListItem({ e }: { e: EventListItemData }) {
           <span className="text-[12px] text-fg-muted">{weekdayLong(e.startsAt)}</span>
         </div>
       </div>
-      <div className="flex items-start gap-2 rounded-2xl border border-line bg-surface p-4 transition-standard hover:border-line-strong">
-        <Link href={e.href} className="group flex min-w-0 flex-1 items-start gap-4">
+      <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface transition-standard hover:border-line-strong">
+        <Link href={e.href} className="group flex min-w-0 flex-1 items-start gap-3 p-4 sm:gap-4">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <span className="text-[13px] text-fg-muted tabular-nums">{timeShort(e.startsAt)}</span>
-            <span className="text-[17px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4">{e.title}</span>
+            <span className="text-[16px] font-semibold leading-snug text-fg group-hover:underline group-hover:underline-offset-4 sm:text-[17px]">{e.title}</span>
             <span className="truncate text-[13px] text-fg-muted">{e.organizer}{e.venueLabel ? ` · ${e.venueLabel}` : ""}</span>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <Pill tone={st.tone}>{st.label}</Pill>
@@ -61,7 +61,7 @@ export function EventListItem({ e }: { e: EventListItemData }) {
               </span>
             </div>
           </div>
-          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-line sm:h-24 sm:w-24">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-line sm:h-24 sm:w-24">
             {e.coverSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={e.coverSrc} alt="" className="h-full w-full object-cover" />
@@ -70,7 +70,11 @@ export function EventListItem({ e }: { e: EventListItemData }) {
             )}
           </div>
         </Link>
-        {e.canDelete ? <DeleteConfirmButton id={e.id} kind="event" label={e.title} /> : null}
+        {e.canDelete ? (
+          <div className="flex justify-end border-t border-line px-4 py-2">
+            <DeleteConfirmButton id={e.id} kind="event" label={e.title} />
+          </div>
+        ) : null}
       </div>
     </li>
   );
