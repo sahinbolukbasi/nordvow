@@ -6,9 +6,18 @@ import { cn } from "@/lib/cn";
 import { useTT } from "@/lib/i18n/tt-client";
 
 const CONFIDENCE_TEXT: Record<ConfidenceLevel, string> = {
-  YUKSEK: "Yüksek",
-  ORTA: "Orta",
-  DUSUK: "Düşük",
+  YUKSEK: "Doğrulanmış",
+  ORTA: "Güncel",
+  DUSUK: "Ön Veri",
+};
+
+const FRIENDLY_TITLE: Record<string, string> = {
+  audienceCredibility: "Gerçek Takipçi Kalitesi",
+  engagementQuality: "Etkileşim Gücü",
+  reachPower: "İzlenme ve Erişim",
+  contentConsistency: "Yayın Düzeni",
+  commercialPerformance: "İş Birliği Başarısı",
+  growthMomentum: "Büyüme Hızı",
 };
 
 const STATUS_LABEL: Record<MetricStatus, string> = {
@@ -63,10 +72,12 @@ export function MetricCard({
   const tone = toneForScore(dimension.score);
   const filledDots = dimension.score == null ? 0 : Math.max(1, Math.min(5, Math.round(dimension.score / 20)));
 
+  const displayTitle = view === "admin" ? dimension.title : (FRIENDLY_TITLE[dimension.key] ?? dimension.title);
+
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-fg">{tt(dimension.title)}</h3>
+        <h3 className="text-sm font-semibold text-fg">{tt(displayTitle)}</h3>
         <div className="flex items-center gap-2">
           <span className={cn("text-base font-bold tabular-nums", tone.text)}>
             {dimension.score != null ? `${dimension.score} / 100` : "—"}
@@ -83,12 +94,12 @@ export function MetricCard({
             ))}
           </span>
           <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", tone.badge)}>
-            {tt("Güven")}: {tt(CONFIDENCE_TEXT[dimension.confidence])}
+            {tt(CONFIDENCE_TEXT[dimension.confidence])}
           </span>
         </div>
       </div>
 
-      <p className="text-[12px] text-fg-muted">{dimension.benchmarkLabel}</p>
+      {view === "admin" ? <p className="text-[12px] text-fg-muted">{dimension.benchmarkLabel}</p> : null}
 
       <div className="flex flex-col gap-1 text-[12px]">
         {dimension.why.map((reason, idx) => (
@@ -121,7 +132,7 @@ export function MetricCard({
       ) : null}
 
       <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-2 text-[11px] text-fg-passive">
-        <span>{tt("Kaynak")}: {dimension.source}</span>
+        <span>{view === "admin" ? `${tt("Kaynak")}: ${dimension.source}` : tt("Güncel ölçüm")}</span>
         <span>{new Date(dimension.updatedAt).toLocaleDateString("tr-TR")}</span>
       </div>
     </div>

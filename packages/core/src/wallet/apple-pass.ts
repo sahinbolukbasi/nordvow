@@ -64,19 +64,19 @@ export function applePassJson(
   const fields =
     data.kind === "ticket"
       ? {
-          headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
-          primaryFields: [{ key: "title", label: "ETKİNLİK", value: nonEmpty(data.title, "Etkinlik Bileti") }],
-          secondaryFields: [{ key: "subtitle", label: "KATILIMCI", value: nonEmpty(data.subtitle, "Misafir") }],
-          auxiliaryFields: aux,
-          backFields,
-        }
+        headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
+        primaryFields: [{ key: "title", label: "ETKİNLİK", value: nonEmpty(data.title, "Etkinlik Bileti") }],
+        secondaryFields: [{ key: "subtitle", label: "KATILIMCI", value: nonEmpty(data.subtitle, "Misafir") }],
+        auxiliaryFields: aux,
+        backFields,
+      }
       : {
-          headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
-          primaryFields: [{ key: "value", label: nonEmpty(data.title, "Kupon"), value: nonEmpty(data.subtitle, "İndirim") }],
-          secondaryFields: [{ key: "brand", label: "MARKA", value: organizer }],
-          auxiliaryFields: aux,
-          backFields,
-        };
+        headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
+        primaryFields: [{ key: "value", label: nonEmpty(data.title, "Kupon"), value: nonEmpty(data.subtitle, "İndirim") }],
+        secondaryFields: [{ key: "brand", label: "MARKA", value: organizer }],
+        auxiliaryFields: aux,
+        backFields,
+      };
 
   const pass: Record<string, unknown> = {
     formatVersion: 1,

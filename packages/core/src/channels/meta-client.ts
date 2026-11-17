@@ -135,12 +135,6 @@ export function httpMetaClient(): MetaClient {
     },
     async sendInstagram(igId, token, recipient, text, tag) {
       const body = JSON.stringify({ recipient: { id: recipient }, message: { text }, ...(tag ? { messaging_type: "MESSAGE_TAG", tag } : {}) });
-      // Facebook Login (EAA…) token'larında Instagram DM, IG hesabına bağlı Sayfa üzerinden ve Sayfa token'ıyla gönderilir.
-      const page = await resolveIgPage(igId, token).catch(() => null);
-      if (page) {
-        const r = await call<{ message_id: string }>(`/${page.pageId}/messages`, { method: "POST", token: page.pageToken, body });
-        return { messageId: r.message_id };
-      }
       // Instagram Login (IGAA…) token'larında graph.instagram.com ucu kullanılır.
       if (!token.startsWith("EAA")) {
         const version = await getConfig("whatsapp.graphApiVersion");
@@ -156,6 +150,18 @@ export function httpMetaClient(): MetaClient {
           throw new MetaApiError(json.error?.message ?? `IG HTTP ${res.status}`, json.error?.code ?? res.status, undefined, json.error?.type, res.status);
         }
         return { messageId: json.message_id };
+      }
+
+      // Facebook Login / System User (EAA…) token'larında önce bağlı Sayfa üzerinden dene; hata olursa doğrudan igId ucuna düş.
+      const page = await resolveIgPage(igId, token).catch(() => null);
+      if (page) {
+        try {
+          const r = await call<{ message_id: string }>(`/${page.pageId}/messages`, { method: "POST", token: page.pageToken, body });
+          return { messageId: r.message_id };
+        } catch (err) {
+          if (!igId || igId === page.pageId) throw err;
+          console.warn(`[meta:ig] Sayfa ucu (/${page.pageId}/messages) başarısız, /${igId}/messages deneniyor:`, (err as Error).message);
+        }
       }
       const r = await call<{ message_id: string }>(`/${igId}/messages`, { method: "POST", token, body });
       return { messageId: r.message_id };

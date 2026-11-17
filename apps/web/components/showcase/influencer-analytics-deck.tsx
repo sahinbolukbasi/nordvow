@@ -89,13 +89,15 @@ export function InfluencerAnalyticsDeck({
             </span>
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-fg">{tt("Instagram Gezgini (AI Performans & Kimlik Analizi)")}</h2>
+                <h2 className="text-base font-semibold text-fg">
+                  {isAdmin ? tt("Instagram Gezgini (AI Performans & Kimlik Analizi)") : tt("İçerik Performansı & Kitle Özeti")}
+                </h2>
                 <span className="rounded-full bg-fg px-2.5 py-0.5 text-[11px] font-semibold text-bg">
                   {report.scores.priorityTier} · {report.scores.overallScore}/100
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
-                <StatusDot tone={verInfo.tone}>{verInfo.label}</StatusDot>
+                <StatusDot tone={verInfo.tone}>{isAdmin ? verInfo.label : report.verificationStatus === "EXPLORER_BOT" ? tt("Güncel Profil Verisi") : tt("Doğrulanmış Hesap")}</StatusDot>
                 <span>· @{report.handle}</span>
                 <span>· {tt("Son güncelleme:")} {fmtDateTime(new Date(report.generatedAt))}</span>
               </div>
@@ -106,7 +108,7 @@ export function InfluencerAnalyticsDeck({
           <div className="flex flex-wrap items-center gap-2">
             <ActionForm
               action={triggerInfluencerExplorerAction}
-              submitLabel={tt("Canlı Verileri Şimdi Güncelle (Bot/API Tetikle)")}
+              submitLabel={isAdmin ? tt("Canlı Verileri Şimdi Güncelle (Bot/API Tetikle)") : tt("Verileri Yenile")}
               submitVariant="secondary"
               submitSize="sm"
             >

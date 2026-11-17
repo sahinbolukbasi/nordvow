@@ -6,6 +6,7 @@ import type { ChannelProvider } from "../generated/prisma/enums";
 import { runAgentTurn } from "../assistant/runtime";
 import { handleChannelBotTurn } from "../assistant/channel-bot";
 import { prescreenCreator } from "../assistant/prescreen";
+import { recordRun } from "../agents/common";
 import { purgeMessage } from "../messaging/purge";
 import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
@@ -107,6 +108,8 @@ async function dispatch(p: Any): Promise<string | null> {
       for (const change of entry.changes ?? []) {
         if (change.field === "messages" && change.value) {
           await handleMetaMessaging(t, provider, change.value);
+        } else if (provider === "INSTAGRAM" && (change.field === "comments" || change.field === "mentions") && change.value) {
+          await handleInstagramEngagementEvent(t, String(change.field), change.value).catch(() => undefined);
         }
       }
     }
@@ -174,6 +177,25 @@ export async function applyMessageStatus(tenantId: string, externalId: string, s
     where: { tenantId, externalId, OR: [{ statusAt: null }, { statusAt: { lt: at } }] },
     data: { status, statusAt: at },
   });
+}
+
+async function handleInstagramEngagementEvent(tenantId: string, field: string, val: Any) {
+  const commentText = String(val.text ?? val.caption ?? "").trim();
+  const fromUser = String(val.from?.username ?? val.from?.id ?? "bilinmeyen");
+  const mediaId = String(val.media?.id ?? val.media_id ?? val.id ?? "unknown");
+  const eventId = `ig:${field}:${val.id ?? mediaId}:${fromUser}`;
+  if (!(await firstSeen(eventId, "instagram_engagement"))) return;
+  await recordRun({
+    checkType: "YAYIN_KONTROL",
+    targetType: "Brand",
+    targetId: tenantId,
+    bucket: eventId,
+    severity: "BILGI",
+    summary: `Instagram ${field === "mentions" ? "bahsetme (@mention)" : "yorum"}: @${fromUser}${commentText ? ` — "${commentText.slice(0, 120)}"` : ""}`,
+    findings: { field, mediaId, fromUser, text: commentText.slice(0, 300) },
+    model: "webhook",
+    promptVersion: "v1",
+  }).catch(() => undefined);
 }
 
 async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any) {

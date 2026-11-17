@@ -26,7 +26,9 @@ export function NordvowScorePanel({
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-fg">{tt("Nordvow Skor Kartı")}</h2>
+            <h2 className="text-lg font-semibold text-fg">
+              {view === "admin" ? tt("Nordvow Skor Kartı") : tt("Performans ve Güven Özeti")}
+            </h2>
             {report.grade ? (
               <span
                 className={cn(
@@ -37,12 +39,12 @@ export function NordvowScorePanel({
                 )}
               >
                 {report.isEstimated
-                  ? tt(`Tahmini ${report.grade} (düşük güven)`)
+                  ? tt(`Ön Değerlendirme · ${report.grade}`)
                   : `${report.grade} · ${report.overallScore ?? "—"}/100`}
               </span>
             ) : null}
             <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] text-fg-muted">
-              {tt("Güven")}: {report.confidence === "YUKSEK" ? tt("Yüksek") : report.confidence === "ORTA" ? tt("Orta") : tt("Düşük")}
+              {report.confidence === "YUKSEK" ? tt("Doğrulanmış Veri") : report.confidence === "ORTA" ? tt("Güncel Veri") : tt("Ön Değerlendirme")}
             </span>
           </div>
           <p className="text-sm text-fg-muted">{tt(report.gradeLabel)}</p>
@@ -97,7 +99,9 @@ export function NordvowScorePanel({
       {/* Viral aykırı değer uyarısı */}
       {primary && primary.rawMetrics.viralCount > 0 ? (
         <p className="rounded-xl border border-border bg-bg px-3 py-2 text-xs text-fg-muted">
-          {tt(`Son ${primary.rawMetrics.postsEvaluated} gönderide ${primary.rawMetrics.viralCount} viral içerik (medyan × 5 üzeri) tespit edildi; medyan hesaplamasında ayrı tutuldu.`)}
+          {view === "admin"
+            ? tt(`Son ${primary.rawMetrics.postsEvaluated} gönderide ${primary.rawMetrics.viralCount} viral içerik (medyan × 5 üzeri) tespit edildi; medyan hesaplamasında ayrı tutuldu.`)
+            : tt(`Son ${primary.rawMetrics.postsEvaluated} içerikte ${primary.rawMetrics.viralCount} viral paylaşım ayrıca işaretlendi; ortalama etkileşim gerçekçi düzeyde tutuldu.`)}
         </p>
       ) : null}
 

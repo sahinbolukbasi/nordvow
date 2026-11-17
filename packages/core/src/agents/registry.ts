@@ -19,6 +19,7 @@ import { syncStaleAccounts } from "../social/sync";
 import { runMultiAgentSocialPipelineAll } from "../social/multi-agent-analytics";
 import { refreshFx } from "../creative/pricing";
 import { runAllTrackers } from "./trackers";
+import { runCampaignContentTracker } from "./campaign-content-tracker";
 import { expireOffers } from "../domain/offers";
 import { autoApproveStaleDeliverables } from "../domain/deliverable-auto-approve";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
@@ -86,6 +87,7 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "fx-refresh", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { await refreshFx(); return { created: 1, skipped: 0 }; } },
   { name: "webhook-dedupe-ttl", schedule: "cron(30 3 * * ? *)", intervalMs: 24 * HOUR, run: async () => ({ created: await purgeExpiredDedupe(), skipped: 0 }) },
   { name: "trackers", schedule: "rate(1 hour)", intervalMs: HOUR, run: () => runAllTrackers() },
+  { name: "campaign-content-tracker", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => tally(await runCampaignContentTracker()) },
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },
   { name: "deliverable-auto-approve", schedule: "rate(15 minutes)", intervalMs: 15 * MIN, run: async () => ({ created: await autoApproveStaleDeliverables(), skipped: 0 }) },
   { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await expireOffers(), skipped: 0 }) },
