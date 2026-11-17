@@ -255,135 +255,247 @@ export function CampaignShippingDashboard({
             Bu filtreye uygun gönderi kaydı bulunamadı.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-[13px]">
-              <thead>
-                <tr className="border-b border-line text-[11px] uppercase tracking-wider text-fg-passive">
-                  <th className="py-2.5 pr-3">
-                    <input
-                      type="checkbox"
-                      checked={allReadySelected}
-                      onChange={toggleSelectAllReady}
-                      aria-label="Kargolanacakların tümünü seç"
-                    />
-                  </th>
-                  <th className="py-2.5 pr-3">Influencer</th>
-                  <th className="py-2.5 pr-3">Varyant</th>
-                  <th className="py-2.5 pr-3">Teslimat Adresi</th>
-                  <th className="py-2.5 pr-3">Kargo / Takip No</th>
-                  <th className="py-2.5 pr-3">Durum</th>
-                  <th className="py-2.5 text-right">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {filtered.map((s) => {
-                  const variantStr = s.selectedVariant
-                    ? Object.entries(s.selectedVariant)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join(" · ")
-                    : "—";
-                  const addrStr = s.shippingAddress
-                    ? `${s.shippingAddress.district ?? ""}/${s.shippingAddress.city ?? ""}`
-                    : "Adres bekleniyor";
-                  return (
-                    <tr key={s.id} className="align-top">
-                      <td className="py-3 pr-3">
+          <>
+            {/* Mobil Kart Görünümü */}
+            <ul className="flex flex-col gap-3 md:hidden">
+              {filtered.map((s) => {
+                const variantStr = s.selectedVariant
+                  ? Object.entries(s.selectedVariant)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join(" · ")
+                  : null;
+                const trackHref = s.trackingNumber
+                  ? s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber)
+                  : "";
+                return (
+                  <li key={s.id} className="flex flex-col gap-3 rounded-2xl border border-line bg-bg p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5">
                         {s.status === "READY_TO_SHIP" ? (
                           <input
                             type="checkbox"
                             checked={selectedIds.includes(s.id)}
                             onChange={() => toggleSelect(s.id)}
                             aria-label={`${s.influencerName} seç`}
+                            className="mt-1"
                           />
                         ) : null}
-                      </td>
-                      <td className="py-3 pr-3 font-medium text-fg">
-                        <div>{s.influencerName}</div>
-                        {s.recipientPhone ? (
-                          <div className="text-[11px] text-fg-muted">{s.recipientPhone}</div>
-                        ) : null}
-                      </td>
-                      <td className="py-3 pr-3 text-fg-muted">{variantStr}</td>
-                      <td className="py-3 pr-3 text-fg-muted">
-                        <div>{addrStr}</div>
-                        {s.shippingAddress?.addressLine ? (
-                          <div className="max-w-[220px] truncate text-[11px]">
-                            {s.shippingAddress.addressLine}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="py-3 pr-3">
-                        {s.trackingNumber ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="font-medium text-fg">
-                              {s.carrierName ?? "Kargo"} · {s.trackingNumber}
-                            </span>
-                            <div className="flex gap-2 text-[11px]">
-                              {(s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber)) ? (
+                        <div>
+                          <div className="text-sm font-semibold text-fg">{s.influencerName}</div>
+                          {s.recipientPhone ? (
+                            <div className="text-[12px] text-fg-muted">{s.recipientPhone}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${STATUS_BADGE[s.status]}`}>
+                        {shipmentStatusLabels[s.status]}
+                      </span>
+                    </div>
+
+                    <dl className="grid grid-cols-1 gap-2 rounded-xl border border-line/70 bg-surface p-3 text-[12px]">
+                      <div className="flex flex-col gap-0.5">
+                        <dt className="text-[11px] uppercase tracking-wide text-fg-passive">Teslimat Adresi</dt>
+                        <dd className="text-fg">
+                          {s.shippingAddress
+                            ? [s.shippingAddress.addressLine, s.shippingAddress.district, s.shippingAddress.city]
+                                .filter(Boolean)
+                                .join(", ")
+                            : "Adres bekleniyor"}
+                        </dd>
+                      </div>
+                      {variantStr ? (
+                        <div className="flex flex-col gap-0.5 border-t border-line/60 pt-2">
+                          <dt className="text-[11px] uppercase tracking-wide text-fg-passive">Varyant</dt>
+                          <dd className="text-fg">{variantStr}</dd>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-col gap-1 border-t border-line/60 pt-2">
+                        <dt className="text-[11px] uppercase tracking-wide text-fg-passive">Kargo Takip Bilgisi</dt>
+                        <dd className="flex flex-wrap items-center justify-between gap-2">
+                          {s.trackingNumber ? (
+                            <>
+                              <span className="font-mono text-[12px] font-medium text-fg">
+                                {s.carrierName ?? "Kargo"} · {s.trackingNumber}
+                              </span>
+                              {trackHref ? (
                                 <a
-                                  href={(s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber))!}
+                                  href={trackHref}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="underline underline-offset-2 text-fg-muted hover:text-fg"
+                                  className="rounded-full border border-line-strong bg-bg px-2.5 py-0.5 text-[11px] font-medium text-fg hover:border-fg"
                                 >
                                   Takip Et ↗
                                 </a>
                               ) : null}
-                              {s.barcodeLabelUrl ? (
-                                <a
-                                  href={s.barcodeLabelUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="underline underline-offset-2 text-fg-muted hover:text-fg"
-                                >
-                                  Barkod Etiketi
-                                </a>
-                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-fg-passive">Henüz takip numarası atanmadı</span>
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {["LABEL_CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(s.status) ? (
+                      <Select
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleStatusChange(
+                              s.id,
+                              e.target.value as "IN_TRANSIT" | "OUT_FOR_DELIVERY" | "DELIVERED" | "RETURNED",
+                            );
+                          }
+                        }}
+                        className="w-full text-[12px]"
+                      >
+                        <option value="">Durum Güncelle…</option>
+                        <option value="IN_TRANSIT">Yolda</option>
+                        <option value="OUT_FOR_DELIVERY">Dağıtımda</option>
+                        <option value="DELIVERED">Teslim Edildi</option>
+                        <option value="RETURNED">İade / Teslim Edilemedi</option>
+                      </Select>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Masaüstü Tablo Görünümü */}
+            <div className="hidden overflow-x-auto rounded-2xl border border-line md:block">
+              <table className="w-full border-collapse text-left text-[13px]">
+                <thead className="bg-bg/80">
+                  <tr className="border-b border-line text-[11px] uppercase tracking-wider text-fg-passive">
+                    <th className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={allReadySelected}
+                        onChange={toggleSelectAllReady}
+                        aria-label="Kargolanacakların tümünü seç"
+                      />
+                    </th>
+                    <th className="px-4 py-3 font-medium">Influencer</th>
+                    <th className="px-4 py-3 font-medium">Teslimat Adresi</th>
+                    <th className="px-4 py-3 font-medium">Varyant</th>
+                    <th className="px-4 py-3 font-medium">Kargo &amp; Takip</th>
+                    <th className="px-4 py-3 font-medium">Durum</th>
+                    <th className="px-4 py-3 text-right font-medium">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {filtered.map((s) => {
+                    const variantStr = s.selectedVariant
+                      ? Object.entries(s.selectedVariant)
+                          .map(([k, v]) => `${k}: ${v}`)
+                          .join(" · ")
+                      : "—";
+                    const cityLine = s.shippingAddress
+                      ? [s.shippingAddress.district, s.shippingAddress.city].filter(Boolean).join(" / ")
+                      : "Adres bekleniyor";
+                    const trackHref = s.trackingNumber
+                      ? s.trackingUrl || buildCarrierTrackingUrl(s.carrierName ?? s.provider, s.trackingNumber)
+                      : "";
+                    return (
+                      <tr key={s.id} className="align-middle transition-colors hover:bg-surface-hover/40">
+                        <td className="px-4 py-3.5">
+                          {s.status === "READY_TO_SHIP" ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(s.id)}
+                              onChange={() => toggleSelect(s.id)}
+                              aria-label={`${s.influencerName} seç`}
+                            />
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="font-medium text-fg">{s.influencerName}</div>
+                          {s.recipientPhone ? (
+                            <div className="text-[11px] text-fg-muted tabular-nums">{s.recipientPhone}</div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3.5 text-fg-muted">
+                          <div className="font-medium text-fg">{cityLine}</div>
+                          {s.shippingAddress?.addressLine ? (
+                            <div className="max-w-[240px] truncate text-[11px] text-fg-passive" title={s.shippingAddress.addressLine}>
+                              {s.shippingAddress.addressLine}
                             </div>
-                          </div>
-                        ) : (
-                          <span className="text-fg-passive">—</span>
-                        )}
-                      </td>
-                      <td className="py-3 pr-3">
-                        <span
-                          className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-medium ${STATUS_BADGE[s.status]}`}
-                        >
-                          {shipmentStatusLabels[s.status]}
-                        </span>
-                      </td>
-                      <td className="py-3 text-right">
-                        {["LABEL_CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(s.status) ? (
-                          <Select
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                handleStatusChange(
-                                  s.id,
-                                  e.target.value as
-                                    | "IN_TRANSIT"
-                                    | "OUT_FOR_DELIVERY"
-                                    | "DELIVERED"
-                                    | "RETURNED",
-                                );
-                              }
-                            }}
-                            className="w-auto text-[12px]"
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3.5 text-[12px] text-fg-muted">{variantStr}</td>
+                        <td className="px-4 py-3.5">
+                          {s.trackingNumber ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="font-medium text-fg">
+                                {s.carrierName ?? "Kargo"} · <span className="font-mono text-[12px]">{s.trackingNumber}</span>
+                              </span>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                                {trackHref ? (
+                                  <a
+                                    href={trackHref}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center rounded-full border border-line px-2 py-0.5 font-medium text-fg hover:border-fg"
+                                  >
+                                    Takip Et ↗
+                                  </a>
+                                ) : null}
+                                {s.barcodeLabelUrl ? (
+                                  <a
+                                    href={s.barcodeLabelUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline underline-offset-2 text-fg-muted hover:text-fg"
+                                  >
+                                    Barkod Etiketi
+                                  </a>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-fg-passive">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-block whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-medium ${STATUS_BADGE[s.status]}`}
                           >
-                            <option value="">Durum Güncelle…</option>
-                            <option value="IN_TRANSIT">Yolda</option>
-                            <option value="OUT_FOR_DELIVERY">Dağıtımda</option>
-                            <option value="DELIVERED">Teslim Edildi</option>
-                            <option value="RETURNED">İade / Teslim Edilemedi</option>
-                          </Select>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            {shipmentStatusLabels[s.status]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          {["LABEL_CREATED", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(s.status) ? (
+                            <Select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleStatusChange(
+                                    s.id,
+                                    e.target.value as
+                                      | "IN_TRANSIT"
+                                      | "OUT_FOR_DELIVERY"
+                                      | "DELIVERED"
+                                      | "RETURNED",
+                                  );
+                                }
+                              }}
+                              className="w-auto text-[12px]"
+                            >
+                              <option value="">Durum Güncelle…</option>
+                              <option value="IN_TRANSIT">Yolda</option>
+                              <option value="OUT_FOR_DELIVERY">Dağıtımda</option>
+                              <option value="DELIVERED">Teslim Edildi</option>
+                              <option value="RETURNED">İade / Teslim Edilemedi</option>
+                            </Select>
+                          ) : (
+                            <span className="text-[11px] text-fg-passive">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
     </div>
