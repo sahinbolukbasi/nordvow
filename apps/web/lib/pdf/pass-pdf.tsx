@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { BRAND_NAME } from "@infulancer/core/brand";
 import { registerPdfFonts } from "./fonts";
@@ -266,6 +267,19 @@ function PassDocument(p: PassDocProps) {
   );
 }
 
-export function renderPassPdf(props: PassDocProps): Promise<Buffer> {
-  return renderToBuffer(<PassDocument {...props} />);
+const pdfCache = new Map<string, { buf: Buffer; expiresAt: number }>();
+
+export async function renderPassPdf(props: PassDocProps): Promise<Buffer> {
+  const key = createHash("sha1").update(JSON.stringify(props)).digest("hex");
+  const hit = pdfCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) {
+    return hit.buf;
+  }
+  const buf = await renderToBuffer(<PassDocument {...props} />);
+  if (pdfCache.size >= 100) {
+    const oldest = pdfCache.keys().next().value;
+    if (oldest) pdfCache.delete(oldest);
+  }
+  pdfCache.set(key, { buf, expiresAt: Date.now() + 5 * 60_000 });
+  return buf;
 }

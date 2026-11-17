@@ -51,3 +51,4 @@ CREATE INDEX IF NOT EXISTS "blog_posts_category_idx" ON "blog_posts"("category")
 
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "blog_posts_target_audience_idx" ON "blog_posts"("target_audience");
+

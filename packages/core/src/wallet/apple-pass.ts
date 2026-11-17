@@ -32,7 +32,8 @@ function isoDate(d: Date | string | null | undefined): string | undefined {
   if (!d) return undefined;
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return undefined;
-  return dt.toISOString();
+  // Apple PassKit milisaniye (.000Z) kabul etmez; tam saniye ISO 8601 gerekir.
+  return dt.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 export function applePassJson(
@@ -88,7 +89,8 @@ export function applePassJson(
     backgroundColor: "rgb(20,20,31)",
     foregroundColor: "rgb(255,255,255)",
     labelColor: "rgb(185,185,205)",
-    barcodes: [{ format: "PKBarcodeFormatQR", message: code, messageEncoding: "utf-8", altText: code }],
+    barcodes: [{ format: "PKBarcodeFormatQR", message: code, messageEncoding: "iso-8859-1", altText: code }],
+    barcode: { format: "PKBarcodeFormatQR", message: code, messageEncoding: "iso-8859-1", altText: code },
     ...(data.kind === "ticket" ? { eventTicket: fields } : { coupon: fields }),
   };
 
@@ -150,6 +152,67 @@ function extractCertIds(certPath: string): { passTypeId?: string; teamId?: strin
   };
 }
 
+type CachedCertMaterial = {
+  fingerprint: string;
+  certPem: Buffer;
+  keyPem: Buffer;
+  wwdrPem: Buffer;
+  certIds: { passTypeId?: string; teamId?: string };
+};
+
+let cachedCerts: CachedCertMaterial | null = null;
+const pngCache = new Map<string, Buffer>();
+const pkpassCache = new Map<string, { buf: Buffer; expiresAt: number }>();
+
+function getCachedPng(key: string, build: () => Buffer): Buffer {
+  const hit = pngCache.get(key);
+  if (hit) return hit;
+  const buf = build();
+  if (pngCache.size < 64) pngCache.set(key, buf);
+  return buf;
+}
+
+function getCertMaterial(p12raw: string, wwdrRaw: string, p12pass: string): CachedCertMaterial | null {
+  const fp = sha1(Buffer.from(`${p12raw}|${wwdrRaw}|${p12pass}`));
+  if (cachedCerts && cachedCerts.fingerprint === fp) return cachedCerts;
+
+  const dir = mkdtempSync(path.join(tmpdir(), "pkpass-cert-"));
+  try {
+    const p12Path = path.join(dir, "cert.p12");
+    const certPath = path.join(dir, "cert.pem");
+    const keyPath = path.join(dir, "key.pem");
+    const wwdrPath = path.join(dir, "wwdr.pem");
+    writeFileSync(p12Path, Buffer.from(cleanBase64(p12raw), "base64"));
+    const wwdrPem = decodeWwdr(wwdrRaw);
+    writeFileSync(wwdrPath, wwdrPem);
+
+    const tryExtract = (extra: string[]) => {
+      const c = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, ...extra]);
+      const k = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, ...extra]);
+      return { ok: c.ok && k.ok, err: c.err || k.err };
+    };
+
+    let extracted = tryExtract(["-legacy"]);
+    if (!extracted.ok) extracted = tryExtract([]);
+    if (!extracted.ok) {
+      console.error("[apple-wallet] .p12 ayıklama hatası:", extracted.err);
+      return null;
+    }
+
+    const certIds = extractCertIds(certPath);
+    cachedCerts = {
+      fingerprint: fp,
+      certPem: readFileSync(certPath),
+      keyPem: readFileSync(keyPath),
+      wwdrPem,
+      certIds,
+    };
+    return cachedCerts;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * İmzalı .pkpass üretir. Sertifika yoksa veya imzalama başarısız olursa null döner.
  */
@@ -160,43 +223,29 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
   const p12pass = envStr("APPLE_WALLET_CERT_PASSWORD", "");
   if (!p12raw || !wwdrRaw) return null;
 
+  const cacheKey = sha1(Buffer.from(JSON.stringify({ serial, data })));
+  const cached = pkpassCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.buf;
+  }
+
+  const certs = getCertMaterial(p12raw, wwdrRaw, p12pass);
+  if (!certs) return null;
+
   const dir = mkdtempSync(path.join(tmpdir(), "pkpass-"));
   try {
-    // 1) Sertifikaları ayıkla (.p12 → cert.pem + key.pem) ve WWDR'ı yaz
-    const p12Path = path.join(dir, "cert.p12");
     const certPath = path.join(dir, "cert.pem");
     const keyPath = path.join(dir, "key.pem");
     const wwdrPath = path.join(dir, "wwdr.pem");
-    writeFileSync(p12Path, Buffer.from(cleanBase64(p12raw), "base64"));
-    writeFileSync(wwdrPath, decodeWwdr(wwdrRaw));
+    writeFileSync(certPath, certs.certPem);
+    writeFileSync(keyPath, certs.keyPem);
+    writeFileSync(wwdrPath, certs.wwdrPem);
 
-    const tryExtract = (extra: string[]) => {
-      const c = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, ...extra]);
-      const k = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, ...extra]);
-      return { ok: c.ok && k.ok, err: c.err || k.err };
-    };
-
-    let extracted = tryExtract(["-legacy"]);
-    if (!extracted.ok) {
-      extracted = tryExtract([]);
-    }
-    if (!extracted.ok) {
-      console.error("[apple-wallet] .p12 ayıklama hatası:", extracted.err);
-      return null;
-    }
-
-    // Sertifikadaki UID (passTypeId) ve OU (teamId) ile uyumu garanti et
-    const certIds = extractCertIds(certPath);
+    const { certIds } = certs;
     const envTeamId = envStr("APPLE_WALLET_TEAM_ID", "").trim();
     const envPassTypeId = envStr("APPLE_WALLET_PASS_TYPE_ID", "").trim();
-    if (certIds.teamId && envTeamId && certIds.teamId !== envTeamId) {
-      console.warn(`[apple-wallet] TEAM_ID uyuşmazlığı (env=${envTeamId}, cert=${certIds.teamId}); sertifika değeri kullanılıyor.`);
-    }
-    if (certIds.passTypeId && envPassTypeId && certIds.passTypeId !== envPassTypeId) {
-      console.warn(`[apple-wallet] PASS_TYPE_ID uyuşmazlığı (env=${envPassTypeId}, cert=${certIds.passTypeId}); sertifika değeri kullanılıyor.`);
-    }
 
-    // 2) Dosyalar: pass.json + görseller
+    // 2) Dosyalar: pass.json + görseller (PNG'ler önbellekten)
     const passJson = Buffer.from(
       JSON.stringify(
         applePassJson(data, serial, {
@@ -205,15 +254,16 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
         }),
       ),
     );
+    const accentKey = data.accentColor ?? "default";
     const files: Record<string, Buffer> = {
       "pass.json": passJson,
-      "icon.png": renderBrandIconPng(29),
-      "icon@2x.png": renderBrandIconPng(58),
-      "icon@3x.png": renderBrandIconPng(87),
-      "logo.png": renderBrandIconPng(50),
-      "logo@2x.png": renderBrandIconPng(100),
-      "strip.png": renderBannerPng(375, 123, data.accentColor),
-      "strip@2x.png": renderBannerPng(750, 246, data.accentColor),
+      "icon.png": getCachedPng("icon:29", () => renderBrandIconPng(29)),
+      "icon@2x.png": getCachedPng("icon:58", () => renderBrandIconPng(58)),
+      "icon@3x.png": getCachedPng("icon:87", () => renderBrandIconPng(87)),
+      "logo.png": getCachedPng("icon:50", () => renderBrandIconPng(50)),
+      "logo@2x.png": getCachedPng("icon:100", () => renderBrandIconPng(100)),
+      "strip.png": getCachedPng(`strip:375:${accentKey}`, () => renderBannerPng(375, 123, data.accentColor)),
+      "strip@2x.png": getCachedPng(`strip:750:${accentKey}`, () => renderBannerPng(750, 246, data.accentColor)),
     };
 
     // 3) manifest.json (her dosyanın SHA1'i)
@@ -243,7 +293,13 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
       console.error("[apple-wallet] zip hatası:", zipRes.stderr);
       return null;
     }
-    return readFileSync(zipPath);
+    const out = readFileSync(zipPath);
+    if (pkpassCache.size >= 50) {
+      const oldest = pkpassCache.keys().next().value;
+      if (oldest) pkpassCache.delete(oldest);
+    }
+    pkpassCache.set(cacheKey, { buf: out, expiresAt: Date.now() + 60_000 });
+    return out;
   } catch (err) {
     console.error("[apple-wallet] Beklenmeyen hata:", err);
     return null;

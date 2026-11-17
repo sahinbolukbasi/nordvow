@@ -32,9 +32,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ kind: s
   return new Response(new Uint8Array(pkpass), {
     headers: {
       "content-type": "application/vnd.apple.pkpass",
-      "content-disposition": `attachment; filename="${kind}-${id}.pkpass"`,
+      "content-disposition": `inline; filename="${kind}-${id}.pkpass"`,
       "content-length": String(pkpass.byteLength),
-      "cache-control": "no-store",
+      "cache-control": "private, max-age=60",
     },
   });
 }

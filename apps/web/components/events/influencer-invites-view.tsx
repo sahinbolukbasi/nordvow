@@ -244,18 +244,27 @@ export function InfluencerInvitesView({
             key={preview.url}
             src={preview.url}
             title={preview.title}
-            className="h-[540px] w-full rounded-xl border border-line bg-bg"
+            loading="lazy"
+            className="h-[460px] w-full rounded-xl border border-line bg-bg sm:h-[540px]"
           />
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <a
-              href={preview.pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-8 items-center rounded-full border border-line px-3 text-[12px] font-medium text-fg hover:border-line-strong"
-            >
-              {tt("PDF İndir")}
-            </a>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={`/api/wallet/apple/${preview.kind}/${preview.id}`}
+                className="inline-flex h-8 items-center rounded-full bg-black px-3 text-[12px] font-medium text-white ring-1 ring-white/20 hover:ring-white/40"
+              >
+                {tt("Apple Wallet")}
+              </a>
+              <a
+                href={preview.pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-8 items-center rounded-full border border-line px-3 text-[12px] font-medium text-fg hover:border-line-strong"
+              >
+                {tt("PDF İndir")}
+              </a>
+            </div>
             <Link
               href={preview.url}
               target="_blank"
