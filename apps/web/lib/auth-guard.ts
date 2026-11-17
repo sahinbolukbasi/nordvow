@@ -46,11 +46,14 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
   // Onay sonrası profil bağları JWT'de olmayabilir; veritabanındaki değerler esas alınır.
   const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
   if (roles.length > 0 && !roles.includes(actor.role)) {
-    const pathname = (await headers()).get("x-pathname");
-    const perms = pathname ? await loadPagePermissions(actor.staffRole ?? actor.role, actor.userId) : [];
-    if (!pathname || !isPathExplicitlyAllowed(perms, actor.staffRole ?? actor.role, actor.userId, pathname)) {
-      redirect(roleHome[actor.role]);
+    if (actor.staffRole === "AGENCY") {
+      const pathname = (await headers()).get("x-pathname");
+      const perms = pathname ? await loadPagePermissions(actor.staffRole, actor.userId) : [];
+      if (pathname && isPathExplicitlyAllowed(perms, actor.staffRole, actor.userId, pathname)) {
+        return actor;
+      }
     }
+    redirect(roleHome[actor.role]);
   }
   if (actor.role === "BRAND" && !actor.brandId) redirect("/api/auth/clear-session?hata=hesap");
   if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/api/auth/clear-session?hata=hesap");

@@ -34,7 +34,7 @@ const getCachedSystemPopups = unstable_cache(
 export async function AppShell({ role, children, fullBleed = false }: { role: Role; children: ReactNode; fullBleed?: boolean }) {
   const actor = await requireActor(role);
   const user = await getSessionUser();
-  const navRole: Role = actor.staffRole ?? role;
+  const navRole: Role = actor.staffRole ?? actor.role;
   // Yöneticinin gizlediği menü öğelerini client tarafta sakla (daraltıcı katman; kod kuralları değişmez).
   // Ajans çalışanı ADMIN yetkisiyle çalışır ama görünürlük kuralları kendi rolüne (AGENCY) göre uygulanır.
   const permRole: Role = actor.staffRole ?? actor.role;

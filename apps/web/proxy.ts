@@ -67,6 +67,22 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
     return NextResponse.redirect(url);
   }
 
+  // Rol bazlı rota izolasyonu (Edge katmanında ilk savunma):
+  // INFLUENCER ve BRAND yalnızca kendi rol öneklerine ve ortak sayfalara erişebilir.
+  const isStaff = user.role === "ADMIN" || user.role === "AGENCY";
+  if ((pathname === "/admin" || pathname.startsWith("/admin/")) && !isStaff) {
+    return NextResponse.redirect(new URL(roleHome[user.role], req.nextUrl));
+  }
+  if ((pathname === "/marka" || pathname.startsWith("/marka/")) && user.role !== "BRAND" && !isStaff) {
+    return NextResponse.redirect(new URL(roleHome[user.role], req.nextUrl));
+  }
+  if ((pathname === "/influencer" || pathname.startsWith("/influencer/")) && user.role !== "INFLUENCER" && !isStaff) {
+    return NextResponse.redirect(new URL(roleHome[user.role], req.nextUrl));
+  }
+  if (pathname.startsWith("/api/admin/") && !isStaff) {
+    return NextResponse.json({ error: "Yetkisiz erişim." }, { status: 403 });
+  }
+
   // Yetki kontrolü (rol + PagePermission özel izinleri) veritabanı erişimli requireActor/requireAdmin katmanında yapılır.
   return withPath(req, pathname);
 }

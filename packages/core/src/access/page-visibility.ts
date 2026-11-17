@@ -17,8 +17,14 @@ export type PagePermissionRow = {
  * görünür alanı daraltır veya kişiye özel istisnayı geri açar.
  * Çözüm sırası: en uzun (en belirgin) önek, eşitlikte USER kuralı ROLE'den önce.
  */
+function pathMatches(pathname: string, pathPrefix: string): boolean {
+  if (pathname === pathPrefix) return true;
+  if (pathPrefix === "/") return false;
+  return pathname.startsWith(`${pathPrefix}/`);
+}
+
 export function isPathHidden(rows: PagePermissionRow[], role: Role, userId: string | null, pathname: string): boolean {
-  const matches = rows.filter((r) => pathname === r.pathPrefix || pathname.startsWith(`${r.pathPrefix}/`));
+  const matches = rows.filter((r) => pathMatches(pathname, r.pathPrefix));
   if (!matches.length) return false;
   matches.sort((a, b) => b.pathPrefix.length - a.pathPrefix.length || (a.scopeType === "USER" ? -1 : 1));
   for (const r of matches) {
@@ -45,7 +51,7 @@ export function isPathVisibleForMenu(
   pathname: string,
   isDefaultOpen: boolean,
 ): boolean {
-  const matches = rows.filter((r) => pathname === r.pathPrefix || pathname.startsWith(`${r.pathPrefix}/`));
+  const matches = rows.filter((r) => pathMatches(pathname, r.pathPrefix));
   if (!matches.length) return isDefaultOpen;
   matches.sort((a, b) => b.pathPrefix.length - a.pathPrefix.length || (a.scopeType === "USER" ? -1 : 1));
   for (const r of matches) {
@@ -61,7 +67,7 @@ export function isPathVisibleForMenu(
 
 /** Yönetici tarafından rol veya kullanıcıya açıkça açılmış mı (allowed=true)? */
 export function isPathExplicitlyAllowed(rows: PagePermissionRow[], role: Role, userId: string | null, pathname: string): boolean {
-  const matches = rows.filter((r) => pathname === r.pathPrefix || pathname.startsWith(`${r.pathPrefix}/`));
+  const matches = rows.filter((r) => pathMatches(pathname, r.pathPrefix));
   if (!matches.length) return false;
   matches.sort((a, b) => b.pathPrefix.length - a.pathPrefix.length || (a.scopeType === "USER" ? -1 : 1));
   for (const r of matches) {
