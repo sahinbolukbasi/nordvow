@@ -1,1 +1,2 @@
-export { metadata, dynamic, default } from "../kullanim-kosullari/page";
+export const dynamic = "force-dynamic";
+export { metadata, default } from "../kullanim-kosullari/page";
