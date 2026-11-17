@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { prisma } from "@infulancer/core/db";
 import { generateStoryboardFromPhotos } from "@infulancer/core/creative/studio/storyboardService";
 import { startPhotoToVideoJob } from "@infulancer/core/creative/studio/jobQueue";
 import { aspectSchema, storyboardSchema, videoModelChoiceSchema } from "@infulancer/core/creative/studio/schemas";
 import { requireApiActor } from "@/lib/auth-guard";
 import { creativeTenantFor } from "@/lib/creative-tenant";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { errorResponse, readJson } from "@/lib/uploads";
 
 export const runtime = "nodejs";
@@ -24,6 +26,8 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const auth = await requireApiActor("ADMIN", "BRAND", "INFLUENCER");
   if (auth.response) return auth.response;
+  const rl = checkRateLimit(`pipeline-p2v:${auth.actor.userId}`, 10, 60_000);
+  if (!rl.ok) return rateLimitResponse(rl.retryAfterSec);
 
   try {
     const body = await readJson(req, bodySchema);
@@ -41,6 +45,13 @@ export async function POST(req: Request) {
         defaultDurationSec: body.defaultDurationSec,
       });
       return Response.json(res, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const activeCount = await prisma.videoPipelineJob.count({
+      where: { tenantId, status: { in: ["queued", "planning", "generating", "rendering"] } },
+    });
+    if (activeCount >= 2) {
+      return Response.json({ error: "Aynı anda en fazla 2 video üretim işi başlatabilirsiniz." }, { status: 429 });
     }
 
     const job = await startPhotoToVideoJob({

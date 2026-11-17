@@ -1,5 +1,5 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import { embedC2pa } from "./c2pa";
 import { chargeHold, placeHold, releaseHold } from "./credits";
 import { assertNoRealPersonClone } from "./md2712";
 import { resolveModel } from "./registry";
+import { withCircuitBreaker } from "../resilience/circuit-breaker";
 
 /**
  * fal queue + Nordvow Creative AI Studio entegrasyonu.
@@ -79,8 +80,53 @@ type StudioJobMeta = {
   input: Record<string, unknown>;
 };
 
-const studioJobCache = new Map<string, StudioJobMeta>();
-const syncPayloadCache = new Map<string, FalWebhook["payload"]>();
+class BoundedTtlMap<V> {
+  private readonly store = new Map<string, { val: V; at: number }>();
+  constructor(private readonly max = 500, private readonly ttlMs = 15 * 60 * 1000) {}
+
+  set(key: string, val: V): void {
+    const now = Date.now();
+    for (const [k, entry] of this.store) {
+      if (now - entry.at > this.ttlMs || this.store.size >= this.max) this.store.delete(k);
+      else break;
+    }
+    this.store.set(key, { val, at: now });
+  }
+
+  get(key: string): V | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.at > this.ttlMs) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.val;
+  }
+
+  delete(key: string): void {
+    this.store.delete(key);
+  }
+}
+
+function spawnAsync(cmd: string, args: string[], timeoutMs: number): Promise<{ status: number; stderr: string }> {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args);
+    let stderr = "";
+    const timer = setTimeout(() => p.kill("SIGKILL"), timeoutMs);
+    p.stderr.on("data", (d) => (stderr += String(d)));
+    p.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ status: -1, stderr: String(e.message) });
+    });
+    p.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ status: code ?? -1, stderr });
+    });
+  });
+}
+
+const studioJobCache = new BoundedTtlMap<StudioJobMeta>(500, 30 * 60 * 1000);
+const syncPayloadCache = new BoundedTtlMap<FalWebhook["payload"]>(500, 15 * 60 * 1000);
 
 let pollyCredClient: BedrockRuntimeClient | undefined;
 
@@ -159,7 +205,7 @@ export async function synthesizeTurkishSpeech(rawText: string): Promise<Uint8Arr
   const dir = mkdtempSync(path.join(tmpdir(), "nv-tts-"));
   try {
     const outMp3 = path.join(dir, "out.mp3");
-    const r = spawnSync(
+    const r = await spawnAsync(
       "ffmpeg",
       [
         "-y",
@@ -178,7 +224,7 @@ export async function synthesizeTurkishSpeech(rawText: string): Promise<Uint8Arr
         "128k",
         outMp3,
       ],
-      { timeout: 15_000 },
+      15_000,
     );
     if (r.status === 0) return new Uint8Array(readFileSync(outMp3));
   } catch {
@@ -409,13 +455,13 @@ export async function renderStudioImagePng(prompt: string, aspect?: string): Pro
     const svgPath = path.join(dir, "scene.svg");
     const pngPath = path.join(dir, "scene.png");
     writeFileSync(svgPath, svg, "utf8");
-    const rsvg = spawnSync("rsvg-convert", ["-w", String(w), "-h", String(h), svgPath, "-o", pngPath], { timeout: 15_000 });
+    const rsvg = await spawnAsync("rsvg-convert", ["-w", String(w), "-h", String(h), svgPath, "-o", pngPath], 15_000);
     if (rsvg.status === 0) {
       return { bytes: new Uint8Array(readFileSync(pngPath)), mime: "image/png" };
     }
     const ppmPath = path.join(dir, "scene.ppm");
     writeFileSync(ppmPath, buildPpmBuffer(prompt, Math.round(w / 2), Math.round(h / 2)));
-    const ff = spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, "-vf", `scale=${w}:${h}`, pngPath], { timeout: 15_000 });
+    const ff = await spawnAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, "-vf", `scale=${w}:${h}`, pngPath], 15_000);
     if (ff.status === 0) {
       return { bytes: new Uint8Array(readFileSync(pngPath)), mime: "image/png" };
     }
@@ -467,7 +513,7 @@ export async function renderStudioVideoMp4(opts: {
       } else {
         const ppmPath = path.join(dir, "frame.ppm");
         writeFileSync(ppmPath, buildPpmBuffer(opts.prompt, vidW, vidH));
-        spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, framePath], { timeout: 15_000 });
+        await spawnAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, framePath], 15_000);
       }
     }
 
@@ -478,7 +524,7 @@ export async function renderStudioVideoMp4(opts: {
       const audioBytes = await synthesizeTurkishSpeech(opts.voiceText);
       const mp3Path = path.join(dir, "voice.mp3");
       writeFileSync(mp3Path, Buffer.from(audioBytes));
-      const r = spawnSync(
+      const r = await spawnAsync(
         "ffmpeg",
         [
           "-y",
@@ -510,14 +556,14 @@ export async function renderStudioVideoMp4(opts: {
           "+faststart",
           outMp4,
         ],
-        { timeout: 45_000 },
+        45_000,
       );
       if (r.status === 0) {
         return { bytes: new Uint8Array(readFileSync(outMp4)), mime: "video/mp4" };
       }
     }
 
-    const r = spawnSync(
+    const r = await spawnAsync(
       "ffmpeg",
       [
         "-y",
@@ -542,7 +588,7 @@ export async function renderStudioVideoMp4(opts: {
         "+faststart",
         outMp4,
       ],
-      { timeout: 45_000 },
+      45_000,
     );
     if (r.status === 0) {
       return { bytes: new Uint8Array(readFileSync(outMp4)), mime: "video/mp4" };
@@ -576,14 +622,14 @@ export async function mergeVoiceoverOntoVideoBytes(videoBytes: Uint8Array, voice
       mp3Path,
     ];
     // Hızlı yol: video akışını kopyala (H.264 MP4).
-    let r = spawnSync(
+    let r = await spawnAsync(
       "ffmpeg",
       [...commonArgs, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0", "-movflags", "+faststart", outPath],
-      { timeout: 60_000 },
+      60_000,
     );
     // WebM/MOV gibi MP4'e doğrudan kopyalanamayan kodeklerde H.264'e yeniden kodla.
     if (r.status !== 0) {
-      r = spawnSync(
+      r = await spawnAsync(
         "ffmpeg",
         [
           ...commonArgs,
@@ -607,13 +653,13 @@ export async function mergeVoiceoverOntoVideoBytes(videoBytes: Uint8Array, voice
           "+faststart",
           outPath,
         ],
-        { timeout: 120_000 },
+        120_000,
       );
     }
     if (r.status === 0) {
       return new Uint8Array(readFileSync(outPath));
     }
-    throw new Error(`Video ses birleştirme hatası: ${r.stderr?.toString().slice(0, 240) || "ffmpeg başarısız"}`);
+    throw new Error(`Video ses birleştirme hatası: ${r.stderr.slice(0, 240) || "ffmpeg başarısız"}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -785,7 +831,9 @@ export async function submitCreative(input: {
   });
   try {
     const webhookUrl = `${envStr("APP_URL", "http://localhost:3000")}/api/webhooks/fal`;
-    const { requestId } = await fal().submit(model.modelId, input.falInput ?? { prompt: input.prompt }, webhookUrl);
+    const { requestId } = await withCircuitBreaker("fal", () =>
+      fal().submit(model.modelId, input.falInput ?? { prompt: input.prompt }, webhookUrl),
+    );
     const updated = await prisma.creativeJob.update({ where: { id: job.id }, data: { requestId, status: "IN_QUEUE", submittedAt: new Date() } });
 
     if (requestId.startsWith("req_sync_")) {

@@ -54,6 +54,7 @@ async function sendPlatformWhatsAppReply(toPhone: string, text: string, phoneNum
       type: "text",
       text: { body: text.slice(0, 4000) },
     }),
+    signal: AbortSignal.timeout(15_000),
   }).catch((e) => console.error("[whatsapp-ai] gönderim hatası:", (e as Error).message));
 }
 

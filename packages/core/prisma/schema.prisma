@@ -2243,3 +2243,93 @@ model AiUsageLog {
   @@index([createdAt])
   @@map("ai_usage_logs")
 }
+
+/// Marka bazlı AI Sesli Asistan (Amazon Connect + Bedrock KB + fal.ai TTS) yapılandırması.
+model VoiceAssistantConfig {
+  id                 String   @id @default(cuid())
+  brandId            String   @unique @map("brand_id")
+  connectPhoneNumber String?  @unique @map("connect_phone_number")
+  assistantName      String   @default("AI Asistan") @map("assistant_name")
+  greetingText       String   @default("Merhaba, size nasıl yardımcı olabilirim? Görüşmemiz kalite ve KVKK kapsamında kayıt altına alınmaktadır.") @map("greeting_text")
+  greetingCacheKey   String?  @map("greeting_cache_key")
+  ttsModelKey        String   @default("elevenlabs-v3") @map("tts_model_key")
+  ttsVoiceId         String   @default("tr-female-natural") @map("tts_voice_id")
+  tone               String   @default("samimi")
+  businessHours      Json?    @map("business_hours")
+  routingRules       Json?    @map("routing_rules")
+  blockedTopics      String?  @map("blocked_topics")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("voice_assistant_configs")
+}
+
+/// Marka bilgi bankası belgeleri (.md, .pdf, .txt, .docx). S3'te brandId klasöründe izole tutulur.
+model VoiceKnowledgeDoc {
+  id             String   @id @default(cuid())
+  brandId        String   @map("brand_id")
+  fileName       String   @map("file_name")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  s3Key          String   @map("s3_key")
+  metadataS3Key  String?  @map("metadata_s3_key")
+  status         String   @default("processing") // processing | ready | error
+  textPreview    String?  @map("text_preview")
+  ingestionJobId String?  @map("ingestion_job_id")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, createdAt])
+  @@map("voice_knowledge_docs")
+}
+
+/// Marka bazlı SSS soru-cevap çiftleri.
+model VoiceFaqItem {
+  id        String   @id @default(cuid())
+  brandId   String   @map("brand_id")
+  question  String
+  answer    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, active])
+  @@map("voice_faq_items")
+}
+
+/// Sesli asistan arama kayıtları, transkriptler ve cevaplanamayan sorular.
+model VoiceCallLog {
+  id                  String   @id @default(cuid())
+  brandId             String   @map("brand_id")
+  contactId           String?  @unique @map("contact_id")
+  callerPhone         String?  @map("caller_phone")
+  calledPhone         String?  @map("called_phone")
+  durationSec         Int      @default(0) @map("duration_sec")
+  outcome             String   @default("resolved") // resolved | transferred | callback | missed
+  summary             String?
+  transcript          Json?
+  sourcesUsed         Json?    @map("sources_used")
+  recordingS3Key      String?  @map("recording_s3_key")
+  unansweredQuestions Json?    @map("unanswered_questions")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([brandId, createdAt])
+  @@map("voice_call_logs")
+}
+
+/// Mesai dışı veya çözülemeyen aramalar için geri dönüş talepleri.
+model VoiceCallbackRequest {
+  id          String   @id @default(cuid())
+  brandId     String   @map("brand_id")
+  callLogId   String?  @map("call_log_id")
+  callerName  String?  @map("caller_name")
+  callerPhone String   @map("caller_phone")
+  topic       String
+  status      String   @default("bekliyor") // bekliyor | arandi | kapandi
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([brandId, status, createdAt])
+  @@map("voice_callback_requests")
+}

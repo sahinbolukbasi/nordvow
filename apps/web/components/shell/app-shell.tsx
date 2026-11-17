@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { unstable_cache } from "next/cache";
 import type { Role } from "@infulancer/core/enums";
 import { roleLabels } from "@infulancer/core/domain/labels";
 import { SearchIcon } from "@/components/icons";
@@ -17,6 +18,15 @@ import { NordvowMark } from "@/components/brand/logo";
 import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
 import { prisma } from "@infulancer/core/db";
 
+const getCachedSystemPopups = unstable_cache(
+  async (): Promise<SystemPopup[]> => {
+    const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
+    return Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  },
+  ["system-popups"],
+  { revalidate: 30, tags: ["system-popups"] },
+);
+
 /**
  * Uygulama iskeleti: kenar çubuğu (md+) / alt sekme çubuğu (mobil), 64px başlık
  * (admin için arama, bildirim, hesap) ve max 1440px ortalanmış içerik.
@@ -31,8 +41,7 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
   const perms: PagePermissionRow[] = await loadPagePermissions(permRole, actor.userId);
   const permCtx = { perms, role: permRole, userId: actor.userId };
   const t = await getT();
-  const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
-  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  const allPopups = await getCachedSystemPopups();
   const userEmail = (user?.email ?? "").toLowerCase();
   const popups = allPopups.filter(
     (p) =>

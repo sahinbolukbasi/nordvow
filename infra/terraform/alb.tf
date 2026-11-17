@@ -16,8 +16,8 @@ resource "aws_lb_target_group" "app" {
   deregistration_delay = 30
 
   health_check {
-    path                = "/giris"
-    matcher             = "200-399"
+    path                = "/api/health"
+    matcher             = "200"
     interval            = 30
     timeout             = 10
     healthy_threshold   = 2

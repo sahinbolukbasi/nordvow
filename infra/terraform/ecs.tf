@@ -177,6 +177,7 @@ resource "aws_ecs_task_definition" "app" {
     name         = "app"
     image        = local.image
     essential    = true
+    stopTimeout  = 60
     portMappings = [{ containerPort = 3000, protocol = "tcp" }]
     environment  = local.container_env
     secrets      = concat(local.container_secrets, local.integration_secrets)

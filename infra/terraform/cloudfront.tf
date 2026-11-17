@@ -37,6 +37,7 @@ resource "aws_cloudfront_distribution" "app" {
   price_class     = "PriceClass_100"
   http_version    = "http2and3"
   is_ipv6_enabled = true
+  web_acl_id      = aws_wafv2_web_acl.edge.arn
   # Özel alan adları yalnız sertifika doğrulandıktan sonra bağlanır (aksi halde dağıtım hata verir).
   aliases = var.domain_validated ? local.domain_aliases : []
 

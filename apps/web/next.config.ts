@@ -17,6 +17,19 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: { "/api/raporlar/kampanya/[id]/pdf": ["./assets/fonts/**"] },
   transpilePackages: ["@infulancer/core"],
   serverExternalPackages: ["pg", "@prisma/client", "@prisma/adapter-pg"],
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), geolocation=(), microphone=(self)" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
