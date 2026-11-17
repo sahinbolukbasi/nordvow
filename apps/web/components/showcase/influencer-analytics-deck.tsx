@@ -218,7 +218,7 @@ export function InfluencerAnalyticsDeck({
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-2 border-t border-line/60 pt-2.5 text-center text-[11px]">
+            <div className="grid grid-cols-1 gap-2 border-t border-line/60 pt-2.5 text-center text-[11px] sm:grid-cols-3">
               <div className="rounded-xl border border-line bg-surface p-2">
                 <span className="block text-fg-muted">{tt("Ort. İzlenme")}</span>
                 <strong className="text-[13px] tabular-nums text-fg">{compact.format(report.avgReelsViews)}</strong>

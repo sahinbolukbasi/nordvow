@@ -512,7 +512,7 @@ export function CreativeComposer({
   }, [initialHistory]);
 
   const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
-  const [panelOpen, setPanelOpen] = useState(Boolean(latestCompleted));
+  const [panelOpen, setPanelOpen] = useState(false);
 
   // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
@@ -982,7 +982,7 @@ export function CreativeComposer({
   return (
     <div
       className={cn(
-        "grid min-h-0 flex-1 w-full grid-cols-1 gap-3 overflow-hidden",
+        "grid min-h-[68dvh] flex-1 w-full grid-cols-1 gap-3 lg:min-h-0 lg:overflow-hidden",
         historyOpen && panelOpen && result
           ? "lg:grid-cols-[260px_minmax(0,1fr)_370px] xl:grid-cols-[260px_minmax(0,1fr)_400px]"
           : historyOpen
@@ -992,11 +992,11 @@ export function CreativeComposer({
               : "",
       )}
     >
-      {/* Sol Açılır/Kapanır Geçmiş Sohbetler Paneli */}
+      {/* Sol Açılır/Kapanır Geçmiş Sohbetler Paneli (Mobilde tam ekran çekmece) */}
       {historyOpen ? (
         <aside
           aria-label={tt("Geçmiş sohbetler")}
-          className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface"
+          className="fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden bg-bg/95 p-3 backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:h-full lg:min-h-0 lg:rounded-2xl lg:border lg:border-line lg:bg-surface lg:p-0 lg:backdrop-blur-none"
         >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
             <span className="text-[12px] font-semibold text-fg">
@@ -1690,7 +1690,7 @@ export function CreativeComposer({
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="text-right leading-tight">
                   <span className="block text-[11px] font-semibold tabular-nums text-fg">{money(currentCost)}</span>
                   <span className={cn("block text-[10px] tabular-nums", short ? "text-critical" : "text-fg-passive")}>
@@ -1721,10 +1721,10 @@ export function CreativeComposer({
         </div>
       </div>
 
-      {/* Sağ Panel: Telefon Önizleme, Videoya Ses Ekleme & Hızlı Chat Formatlama */}
+      {/* Sağ Panel: Telefon Önizleme, Videoya Ses Ekleme & Hızlı Chat Formatlama (Mobilde tam ekran katman) */}
       {panelOpen && result ? (
         <aside
-          className="flex h-full min-h-0 flex-col justify-between gap-3 overflow-y-auto rounded-2xl border border-line bg-surface p-4"
+          className="fixed inset-0 z-50 flex h-dvh flex-col justify-between gap-3 overflow-y-auto bg-bg/95 p-4 backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:h-full lg:min-h-0 lg:rounded-2xl lg:border lg:border-line lg:bg-surface lg:backdrop-blur-none"
           aria-label={tt("Telefon önizleme ve hızlı formatlama")}
         >
           <div className="flex flex-col gap-3">

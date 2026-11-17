@@ -238,20 +238,22 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
     <div
       className={
         tab === "uret"
-          ? "flex h-[calc(100dvh-4.5rem)] max-h-[calc(100dvh-4.5rem)] w-full flex-1 flex-col gap-3 overflow-hidden"
+          ? "flex min-h-[calc(100dvh-9.5rem)] w-full flex-1 flex-col gap-3 lg:h-[calc(100dvh-4.5rem)] lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-hidden"
           : "flex min-h-[calc(100dvh-5.5rem)] w-full flex-1 flex-col gap-3"
       }
     >
       {/* Sade Üst Stüdyo Çubuğu */}
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-2 sm:px-5">
-        <div className="flex flex-wrap items-center gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-line bg-surface px-3 py-2 sm:gap-3 sm:px-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-semibold tracking-tight text-fg">{tt("Nordvow Creative AI")}</h1>
             <span className="hidden rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted sm:inline-block">
               {profileName}
             </span>
           </div>
-          <FilterTabs items={tabs} active={tab} />
+          <div className="max-w-full overflow-x-auto [scrollbar-width:none]">
+            <FilterTabs items={tabs} active={tab} />
+          </div>
         </div>
 
         {/* Sağ Bakiye & Açılır Bakiye Yönetimi */}
@@ -265,7 +267,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
               <summary className="cursor-pointer list-none rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-medium text-fg hover:border-fg/40">
                 {pendingCreditReq ? tt("Talep İnceleniyor") : tt("+ Kredi Yükle")}
               </summary>
-              <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-line bg-surface p-3 shadow-xl sm:w-96">
+              <div className="absolute right-0 z-30 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-3 shadow-xl sm:w-96">
                 <CreditRequestForm pending={pendingCreditReq} currency={currency} />
                 {ledger.length ? (
                   <div className="mt-3">
