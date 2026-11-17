@@ -256,10 +256,12 @@ model Brand {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  users          User[]
-  campaigns      Campaign[]
-  tenantSettings TenantSettings?
-  categories     BrandCategory[]
+  users                User[]
+  campaigns            Campaign[]
+  tenantSettings       TenantSettings?
+  categories           BrandCategory[]
+  shippingIntegrations BrandShippingIntegration[]
+  shipments            Shipment[]
 }
 
 model Influencer {
@@ -293,6 +295,9 @@ model Influencer {
   payoutRequests PayoutRequest[]
   taxProfile     InfluencerTaxProfile?
   categories     InfluencerCategory[]
+  addresses      InfluencerAddress[]
+  shipments      Shipment[]
+  tiktokAccounts TikTokAccount[]
 }
 
 model SocialAccount {
@@ -381,9 +386,12 @@ model Campaign {
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 
-  briefs      CampaignBrief[]
-  assignments Assignment[]
-  assets      Asset[]
+  briefs         CampaignBrief[]
+  assignments    Assignment[]
+  assets         Asset[]
+  shippingConfig CampaignShippingConfig?
+  shipments      Shipment[]
+  tiktokPosts    TikTokPost[]
 
   @@index([brandId])
   @@index([status])
@@ -426,6 +434,7 @@ model Assignment {
   updatedAt              DateTime       @updatedAt
 
   deliverables Deliverable[]
+  shipments    Shipment[]
 
   @@index([campaignId])
   @@index([influencerId])
@@ -1493,6 +1502,7 @@ model Offer {
   assignmentId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  shipments    Shipment[]
   @@index([influencerId, status])
   @@index([brandId, status])
   @@map("offers")
@@ -2332,4 +2342,281 @@ model VoiceCallbackRequest {
 
   @@index([brandId, status, createdAt])
   @@map("voice_callback_requests")
+}
+
+// ═════════════ Ürün Gönderim & Kargo Entegrasyon Modülü ═════════════
+
+enum ShippingProvider {
+  NAVLUNGO
+  YURTICI
+  ARAS
+  MNG
+  UPS
+  HEPSIJET
+  KOLAY_GELSIN
+  CUSTOM_MANUAL
+}
+
+enum ShippingMode {
+  INTEGRATED_CARGO
+  MANUAL_TRACKING
+}
+
+enum ContentTriggerRule {
+  AFTER_DELIVERY
+  ANYTIME
+}
+
+enum ShipmentStatus {
+  PENDING_ADDRESS
+  READY_TO_SHIP
+  LABEL_CREATED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  RETURNED
+}
+
+/// Marka kargo entegrasyon ayarları (API bilgileri AES-256-GCM ile şifreli saklanır).
+model BrandShippingIntegration {
+  id                     String           @id @default(cuid())
+  brandId                String           @map("brand_id")
+  brand                  Brand            @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  provider               ShippingProvider
+  apiKey                 String?          @map("api_key")
+  apiSecret              String?          @map("api_secret")
+  customerCode           String?          @map("customer_code")
+  isActive               Boolean          @default(true) @map("is_active")
+  defaultSenderAddressId String?          @map("default_sender_address_id")
+  senderAddress          Json?            @map("sender_address")
+  lastTestedAt           DateTime?        @map("last_tested_at")
+  lastTestOk             Boolean?         @map("last_test_ok")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  @@unique([brandId, provider])
+  @@index([brandId])
+  @@map("brand_shipping_integrations")
+}
+
+/// Kampanya bazlı ürün gönderim kuralları.
+model CampaignShippingConfig {
+  id                      String             @id @default(cuid())
+  campaignId              String             @unique @map("campaign_id")
+  campaign                Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  requiresProductShipment Boolean            @default(false) @map("requires_product_shipment")
+  shippingMode            ShippingMode       @default(MANUAL_TRACKING) @map("shipping_mode")
+  productDetails          Json               @default("{}") @map("product_details")
+  contentTriggerRule      ContentTriggerRule @default(AFTER_DELIVERY) @map("content_trigger_rule")
+  contentDeadlineDays     Int?               @map("content_deadline_days")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  @@map("campaign_shipping_configs")
+}
+
+/// Influencer kayıtlı teslimat adresleri.
+model InfluencerAddress {
+  id             String     @id @default(cuid())
+  influencerId   String     @map("influencer_id")
+  influencer     Influencer @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  label          String     @default("Ev")
+  recipientName  String     @map("recipient_name")
+  recipientPhone String     @map("recipient_phone")
+  addressLine    String     @map("address_line")
+  city           String
+  district       String
+  postalCode     String?    @map("postal_code")
+  isDefault      Boolean    @default(false) @map("is_default")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  @@index([influencerId])
+  @@map("influencer_addresses")
+}
+
+/// Gönderi ve kargo takip kayıtları.
+model Shipment {
+  id                    String            @id @default(cuid())
+  collaborationId       String            @map("collaboration_id")
+  campaignId            String            @map("campaign_id")
+  campaign              Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignmentId          String?           @map("assignment_id")
+  assignment            Assignment?       @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  offerId               String?           @map("offer_id")
+  offer                 Offer?            @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  brandId               String            @map("brand_id")
+  brand                 Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  influencerId          String            @map("influencer_id")
+  influencer            Influencer        @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  recipientName         String?           @map("recipient_name")
+  recipientPhone        String?           @map("recipient_phone")
+  shippingAddress       Json?             @map("shipping_address")
+  selectedVariant       Json?             @map("selected_variant")
+  provider              ShippingProvider?
+  carrierName           String?           @map("carrier_name")
+  trackingNumber        String?           @map("tracking_number")
+  trackingUrl           String?           @map("tracking_url")
+  barcodeLabelUrl       String?           @map("barcode_label_url")
+  externalShipmentId    String?           @map("external_shipment_id")
+  status                ShipmentStatus    @default(PENDING_ADDRESS)
+  estimatedDeliveryDate DateTime?         @map("estimated_delivery_date")
+  deliveredAt           DateTime?         @map("delivered_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  @@unique([collaborationId])
+  @@index([campaignId, status])
+  @@index([brandId, status])
+  @@index([influencerId, status])
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+// ───────────── TikTok Login Kit & Content Posting API ─────────────
+
+enum TikTokAccountStatus {
+  active
+  revoked
+  error
+}
+
+enum TikTokPostSource {
+  FILE_UPLOAD
+  PULL_FROM_URL
+}
+
+enum TikTokPostStatus {
+  PROCESSING_UPLOAD
+  PROCESSING_DOWNLOAD
+  SEND_TO_USER_INBOX
+  PUBLISH_COMPLETE
+  FAILED
+}
+
+/// TikTok Login Kit v2 ile bağlanan creator hesabı; token'lar AES-256-GCM şifreli saklanır.
+model TikTokAccount {
+  id               String              @id @default(cuid())
+  influencerId     String              @map("nordvow_user_id")
+  influencer       Influencer          @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  openId           String              @unique @map("open_id")
+  unionId          String?             @map("union_id")
+  displayName      String?             @map("display_name")
+  username         String?
+  avatarUrl        String?             @map("avatar_url")
+  bio              String?
+  profileDeepLink  String?             @map("profile_deep_link")
+  isVerified       Boolean             @default(false) @map("is_verified")
+  followerCount    Int                 @default(0) @map("follower_count")
+  followingCount   Int                 @default(0) @map("following_count")
+  likesCount       Int                 @default(0) @map("likes_count")
+  videoCount       Int                 @default(0) @map("video_count")
+  /// AES-256-GCM şifreli access_token
+  accessToken      String              @map("access_token")
+  /// AES-256-GCM şifreli refresh_token
+  refreshToken     String              @map("refresh_token")
+  accessExpiresAt  DateTime            @map("access_expires_at")
+  refreshExpiresAt DateTime            @map("refresh_expires_at")
+  scopes           String[]            @default([])
+  connectedAt      DateTime            @default(now()) @map("connected_at")
+  lastSyncedAt     DateTime?           @map("last_synced_at")
+  status           TikTokAccountStatus @default(active)
+  lastError        String?             @map("last_error")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  videos     TikTokVideo[]
+  dailyStats TikTokAccountStatsDaily[]
+  posts      TikTokPost[]
+
+  @@index([influencerId, status])
+  @@index([accessExpiresAt, status])
+  @@map("tiktok_accounts")
+}
+
+/// TikTok Display / Video List API'den senkronlanan videolar.
+model TikTokVideo {
+  id               String        @id
+  accountId        String        @map("account_id")
+  account          TikTokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  title            String?
+  videoDescription String?       @map("video_description")
+  createTime       DateTime      @map("create_time")
+  coverImageUrl    String?       @map("cover_image_url")
+  shareUrl         String?       @map("share_url")
+  embedLink        String?       @map("embed_link")
+  duration         Int?
+  width            Int?
+  height           Int?
+  viewCount        Int           @default(0) @map("view_count")
+  likeCount        Int           @default(0) @map("like_count")
+  commentCount     Int           @default(0) @map("comment_count")
+  shareCount       Int           @default(0) @map("share_count")
+  lastSyncedAt     DateTime      @default(now()) @map("last_synced_at")
+
+  dailyStats TikTokVideoStatsDaily[]
+
+  @@index([accountId, createTime])
+  @@map("tiktok_videos")
+}
+
+/// Günlük video performans snapshot'ları (grafikler ve trend analizi).
+model TikTokVideoStatsDaily {
+  id           String      @id @default(cuid())
+  videoId      String      @map("video_id")
+  video        TikTokVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  date         DateTime    @db.Date
+  viewCount    Int         @default(0) @map("view_count")
+  likeCount    Int         @default(0) @map("like_count")
+  commentCount Int         @default(0) @map("comment_count")
+  shareCount   Int         @default(0) @map("share_count")
+
+  @@unique([videoId, date])
+  @@index([date])
+  @@map("tiktok_video_stats_daily")
+}
+
+/// Günlük hesap büyüme snapshot'ları.
+model TikTokAccountStatsDaily {
+  id            String        @id @default(cuid())
+  accountId     String        @map("account_id")
+  account       TikTokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date          DateTime      @db.Date
+  followerCount Int           @default(0) @map("follower_count")
+  likesCount    Int           @default(0) @map("likes_count")
+  videoCount    Int           @default(0) @map("video_count")
+
+  @@unique([accountId, date])
+  @@index([date])
+  @@map("tiktok_account_stats_daily")
+}
+
+/// Nordvow'dan TikTok Content Posting API ile yayınlanan veya inbox'a gönderilen içerikler.
+model TikTokPost {
+  id                 String           @id @default(cuid())
+  accountId          String           @map("account_id")
+  account            TikTokAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  campaignId         String?          @map("campaign_id")
+  campaign           Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deliverableId      String?          @map("deliverable_id")
+  publishId          String           @unique @map("publish_id")
+  source             TikTokPostSource
+  mode               String           @default("DIRECT")
+  privacyLevel       String           @map("privacy_level")
+  caption            String?
+  brandContentToggle Boolean          @default(false) @map("brand_content_toggle")
+  brandOrganicToggle Boolean          @default(false) @map("brand_organic_toggle")
+  disableDuet        Boolean          @default(false) @map("disable_duet")
+  disableComment     Boolean          @default(false) @map("disable_comment")
+  disableStitch      Boolean          @default(false) @map("disable_stitch")
+  status             TikTokPostStatus @default(PROCESSING_UPLOAD)
+  failReason         String?          @map("fail_reason")
+  publishedVideoId   String?          @map("published_video_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@index([accountId, createdAt])
+  @@index([campaignId])
+  @@index([status])
+  @@map("tiktok_posts")
 }

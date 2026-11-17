@@ -31,6 +31,8 @@ import { requireActor } from "@/lib/auth-guard";
 import { PostUrlForm } from "@/components/forms/post-url-form";
 import { InfluencerTaskSyncCard } from "@/components/campaign/campaign-hub";
 import { loadCampaignHubState } from "@/lib/actions/campaign-hub";
+import { getInfluencerShipmentForCollaboration } from "@infulancer/core/shipping/service";
+import { InfluencerShipmentCard } from "@/components/shipping/influencer-shipment-card";
 import { creativePricing } from "@infulancer/core/creative/pricing";
 import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { isOverdue } from "@/lib/calendar";
@@ -73,9 +75,14 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
   if (!row || row.assignment.influencerId !== actor.influencerId) notFound();
 
   const { assignment } = row;
-  const [hubState, pricing] = await Promise.all([
+  const [hubState, pricing, shippingData] = await Promise.all([
     loadCampaignHubState(assignment.campaignId),
     creativePricing(),
+    getInfluencerShipmentForCollaboration({
+      influencerId: actor.influencerId!,
+      campaignId: assignment.campaignId,
+      assignmentId: assignment.id,
+    }),
   ]);
   const myCur = currencyOf(assignment.influencer.country);
   const campCur = assignment.campaign.currency || currencyOf(assignment.campaign.brand.country);
@@ -98,7 +105,7 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
   const myFiles = row.assets.filter((a) => a.direction === "INFLUENCER_TO_AJANS");
   const usedShots = new Set(row.metricSnapshots.map((m) => m.screenshotAssetId).filter(Boolean));
   const freeShots = myFiles.filter((a) => a.kind === "METRIK_SS" && !usedShots.has(a.id)).map((a) => ({ id: a.id, fileName: a.fileName }));
-  const canUploadDraft = !closed && view.contractStatus === "KABUL" && ["BRIEF_GONDERILDI", "REVIZYON", "ICERIK_YUKLENDI", "ONAYLANDI", "ATANDI"].includes(d.status);
+  const canUploadDraft = !shippingData.isUploadLocked && !closed && view.contractStatus === "KABUL" && ["BRIEF_GONDERILDI", "REVIZYON", "ICERIK_YUKLENDI", "ONAYLANDI", "ATANDI"].includes(d.status);
   const overdue = isOverdue(d);
 
   return (
@@ -136,6 +143,30 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
         <Card interactive={false} className="border-critical/40">
           <p className="text-sm text-critical">{tt("Paylaşım erişilemiyor: sözleşme ihlali olarak işaretlendi. Ajansla iletişime geçin.")}</p>
         </Card>
+      ) : null}
+
+      {shippingData.config.requiresProductShipment && shippingData.shipment ? (
+        <InfluencerShipmentCard
+          shipment={{
+            id: shippingData.shipment.id,
+            status: shippingData.shipment.status,
+            carrierName: shippingData.shipment.carrierName,
+            trackingNumber: shippingData.shipment.trackingNumber,
+            trackingUrl: shippingData.shipment.trackingUrl,
+            selectedVariant: shippingData.shipment.selectedVariant as Record<string, string> | null,
+            recipientName: shippingData.shipment.recipientName,
+            recipientPhone: shippingData.shipment.recipientPhone,
+            shippingAddress: shippingData.shipment.shippingAddress as {
+              addressLine?: string;
+              city?: string;
+              district?: string;
+              postalCode?: string | null;
+            } | null,
+          }}
+          productDetails={shippingData.config.productDetails}
+          contentTriggerRule={shippingData.config.contentTriggerRule}
+          savedAddresses={shippingData.addresses}
+        />
       ) : null}
 
       {!rejected ? (
@@ -246,7 +277,11 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
         <Card interactive={false} className="flex flex-col gap-4 md:col-span-6">
           <CardTitle>{tt("Yüklediklerim")}</CardTitle>
           <AssetList assets={myFiles} emptyText={tt("Henüz dosya yüklemediniz.")} />
-          {canUploadDraft ? (
+          {shippingData.isUploadLocked ? (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-800 dark:text-amber-200">
+              {tt("Ürününüz kargo aşamasındadır. Ürün elinize ulaştıktan sonra çekim yaparak içeriğinizi bu alandan yükleyebilirsiniz.")}
+            </p>
+          ) : canUploadDraft ? (
             <FileUploader
               target={{ type: "deliverable", id: d.id }}
               kinds={[

@@ -55,6 +55,22 @@ const en: LocaleTpls = {
     WHATSAPP: { body: "{{mesaj}} {{link}}" },
     INSTAGRAM: { body: "{{mesaj}} {{link}}" },
   },
+  SHIPMENT_ADDRESS_CONFIRMED: {
+    INAPP: { subject: "Shipping address confirmed", body: "{{influencer}} confirmed their delivery address and is ready for shipment." },
+    EMAIL: { subject: "Ready to ship: {{influencer}}", body: "Hello,\n\n{{influencer}} confirmed their delivery address for “{{kampanya}}”.\n\nLogistics dashboard: {{link}}" },
+  },
+  SHIPMENT_DISPATCHED: {
+    INAPP: { subject: "Your product has shipped", body: "{{marka}} shipped your campaign product! Tracking No: {{takipNo}}" },
+    EMAIL: { subject: "Product shipped: {{marka}}", body: "Hello,\n\n{{marka}} shipped your campaign product via {{kargo}}.\nTracking No: {{takipNo}}\n\nDetails: {{link}}" },
+  },
+  SHIPMENT_DELIVERED_INFLUENCER: {
+    INAPP: { subject: "Product delivered", body: "Your product has been delivered! You can now create and upload your content on Nordvow." },
+    EMAIL: { subject: "Product delivered: {{kampanya}}", body: "Hello,\n\nYour product for “{{kampanya}}” by {{marka}} has been delivered! You can now prepare and upload your content on Nordvow.\n\nJob details: {{link}}" },
+  },
+  SHIPMENT_DELIVERED_BRAND: {
+    INAPP: { subject: "Product delivered", body: "The product was delivered to {{influencer}}." },
+    EMAIL: { subject: "Delivery completed: {{influencer}}", body: "Hello,\n\nThe product for “{{kampanya}}” was delivered to {{influencer}}.\n\nLogistics dashboard: {{link}}" },
+  },
 };
 
 const de: LocaleTpls = {

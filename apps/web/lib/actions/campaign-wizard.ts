@@ -11,6 +11,8 @@ import {
   updateSchedule,
   updateShortlist,
 } from "@infulancer/core/domain/campaign-draft";
+import { upsertCampaignShippingConfig } from "@infulancer/core/shipping/service";
+import { campaignShippingConfigSchema } from "@infulancer/core/shipping/types";
 import { nextStep, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
@@ -130,6 +132,26 @@ export async function wizardMediaAction(_p: ActionState, fd: FormData): Promise<
   const a = await actor();
   const id = str(fd, "id");
   return finish(a, id, "medya", fd, { ok: true });
+}
+
+export async function wizardProductShippingAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const a = await actor();
+  const id = str(fd, "id");
+  const res = await attempt(async () => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(str(fd, "configJson") || "{}");
+    } catch {
+      throw new DomainError("DOGRULAMA", "Ürün gönderim ayarları okunamadı.");
+    }
+    const parsed = campaignShippingConfigSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new DomainError("DOGRULAMA", parsed.error.issues[0]?.message ?? "Geçersiz ürün gönderim bilgisi.");
+    }
+    await upsertCampaignShippingConfig(id, parsed.data);
+    return { ok: true };
+  });
+  return finish(a, id, "urun", fd, res);
 }
 
 export async function wizardInfluencersAction(_p: ActionState, fd: FormData): Promise<ActionState> {

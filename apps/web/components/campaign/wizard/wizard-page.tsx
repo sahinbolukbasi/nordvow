@@ -18,6 +18,8 @@ import { AGENCY_TZ, fmtDateTime, localDay } from "@/lib/time";
 import { countryLabel, currencyOf, formatMinor } from "@infulancer/core/i18n/regions";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { AudienceStep, BasicsStep, BriefStep, ContentPlanStep, InfluencerStep, MediaStep, ScheduleStep, SubmitStep, type WizardInfluencer } from "./wizard-steps";
+import { ProductShippingStep } from "./product-shipping-step";
+import { getCampaignShippingConfig } from "@infulancer/core/shipping/service";
 
 const tl = (k: bigint | number) => (Number(k) > 0 ? (Number(k) / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : "");
 
@@ -147,6 +149,9 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         }
       />
     );
+  } else if (step === "urun") {
+    const cfg = await getCampaignShippingConfig(c.id);
+    body = <ProductShippingStep id={c.id} backHref={backHref} initial={cfg} />;
   } else if (step === "influencer") {
     const rows = await prisma.influencer.findMany({
       // Çoklu ülke ve global influencer seçimi: vitrinde görünür tüm influencerlar listelenir, hedef ülke olanlar üstte sıralanır.

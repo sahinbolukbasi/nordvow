@@ -11,6 +11,7 @@ import { transitionDeliverable } from "@infulancer/core/domain/deliverable-statu
 import { DomainError } from "@infulancer/core/domain/errors";
 import { assertInfluencerFitsCampaign } from "@infulancer/core/domain/campaign-region";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
+import { linkOrCreateShipmentForAssignment } from "@infulancer/core/shipping/service";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, intOrNull, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -255,7 +256,7 @@ export async function createAssignmentsBulk(input: {
         failed.push({ influencerId: it.influencerId, name, conflict: true, reason: conflict.conflicts.map((c) => c.message).join(" · ") });
         continue;
       }
-      await insertAssignment(actor, {
+      const assignmentId = await insertAssignment(actor, {
         campaignId,
         influencerId: it.influencerId,
         feeKurus: it.feeKurus,
@@ -265,6 +266,7 @@ export async function createAssignmentsBulk(input: {
         couponCode: null,
         overrideReason: null,
       });
+      await linkOrCreateShipmentForAssignment(assignmentId);
       created.push({ influencerId: it.influencerId, name });
     } catch (err) {
       failed.push({ influencerId: it.influencerId, name, conflict: false, reason: err instanceof DomainError ? err.message : "Beklenmeyen hata." });
@@ -301,6 +303,7 @@ export async function assignFromOfferAction(_p: ActionState, fd: FormData): Prom
       overrideReason: null,
     }, { accepted: true });
     await prisma.offer.update({ where: { id: offer.id }, data: { status: "KAMPANYAYA_EKLENDI", campaignId, assignmentId } });
+    await linkOrCreateShipmentForAssignment(assignmentId, offer.id);
     await audit.append({ actor: toAuditActor(actor), action: "OFFER_CONVERTED", entityType: "Offer", entityId: offer.id, data: { campaignId, assignmentId } });
     revalidateAll();
     return { ok: true, message: "Kampanyaya eklendi.", data: { campaignId } };

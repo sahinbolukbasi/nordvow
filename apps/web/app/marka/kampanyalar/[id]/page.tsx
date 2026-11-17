@@ -34,6 +34,8 @@ import { prisma } from "@infulancer/core/db";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
 import { formatDualMinor } from "@infulancer/core/i18n/regions";
 import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
+import { getCampaignShipmentsDashboard } from "@infulancer/core/shipping/service";
+import { CampaignShippingDashboard } from "@/components/shipping/campaign-shipping-dashboard";
 import { FileUploader } from "@/components/files/file-uploader";
 import { buildCalendarRows, resolveWeek } from "@/lib/calendar";
 import { num, pct, pct1 } from "@/lib/format";
@@ -76,12 +78,13 @@ export default async function BrandCampaignPage({
     include: { uploadedBy: { select: { name: true } } },
   });
   const draft = campaign.status === "TASLAK";
-  const [meta, hubData] = await Promise.all([
+  const [meta, hubData, shippingDash] = await Promise.all([
     prisma.campaign.findUniqueOrThrow({
       where: { id: campaign.id },
       select: { currency: true, executionMode: true, brand: { select: { defaultExecutionMode: true } } },
     }),
     loadCampaignHubData(campaign.id),
+    getCampaignShipmentsDashboard(campaign.id),
   ]);
   const currency = meta.currency;
   const effectiveMode = meta.brand.defaultExecutionMode ?? meta.executionMode;
@@ -409,10 +412,58 @@ export default async function BrandCampaignPage({
         messages={hubData.messages}
         storyRows={hubData.storyRows}
       />
+      {shippingDash.config.requiresProductShipment || shippingDash.shipments.length > 0 ? (
+        <section className="flex flex-col gap-3" id="kargo">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-section">{tt("Kargo & Lojistik Yönetimi")}</h2>
+            <Link href="/marka/ayarlar/kargo" className={buttonClass("ghost", "sm")}>
+              {tt("Kargo Entegrasyon Ayarları")}
+            </Link>
+          </div>
+          <CampaignShippingDashboard
+            shippingMode={shippingDash.config.shippingMode}
+            kpi={shippingDash.kpi}
+            shipments={shippingDash.shipments.map((s) => ({
+              id: s.id,
+              collaborationId: s.collaborationId,
+              influencerId: s.influencerId,
+              influencerName: s.influencer.name,
+              influencerCity: s.influencer.city,
+              recipientName: s.recipientName,
+              recipientPhone: s.recipientPhone,
+              shippingAddress: s.shippingAddress as {
+                addressLine?: string;
+                city?: string;
+                district?: string;
+                postalCode?: string | null;
+              } | null,
+              selectedVariant: s.selectedVariant as Record<string, string> | null,
+              provider: s.provider,
+              carrierName: s.carrierName,
+              trackingNumber: s.trackingNumber,
+              trackingUrl: s.trackingUrl,
+              barcodeLabelUrl: s.barcodeLabelUrl,
+              status: s.status,
+              estimatedDeliveryDate: s.estimatedDeliveryDate?.toISOString() ?? null,
+              deliveredAt: s.deliveredAt?.toISOString() ?? null,
+            }))}
+            integrations={shippingDash.integrations}
+          />
+        </section>
+      ) : null}
       {mediaCard}
       {drafts}
       {report.deliverables.length === 0 ? <EmptyState message={tt("Bu kampanyada henüz planlanmış içerik yok.")} /> : calendar}
       {performance}
+      <Card interactive={false} className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardTitle>{tt("TikTok Kampanya Performans Raporu")}</CardTitle>
+          <p className="text-xs text-fg-muted">{tt("Kampanyaya bağlı TikTok içeriklerinin izlenme, beğeni, yorum, paylaşım ve etkileşim oranlarını CSV olarak indirin.")}</p>
+        </div>
+        <a href={`/api/raporlar/kampanya/tiktok?campaignId=${id}&format=csv`} className={buttonClass("secondary")}>
+          {tt("TikTok Raporunu İndir (CSV)")}
+        </a>
+      </Card>
       {gallery}
       {trust}
     </div>

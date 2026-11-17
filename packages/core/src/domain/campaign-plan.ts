@@ -8,7 +8,7 @@ import { REGIONS } from "../i18n/regions";
  * Adımlar sırayla kaydedilir; her adım kendi "Kaydet ve devam" düğmesiyle veritabanına yazılır,
  * son adım ("Özet") kampanyayı ajansa gönderir (marka) ya da kuruluma geçirir (ajans).
  */
-export type WizardStepKey = "temel" | "kitle" | "butce" | "icerik" | "brief" | "medya" | "influencer" | "ozet";
+export type WizardStepKey = "temel" | "kitle" | "butce" | "icerik" | "brief" | "medya" | "urun" | "influencer" | "ozet";
 export const WIZARD_STEPS: { key: WizardStepKey; title: string; hint: string }[] = [
   { key: "temel", title: "Temel bilgiler", hint: "Ad, amaç ve kısa açıklama" },
   { key: "kitle", title: "Hedef kitle", hint: "Ülke, platform, yaş ve ilgi alanı" },
@@ -16,6 +16,7 @@ export const WIZARD_STEPS: { key: WizardStepKey; title: string; hint: string }[]
   { key: "icerik", title: "İçerik planı", hint: "Influencer başına kaç post, reels, story" },
   { key: "brief", title: "Brief", hint: "Mesaj, yapılacaklar, etiketler" },
   { key: "medya", title: "Fotoğraf ve video", hint: "Ürün görselleri, örnek çekimler, logo" },
+  { key: "urun", title: "Ürün & Gönderim", hint: "Fiziksel ürün, varyant ve kargo kuralı" },
   { key: "influencer", title: "Influencerlar", hint: "Toplu seçim" },
   { key: "ozet", title: "Özet ve kaydet", hint: "Kontrol et ve gönder" },
 ];
@@ -112,6 +113,7 @@ export function draftChecks(c: {
     { key: "icerik", ok: plan.length > 0, note: plan.length ? `${planTotal(plan)} içerik / influencer` : "İçerik planı yok" },
     { key: "brief", ok: c.briefCount > 0, note: c.briefCount ? "Brief yazıldı" : "Brief yazılmadı" },
     { key: "medya", ok: true, note: c.mediaCount ? `${c.mediaCount} dosya` : "İsteğe bağlı" },
+    { key: "urun", ok: true, note: "İsteğe bağlı" },
     { key: "influencer", ok: true, note: c.influencerCount ? `${c.influencerCount} influencer` : "Ajans önerir (isteğe bağlı)" },
   ];
 }

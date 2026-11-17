@@ -50,6 +50,7 @@ export default async function PrivacyPage() {
               <p>{tt("Platform API'lerinden alınan veriler yalnız kampanya eşleştirme, performans ölçümü ve raporlama amacıyla kullanılır; satılmaz, reklam profili oluşturmak için kullanılmaz ve üçüncü taraf veri aracılarıyla paylaşılmaz.")}</p>
               <p>{tt("YouTube verileri için")}{" "}<a href="https://www.youtube.com/t/terms" className="underline underline-offset-4" target="_blank" rel="noopener noreferrer">{tt("YouTube Hizmet Şartları")}</a>{" "}{tt("ve")}{" "}
                 <a href="https://policies.google.com/privacy" className="underline underline-offset-4" target="_blank" rel="noopener noreferrer">{tt("Google Gizlilik Politikası")}</a>{" "}{tt("geçerlidir. Bağlantıyı istediğiniz zaman ilgili platformun güvenlik ayarlarından kaldırabilirsiniz; kaldırıldığında yeni veri çekilmez.")}</p>
+              <p>{tt("TikTok Login Kit ve Content Posting API kapsamında alınan profil bilgileri, video listesi, istatistikler ve şifrelenmiş erişim anahtarları (AES-256-GCM) yalnızca içerik üreticisinin açık izniyle profil/video analitiği ve onaylı içerik yayınlama amacıyla işlenir. Kullanıcı 'TikTok bağlantısını kes' işlemini yaptığında erişim anahtarı iptal edilir (revoke) ve saklanan tüm TikTok profil, video ve istatistik verileri sistemden kalıcı olarak silinir.")}</p>
             </>
           ),
         },

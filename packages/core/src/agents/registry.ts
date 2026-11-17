@@ -21,6 +21,13 @@ import { refreshFx } from "../creative/pricing";
 import { runAllTrackers } from "./trackers";
 import { expireOffers } from "../domain/offers";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
+import { pollActiveShipments } from "../shipping/service";
+import {
+  pollPendingTikTokPostsJob,
+  refreshExpiringTikTokTokensJob,
+  snapshotTikTokDailyStatsJob,
+  syncStaleTikTokAccountsJob,
+} from "../tiktok/service";
 
 export type EventHandler<T extends AppEventType = AppEventType> = (
   event: Extract<AppEvent, { type: T }>,
@@ -81,6 +88,11 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },
   { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await expireOffers(), skipped: 0 }) },
   { name: "influencer-recommendation", schedule: "cron(0 6 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runInfluencerRecommendationAll()) },
+  { name: "cargo-tracking-sync", schedule: "rate(30 minutes)", intervalMs: 30 * MIN, run: async () => { const r = await pollActiveShipments(50); return { created: r.updated, skipped: r.checked - r.updated }; } },
+  { name: "tiktok-token-refresh", schedule: "rate(30 minutes)", intervalMs: 30 * MIN, run: async () => { const r = await refreshExpiringTikTokTokensJob(); return { created: r.refreshed, skipped: r.failed }; } },
+  { name: "tiktok-sync", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { const r = await syncStaleTikTokAccountsJob(50); return { created: r.ok, skipped: r.checked - r.ok }; } },
+  { name: "tiktok-daily-snapshot", schedule: "cron(0 2 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await snapshotTikTokDailyStatsJob(); return { created: r.accountSnapshots + r.videoSnapshots, skipped: 0 }; } },
+  { name: "tiktok-publish-poll", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => { const r = await pollPendingTikTokPostsJob(30); return { created: r.updated, skipped: r.checked - r.updated }; } },
 ];
 
 export function findJob(name: string): ScheduledJob | undefined {

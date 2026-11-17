@@ -15,6 +15,7 @@ import { WhatsAppConnectCard } from "@/components/profile/whatsapp-connect-card"
 import { getOrCreateWhatsAppLink } from "@infulancer/core/messaging/user-whatsapp-ai";
 import { envStr } from "@infulancer/core/env";
 import { OwnAccountForm } from "@/components/forms/own-account-forms";
+import { TikTokCreatorPanel } from "@/components/tiktok/tiktok-creator-panel";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
 import { AddPortfolioForm, PortfolioList, ShowcaseSettingsForm } from "@/components/showcase/showcase-forms";
@@ -178,13 +179,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           ) : (
             <p className="text-sm text-fg-passive">{tt("Henüz hesap yok. Yukarıdan kullanıcı adını ekle.")}</p>
           )}
-          <Card interactive={false} className="flex flex-col gap-3">
-            <CardTitle>{tt("TikTok hesabını bağla")}</CardTitle>
-            <p className="text-sm text-fg-muted">{tt("TikTok istatistikleri yalnız senin onayınla, TikTok'un resmî giriş ekranı üzerinden alınır. Şifren bizimle paylaşılmaz.")}</p>
-            <ButtonLink href="/api/tiktok/oauth/start" variant={tiktokAcc?.tokenRef ? "secondary" : "primary"} className="w-fit">
-              {tiktokAcc?.tokenRef ? tt("Bağlantıyı yenile") : tt("TikTok ile bağlan")}
-            </ButtonLink>
-          </Card>
+          <TikTokCreatorPanel />
         </div>
       ),
     });

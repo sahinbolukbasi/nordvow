@@ -7,6 +7,9 @@ import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { ApplyForm } from "@/components/campaigns/open-call-forms";
 import { Pill, StatStrip } from "@/components/luma/primitives";
 import { RespondOffer } from "@/components/offers/offer-forms";
+import { OfferAcceptWithShipment } from "@/components/shipping/offer-shipment-modal";
+import { listInfluencerAddresses } from "@infulancer/core/shipping/service";
+import { parseProductDetails } from "@infulancer/core/shipping/types";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { requireActor } from "@/lib/auth-guard";
@@ -27,13 +30,24 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
   const { sekme, sonuc } = await searchParams;
   const id = actor.influencerId!;
   const now = new Date();
-  const [offers, open, mine, me, pricing] = await Promise.all([
+  const [offers, open, mine, me, pricing, savedAddresses] = await Promise.all([
     prisma.offer.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
     prisma.campaignOpenCall.findMany({ where: { status: "ACIK", OR: [{ deadline: null }, { deadline: { gte: now } }] }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.campaignApplication.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, include: { openCall: { select: { title: true, tenantId: true } } } }),
     prisma.influencer.findUnique({ where: { id }, select: { country: true } }),
     creativePricing(),
+    listInfluencerAddresses(id),
   ]);
+  const offerCampaignIds = [...new Set(offers.map((o) => o.campaignId).filter((x): x is string => Boolean(x)))];
+  const shippingConfigs = new Map(
+    (
+      offerCampaignIds.length
+        ? await prisma.campaignShippingConfig.findMany({
+            where: { campaignId: { in: offerCampaignIds }, requiresProductShipment: true },
+          })
+        : []
+    ).map((c) => [c.campaignId, c]),
+  );
   const myCur = currencyOf(me?.country);
   // Influencer panelinde tutarlar kullanıcının kayıtlı/seçili para birimine çevrilip tek fiyat olarak gösterilir.
   const viewerCur = myCur;
@@ -52,6 +66,8 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
       <ul className="flex flex-col gap-3">
         {items.map((o) => {
           const p = offerPill[o.status] ?? { label: o.status, tone: "gray" as const };
+          const shipCfg = o.campaignId ? shippingConfigs.get(o.campaignId) : undefined;
+          const productDetails = shipCfg ? parseProductDetails(shipCfg.productDetails) : null;
           return (
             <li key={o.id} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -59,6 +75,9 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                   <span className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
                     {brands.get(o.brandId) ?? tt("Marka")}
                     <Pill tone={fromApplication.has(o.id) ? "violet" : "gray"}>{fromApplication.has(o.id) ? tt("Başvurunuzdan") : tt("Size özel teklif")}</Pill>
+                    {shipCfg ? (
+                      <Pill tone="amber">{tt("Bu iş birliği kapsamında tarafınıza ürün gönderimi yapılacaktır")}</Pill>
+                    ) : null}
                   </span>
                   <span className="text-[17px] font-semibold text-fg">{o.title}</span>
                 </div>
@@ -79,6 +98,13 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                 </div>
               </div>
               <p className="whitespace-pre-line text-[14px] text-fg-muted">{o.message}</p>
+              {productDetails ? (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-fg">
+                  <span className="font-medium">Gönderilecek Ürün:</span> {productDetails.name || "Kampanya Ürünü"}
+                  {productDetails.description ? ` — ${productDetails.description}` : ""}
+                  {productDetails.estimatedValueTry ? ` (Tahmini değer: ₺${productDetails.estimatedValueTry})` : ""}
+                </div>
+              ) : null}
               {o.status === "KARSI_TEKLIF" && o.counterKurus ? (
                 <p className="text-[13px] text-amber-600 dark:text-amber-400">
                   {o.counterByRole === "BRAND" ? tt("Marka farklı bir fiyat talep etti:") : tt("Önerdiğiniz karşı fiyat:")}{" "}
@@ -103,7 +129,20 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                   {fmtDate(o.createdAt)} {expiryText(o.expiresAt, o.status)}
                   {o.responseNote ? ` · Not: ${o.responseNote}` : ""}
                 </span>
-                {actionable && (o.status === "GONDERILDI" || (o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) ? <RespondOffer id={o.id} /> : null}
+                {actionable && (o.status === "GONDERILDI" || (o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) ? (
+                  shipCfg && productDetails ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <OfferAcceptWithShipment
+                        offerId={o.id}
+                        productDetails={productDetails}
+                        savedAddresses={savedAddresses}
+                      />
+                      <RespondOffer id={o.id} />
+                    </div>
+                  ) : (
+                    <RespondOffer id={o.id} />
+                  )
+                ) : null}
               </div>
             </li>
           );
