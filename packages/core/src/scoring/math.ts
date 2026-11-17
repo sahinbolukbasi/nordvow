@@ -126,3 +126,4 @@ export function gradeForScore(score: number): { grade: ScoreGrade; label: string
   }
   return { grade: "D", label: GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1]!.label };
 }
+

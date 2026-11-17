@@ -123,3 +123,4 @@ export const CATEGORY_CPM_BENCHMARK_TRY: Record<string, number> = {
   eglence: 95,
   default: 125,
 };
+

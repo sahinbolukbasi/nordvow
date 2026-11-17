@@ -4,7 +4,14 @@ import { redirect } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
-import { createCoupon, couponValueLabel, grantCouponMany, setCouponStatus } from "@infulancer/core/coupons/service";
+import {
+  createCoupon,
+  couponValueLabel,
+  grantCouponMany,
+  importCouponCodesAndGrant,
+  setCouponStatus,
+} from "@infulancer/core/coupons/service";
+import { parseCouponImportFile } from "@infulancer/core/coupons/spreadsheet";
 import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
@@ -142,4 +149,57 @@ export async function deleteCouponAction(couponId: string): Promise<{ ok: boolea
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Kupon silinemedi." };
   }
+}
+
+/** Excel (.xlsx) veya CSV dosyasından kupon kodlarını içe aktarır ve kullanıcılara dağıtır. */
+export async function importCouponCodesAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const couponId = str(fd, "couponId");
+    const file = fd.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new DomainError("DOGRULAMA", "Lütfen bir Excel (.xlsx) veya CSV (.csv) dosyası seçin.");
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new DomainError("DOGRULAMA", "Dosya boyutu en fazla 5 MB olabilir.");
+    }
+
+    const coupon = await prisma.coupon.findUnique({
+      where: { id: couponId },
+      select: { tenantId: true, title: true, valueType: true, value: true },
+    });
+    if (!coupon) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+    if (actor.role === "BRAND" && coupon.tenantId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kupona kod yükleme yetkiniz yok.");
+    }
+
+    const buf = Buffer.from(await file.arrayBuffer());
+    const rows = await parseCouponImportFile(buf, file.name);
+    const autoAssignUnmatched = fd.get("autoAssign") === "true";
+
+    const result = await importCouponCodesAndGrant({
+      couponId,
+      rows,
+      autoAssignUnmatched,
+    });
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "COUPON_CODES_IMPORTED",
+      entityType: "Coupon",
+      entityId: couponId,
+      data: {
+        fileName: file.name,
+        createdCount: result.createdCount,
+        skippedDuplicates: result.skippedDuplicates,
+        unmatchedCount: result.unmatchedCount,
+      },
+    });
+
+    revalidateAll();
+    const parts = [`${result.createdCount} kod dağıtıldı`];
+    if (result.skippedDuplicates > 0) parts.push(`${result.skippedDuplicates} mükerrer atlandı`);
+    if (result.unmatchedCount > 0) parts.push(`${result.unmatchedCount} kod eşleşmedi/uygun alıcı kalmadı`);
+    return { ok: true, message: `${parts.join(" · ")}.` };
+  });
 }

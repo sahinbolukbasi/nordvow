@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { couponValueLabel } from "@infulancer/core/coupons/service";
-import { CouponStatusButton, GrantForm } from "@/components/coupons/coupon-forms";
+import { CouponImportForm, CouponStatusButton, GrantForm } from "@/components/coupons/coupon-forms";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { CopyCode } from "@/components/wallet/copy-code";
@@ -187,7 +187,21 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
 
   const recipients = (
     <section className="flex flex-col gap-3" aria-label="Alıcılar">
-      <SectionHead title={`Alıcılar (${c.grants.length})`} action={c.grants.length ? <a href={`/api/kupon/${c.id}/csv`} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-line-strong">CSV indir</a> : null} />
+      <SectionHead
+        title={`Alıcılar (${c.grants.length})`}
+        action={
+          c.grants.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <a href={`/api/kupon/${c.id}/excel`} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-line-strong">
+                Excel (.xlsx) indir
+              </a>
+              <a href={`/api/kupon/${c.id}/csv`} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-line-strong">
+                CSV indir
+              </a>
+            </div>
+          ) : null
+        }
+      />
       {c.grants.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-[13px] text-fg-muted">Henüz gönderim yok. &quot;Gönder&quot; sekmesinden alıcı seçin.</p>
       ) : (
@@ -244,9 +258,18 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
           <CouponStatusButton id={c.id} to="YAYINDA" label="Yayına al" variant="primary" />
         </div>
       ) : (
-        <div className="rounded-2xl border border-line bg-surface p-4">
-          <p className="mb-3 text-[13px] text-fg-muted">{shared ? `Alıcılar ortak kodu (${c.sharedCode}) görür; takip için her gönderime ayrı iz kodu verilir.` : "Her alıcıya benzersiz kod üretilir."} Daha önce gönderilenler listede yer almaz.</p>
-          <GrantForm couponId={c.id} influencers={pickable} />
+        <div className="flex flex-col gap-4">
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <p className="mb-3 text-[13px] text-fg-muted">{shared ? `Alıcılar ortak kodu (${c.sharedCode}) görür; takip için her gönderime ayrı iz kodu verilir.` : "Her alıcıya benzersiz kod üretilir."} Daha önce gönderilenler listede yer almaz.</p>
+            <GrantForm couponId={c.id} influencers={pickable} />
+          </div>
+          <div className="rounded-2xl border border-line bg-surface p-4">
+            <h3 className="mb-2 text-sm font-semibold text-fg">Excel / CSV ile Toplu Kod İçe Aktar</h3>
+            <p className="mb-3 text-[12px] text-fg-muted">
+              Dışarıdan (ör. Shopify, Trendyol, ERP) aldığınız hazır kupon kodlarını Excel veya CSV dosyasıyla yükleyip içerik üreticilerine dağıtabilirsiniz.
+            </p>
+            <CouponImportForm couponId={c.id} />
+          </div>
         </div>
       )}
     </section>

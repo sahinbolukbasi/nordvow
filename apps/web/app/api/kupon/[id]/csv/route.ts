@@ -1,12 +1,23 @@
 import { prisma } from "@infulancer/core/db";
+import { buildCouponTemplateCsv } from "@infulancer/core/coupons/spreadsheet";
 import { getActor } from "@/lib/auth-guard";
 
 export const runtime = "nodejs";
 
-/** Bir kuponun gönderim listesini CSV olarak indirir (kime hangi kod, durum). Admin veya kupon sahibi marka. */
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+/** Bir kuponun gönderim listesini CSV olarak indirir (kime hangi kod, durum). ?template=1 ile örnek şablon döner. */
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const actor = await getActor();
   if (!actor) return new Response("Yetkisiz", { status: 401 });
+  const url = new URL(req.url);
+  if (url.searchParams.get("template") === "1") {
+    return new Response(buildCouponTemplateCsv(), {
+      headers: {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="kupon-kodlari-sablon.csv"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
   const { id } = await params;
   const coupon = await prisma.coupon.findUnique({ where: { id }, select: { tenantId: true, title: true, sharedCode: true } });
   if (!coupon) return new Response("Bulunamadı", { status: 404 });
