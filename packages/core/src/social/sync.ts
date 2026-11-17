@@ -185,6 +185,39 @@ export type SyncResult = { accountId: string; ok: boolean; message: string; foll
 export async function syncSocialAccount(accountId: string, now = new Date()): Promise<SyncResult> {
   const acc = await prisma.socialAccount.findUnique({ where: { id: accountId } });
   if (!acc) return { accountId, ok: false, message: "Hesap bulunamadı." };
+  if (acc.platform === "TIKTOK" && !override && syncMode() === "http") {
+    const ttAcc = await prisma.tikTokAccount.findFirst({
+      where: { influencerId: acc.influencerId, status: "active" },
+      select: { id: true },
+    });
+    if (ttAcc) {
+      const { syncTikTokAccount } = await import("../tiktok/service");
+      const res = await syncTikTokAccount(ttAcc.id, now);
+      if (res.ok) {
+        const refreshed = await prisma.socialAccount.findUnique({ where: { id: acc.id } });
+        if (refreshed && refreshed.followers !== acc.followers) {
+          await prisma.socialAccountSnapshot.create({
+            data: {
+              socialAccountId: acc.id,
+              followers: refreshed.followers,
+              engagementRate: refreshed.engagementRate,
+              demographics: acc.demographics as object,
+              takenAt: now,
+            },
+          });
+        }
+        return {
+          accountId,
+          ok: true,
+          message: `TikTok güncellendi: ${res.followerCount.toLocaleString("tr-TR")} takipçi, ${res.videoCount} video.`,
+          followersBefore: acc.followers,
+          followersAfter: res.followerCount,
+        };
+      }
+      await prisma.socialAccount.update({ where: { id: acc.id }, data: { syncError: res.error.slice(0, 300), lastSyncedAt: now } });
+      return { accountId, ok: false, message: res.error };
+    }
+  }
   try {
     const s = await socialProvider().fetch(acc.platform, acc.handle, { tokenRef: acc.tokenRef });
     const er = s.engagementRate ?? Number(acc.engagementRate);

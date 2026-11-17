@@ -56,7 +56,7 @@ export async function CreatorShowcase({
   if (!inf) return null;
   const showPricesEffective = inf.showPrices || isAdmin;
   const showCollabsEffective = inf.showCollaborations || isAdmin;
-  const [rates, portfolio, collabs, explorerReport] = await Promise.all([
+  const [rates, portfolio, collabs, explorerReport, tikTokAccount] = await Promise.all([
     showPricesEffective ? prisma.rateCard.findMany({ where: { influencerId, active: true }, orderBy: [{ platform: "asc" }, { priceKurus: "asc" }] }) : Promise.resolve([]),
     prisma.portfolioItem.findMany({ where: { influencerId }, orderBy: [{ sort: "asc" }, { createdAt: "desc" }], take: 24 }),
     showCollabsEffective
@@ -73,6 +73,35 @@ export async function CreatorShowcase({
         })
       : Promise.resolve([]),
     runInstagramExplorerForInfluencer(influencerId, { triggeredBy: isAdmin ? "admin" : "brand" }),
+    prisma.tikTokAccount.findFirst({
+      where: { influencerId, status: "active" },
+      select: {
+        username: true,
+        displayName: true,
+        bio: true,
+        followerCount: true,
+        followingCount: true,
+        likesCount: true,
+        videoCount: true,
+        lastSyncedAt: true,
+        videos: {
+          orderBy: { createTime: "desc" },
+          take: 50,
+          select: {
+            id: true,
+            title: true,
+            videoDescription: true,
+            createTime: true,
+            coverImageUrl: true,
+            shareUrl: true,
+            viewCount: true,
+            likeCount: true,
+            commentCount: true,
+            shareCount: true,
+          },
+        },
+      },
+    }),
   ]);
   const total = inf.socialAccounts.reduce((s, a) => s + a.followers, 0);
   const bestEr = inf.socialAccounts.reduce((m, a) => Math.max(m, Number(a.engagementRate)), 0);
@@ -186,6 +215,85 @@ export async function CreatorShowcase({
           </ul>
         )}
       </section>
+
+      {/* TikTok OAuth & Son Videolar (bağlıysa) */}
+      {tikTokAccount ? (
+        <section aria-labelledby="sc-tiktok" className="flex flex-col gap-3 rounded-3xl border border-line bg-surface p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 id="sc-tiktok" className="text-section">
+                {tt("TikTok Performans & Videoları")} {tikTokAccount.username ? `(@${tikTokAccount.username.replace(/^@/, "")})` : ""}
+              </h2>
+              {tikTokAccount.bio ? (
+                <p className="mt-0.5 text-[13px] text-fg-muted">{tikTokAccount.bio}</p>
+              ) : null}
+            </div>
+            {tikTokAccount.lastSyncedAt ? (
+              <span className="text-[11px] text-fg-passive">
+                {tt("Son TikTok senkronu:")} {fmtDate(tikTokAccount.lastSyncedAt)}
+              </span>
+            ) : null}
+          </div>
+
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              [tt("TikTok Takipçi"), compact.format(tikTokAccount.followerCount)],
+              [tt("Takip Edilen"), compact.format(tikTokAccount.followingCount)],
+              [tt("Toplam Beğeni"), compact.format(tikTokAccount.likesCount)],
+              [tt("Video Sayısı"), compact.format(tikTokAccount.videoCount)],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-2xl border border-line bg-bg/40 p-3">
+                <dt className="text-[12px] text-fg-muted">{k}</dt>
+                <dd className="text-lg font-semibold tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {tikTokAccount.videos.length > 0 ? (
+            <div className="max-h-[480px] overflow-auto rounded-2xl border border-line">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead className="sticky top-0 z-10 bg-surface text-left text-[12px] text-fg-muted">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">{tt("Video")}</th>
+                    <th className="px-4 py-2.5 font-medium">{tt("İzlenme")}</th>
+                    <th className="px-4 py-2.5 font-medium">{tt("Beğeni")}</th>
+                    <th className="px-4 py-2.5 font-medium">{tt("Yorum")}</th>
+                    <th className="px-4 py-2.5 font-medium">{tt("Paylaşım")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {tikTokAccount.videos.map((v) => (
+                    <tr key={v.id} className="align-top">
+                      <td className="max-w-sm px-4 py-2.5">
+                        <div className="flex items-start gap-2.5">
+                          {v.coverImageUrl ? (
+                            <img src={v.coverImageUrl} alt="" loading="lazy" className="h-12 w-9 shrink-0 rounded-md border border-line object-cover" />
+                          ) : null}
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-2 text-[12px] text-fg">{v.title || v.videoDescription || "TikTok Videosu"}</p>
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-passive">
+                              <span>{fmtDate(v.createTime)}</span>
+                              {v.shareUrl ? (
+                                <a href={v.shareUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-fg-muted underline hover:text-fg">
+                                  TikTok <ExternalIcon size={10} />
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold tabular-nums">{compact.format(v.viewCount)}</td>
+                      <td className="px-4 py-2.5 tabular-nums">{compact.format(v.likeCount)}</td>
+                      <td className="px-4 py-2.5 tabular-nums">{compact.format(v.commentCount)}</td>
+                      <td className="px-4 py-2.5 tabular-nums">{compact.format(v.shareCount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {/* Fiyat listesi */}
       {showPricesEffective ? (
