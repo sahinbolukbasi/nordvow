@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import type { Role } from "@infulancer/core/enums";
 import { roleLabels } from "@infulancer/core/domain/labels";
@@ -6,7 +7,6 @@ import { SearchIcon } from "@/components/icons";
 import { getSessionUser, requireActor } from "@/lib/auth-guard";
 import { AccountMenu } from "./account-menu";
 import { MobileDrawer } from "./mobile-drawer";
-import { MobileTabBar } from "./mobile-tab-bar";
 import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { CopilotLauncher } from "@/components/copilot/copilot-launcher";
@@ -101,26 +101,41 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
             </form>
           ) : null}
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <div className="hidden sm:flex sm:items-center sm:gap-2">
+            <div className="hidden md:flex md:items-center md:gap-2">
               <RegionSwitcher />
               <ThemeToggle />
             </div>
             <NotificationBell userId={actor.userId} />
-            <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
+            <div className="hidden md:flex">
+              <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
+            </div>
           </div>
         </header>
         <main
           id="icerik"
           className={
             fullBleed
-              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-16 md:px-4 md:pb-4"
-              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12"
+              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-4 md:px-4"
+              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-6 pb-10 md:px-8 md:pt-8 md:pb-12"
           }
         >
           {children}
         </main>
+        {!fullBleed ? (
+          <footer className="border-t border-line bg-bg/50 px-4 py-4 text-xs text-fg-passive md:px-8">
+            <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3">
+              <span>© {new Date().getFullYear()} {BRAND_NAME}</span>
+              <nav aria-label={t("footer.nav", "Alt bağlantılar")} className="flex flex-wrap items-center gap-4">
+                <Link href="/blog" className="font-medium text-fg-muted hover:text-fg">Blog</Link>
+                <Link href="/docs" className="hover:text-fg">{t("footer.docs", "Rehber")}</Link>
+                <Link href="/destek" className="hover:text-fg">{t("footer.support", "Destek")}</Link>
+                <Link href="/gizlilik" className="hover:text-fg">{t("footer.privacy", "Gizlilik")}</Link>
+                <Link href="/kullanim-kosullari" className="hover:text-fg">{t("footer.terms", "Kullanım koşulları")}</Link>
+              </nav>
+            </div>
+          </footer>
+        ) : null}
       </div>
-      <MobileTabBar role={navRole} perm={permCtx} />
       {!fullBleed ? <CopilotLauncher /> : null}
       <AnnouncementPopup items={popups} userId={actor.userId} />
     </div>

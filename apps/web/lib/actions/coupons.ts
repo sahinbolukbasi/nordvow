@@ -107,9 +107,12 @@ export async function grantCouponAction(_p: ActionState, fd: FormData): Promise<
     await audit.append({ actor: toAuditActor(actor), action: "COUPON_GRANTED", entityType: "Coupon", entityId: couponId, data: { count: r.length } });
     try {
       const coupon = await prisma.coupon.findUnique({ where: { id: couponId }, select: { title: true, valueType: true, value: true } });
-      const infs = await prisma.influencer.findMany({ where: { id: { in: r.map((g) => g.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { select: { handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true } } } });
-      const byInf = new Map(r.map((g) => [g.influencerId, g.code]));
-      const recipients = infs.filter((i) => i.user).map((i) => ({ userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, vars: { ad: i.name, baslik: coupon?.title ?? "", deger: coupon ? couponValueLabel(coupon.valueType, coupon.value) : "", kod: byInf.get(i.id) ?? "", link: `/influencer/davetlerim` } }));
+      const infs = await prisma.influencer.findMany({ where: { id: { in: r.map((g) => g.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true, locale: true } } } });
+      const byInf = new Map(r.map((g) => [g.influencerId, g]));
+      const recipients = infs.filter((i) => i.user).map((i) => {
+        const g = byInf.get(i.id);
+        return { userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, locale: i.user!.locale, vars: { ad: i.name, baslik: coupon?.title ?? "", deger: coupon ? couponValueLabel(coupon.valueType, coupon.value) : "", kod: g?.code ?? "", link: g ? `/kupon/${g.id}` : `/influencer/davetlerim` } };
+      });
       if (recipients.length) await dispatchNotification("COUPON_GRANTED", recipients);
     } catch { /* bildirim hatası gönderimi bozmasın */ }
     revalidateAll();

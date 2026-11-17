@@ -6,6 +6,8 @@ import {
   BLOG_CATEGORIES,
   listPublishedBlogPosts,
 } from "@infulancer/core/blog/service";
+import { InAppBlogBrowser } from "@/components/blog/in-app-blog-browser";
+import { getActor } from "@/lib/auth-guard";
 import { BRAND_NAME } from "@/lib/brand";
 import { fmtDate } from "@/lib/time";
 
@@ -70,8 +72,32 @@ export default async function PublicBlogListPage({
     })),
   };
 
+  const actor = await getActor().catch(() => null);
+  if (actor) {
+    return (
+      <InAppBlogBrowser
+        categories={BLOG_CATEGORIES}
+        posts={posts.map((p) => ({
+          id: p.id,
+          slug: p.slug,
+          title: p.title,
+          excerpt: p.excerpt,
+          content: p.content,
+          coverImageUrl: p.coverImageUrl,
+          category: p.category,
+          tags: p.tags,
+          targetAudience: p.targetAudience,
+          authorName: p.authorName,
+          readingTimeMin: p.readingTimeMin,
+          viewCount: p.viewCount,
+          publishedAt: (p.publishedAt ?? p.createdAt).toISOString(),
+        }))}
+      />
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-10 py-12">
+    <div className="mx-auto flex max-w-3xl flex-col gap-10 py-12">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -171,47 +197,44 @@ export default async function PublicBlogListPage({
           </p>
         </div>
       ) : (
-        <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <section className="flex flex-col divide-y divide-line">
           {posts.map((post) => (
             <article
               key={post.id}
-              className="group flex flex-col justify-between rounded-2xl border border-line bg-surface/60 p-6 transition-standard hover:border-fg/40"
+              className="group flex flex-col-reverse gap-5 py-8 sm:flex-row sm:items-start sm:justify-between"
             >
-              <div className="flex flex-col gap-3">
-                {post.coverImageUrl ? (
-                  <Link href={`/blog/${post.slug}`} className="overflow-hidden rounded-xl">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={post.coverImageUrl}
-                      alt={post.title}
-                      className="h-44 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                    />
-                  </Link>
-                ) : null}
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
-                  <span className="rounded-full bg-fg/10 px-2.5 py-0.5 font-medium text-fg">
-                    {post.category}
-                  </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+                  <span className="font-medium text-fg">{post.authorName}</span>
+                  <span>·</span>
+                  <span>{post.category}</span>
+                  <span>·</span>
                   <span>{BLOG_AUDIENCE_LABELS[post.targetAudience]}</span>
                 </div>
-                <h2 className="text-lg font-semibold leading-snug text-fg group-hover:underline">
+                <h2 className="text-xl font-bold leading-snug tracking-tight text-fg group-hover:underline sm:text-2xl">
                   <Link href={`/blog/${post.slug}`}>{post.title}</Link>
                 </h2>
-                <p className="line-clamp-3 text-sm leading-relaxed text-fg-muted">
+                <p className="line-clamp-2 text-[15px] leading-relaxed text-fg-muted">
                   {post.excerpt}
                 </p>
-              </div>
-
-              <div className="mt-6 flex items-center justify-between border-t border-line pt-4 text-xs text-fg-passive">
-                <div className="flex items-center gap-3">
-                  <span>{post.readingTimeMin} dk okuma</span>
+                <div className="mt-1 flex items-center gap-3 text-xs text-fg-passive">
+                  <time dateTime={(post.publishedAt ?? post.createdAt).toISOString()}>
+                    {fmtDate(post.publishedAt ?? post.createdAt)}
+                  </time>
                   <span>·</span>
-                  <span>{post.viewCount.toLocaleString("tr-TR")} görüntülenme</span>
+                  <span>{post.readingTimeMin} dk okuma</span>
                 </div>
-                <time dateTime={(post.publishedAt ?? post.createdAt).toISOString()}>
-                  {fmtDate(post.publishedAt ?? post.createdAt)}
-                </time>
               </div>
+              {post.coverImageUrl ? (
+                <Link href={`/blog/${post.slug}`} className="shrink-0 overflow-hidden rounded-xl sm:w-44">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={post.coverImageUrl}
+                    alt={post.title}
+                    className="h-44 w-full object-cover transition-transform duration-300 group-hover:scale-[1.03] sm:h-28"
+                  />
+                </Link>
+              ) : null}
             </article>
           ))}
         </section>

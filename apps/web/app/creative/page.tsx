@@ -64,7 +64,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const pendingCreditReq =
     !isAdmin && !!(await prisma.creditRequest.findFirst({ where: { tenantId: own, status: "BEKLIYOR" }, select: { id: true } }));
 
-  void reconcileStaleJobs().catch(() => {});
+  void reconcileStaleJobs().catch(() => { });
 
   const [pricing, starterCreditsTry, ledger] = await Promise.all([
     creativePricing(),
@@ -135,10 +135,10 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
   const tenants = isAdmin
     ? [
-        { id: AGENCY_TENANT, name: "Ajans (kendi hesabı)", group: "Ajans" as const },
-        ...brands.map((b) => ({ id: b.id, name: b.name, group: "Markalar" as const })),
-        ...influencers.map((i) => ({ id: i.id, name: i.name, group: "Influencerlar" as const })),
-      ]
+      { id: AGENCY_TENANT, name: "Ajans (kendi hesabı)", group: "Ajans" as const },
+      ...brands.map((b) => ({ id: b.id, name: b.name, group: "Markalar" as const })),
+      ...influencers.map((i) => ({ id: i.id, name: i.name, group: "Influencerlar" as const })),
+    ]
     : [];
 
   const jobPrompt = new Map(jobs.map((j) => [j.id, j.prompt]));
@@ -176,12 +176,12 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const runningJob = jobs.find((j) => j.status === "HELD" || j.status === "IN_QUEUE" || j.status === "IN_PROGRESS");
   const initialActiveJob = runningJob
     ? {
-        jobId: runningJob.id,
-        kind: runningJob.prompt.startsWith("Videoya Seslendirme:") ? ("video" as const) : (kindOf.get(runningJob.modelKey) ?? "image"),
-        format: "9:16",
-        prompt: runningJob.prompt,
-        modelKey: runningJob.modelKey,
-      }
+      jobId: runningJob.id,
+      kind: runningJob.prompt.startsWith("Videoya Seslendirme:") ? ("video" as const) : (kindOf.get(runningJob.modelKey) ?? "image"),
+      format: "9:16",
+      prompt: runningJob.prompt,
+      modelKey: runningJob.modelKey,
+    }
     : null;
 
   const studioUploads: StudioUpload[] = library.map((u) => ({
@@ -667,7 +667,7 @@ async function UnifiedLibrary({
 
                     {/* Kitaplıkta değilse tek tıkla Kitaplığa kaydet */}
                     {item.assetId && !item.savedInLibrary && item.kind !== "audio" ? (
-                      <form action={ async (fd: FormData) => { "use server"; await saveAssetToLibraryAction({ ok: false }, fd); } }>
+                      <form action={async (fd: FormData) => { "use server"; await saveAssetToLibraryAction({ ok: false }, fd); }}>
                         <input type="hidden" name="assetId" value={item.assetId} />
                         <button
                           type="submit"

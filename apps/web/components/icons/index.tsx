@@ -240,6 +240,19 @@ export const GridIcon = (p: IconProps) => (
     <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
   </Base>
 );
+export const NewspaperIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h11A1.5 1.5 0 0 1 18 5.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+    <path d="M18 8h1.5A1.5 1.5 0 0 1 21 9.5V18a2 2 0 0 1-2 2h-1" />
+    <path d="M8 8h6M8 12h6M8 16h4" />
+  </Base>
+);
+export const BookOpenIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H12v17H4.5A2.5 2.5 0 0 0 2 22Z" />
+    <path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H12v17h7.5A2.5 2.5 0 0 1 22 22Z" />
+  </Base>
+);
 export const ResetIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5" />

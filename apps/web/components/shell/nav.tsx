@@ -3,8 +3,10 @@ import type { ComponentType } from "react";
 import type { Role } from "@infulancer/core/enums";
 import {
   AlertIcon,
+  BookOpenIcon,
   FileIcon,
   GridIcon,
+  NewspaperIcon,
   SettingsIcon,
   UserIcon,
   BellIcon,
@@ -18,7 +20,7 @@ import {
   WalletIcon,
   type IconProps,
 } from "@/components/icons";
-export type NavItem = { href: string; label: string; icon: ComponentType<IconProps>; exact?: boolean; section?: string };
+export type NavItem = { href: string; label: string; icon: ComponentType<IconProps>; exact?: boolean; section?: string; order?: number };
 /**
  * Rol başına gezinme öğeleri (kenar çubuğu ve mobil sekme çubuğu ortak kullanır).
  * Sıra önemlidir: mobil sekme çubuğu yalnız ilk 5 öğeyi gösterir, bu yüzden en sık
@@ -52,43 +54,52 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kategoriler", label: "Kategoriler", icon: CalendarIcon, section: "Yönetim" },
     { href: "/admin/agent", label: "Agent merkezi", icon: SparkleIcon, section: "Yönetim" },
     { href: "/admin/tanitim", label: "Tanıtım sayfası", icon: GridIcon, section: "Yönetim" },
-    { href: "/admin/blog", label: "Blog & SEO", icon: FileIcon, section: "Yönetim" },
-    { href: "/docs", label: "Dokümantasyon", icon: FileIcon, section: "Yönetim" },
-    { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Yönetim" },
+    { href: "/admin/blog", label: "Blog & SEO", icon: NewspaperIcon, section: "Yönetim", order: 210 },
+    { href: "/docs", label: "Dokümantasyon", icon: BookOpenIcon, section: "Yönetim", order: 220 },
+    { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Yönetim", order: 230 },
   ],
   // Ajans çalışanı: yönetici ekranları (kullanıcılar, yetkiler, finans, tanıtım, AI sağlayıcıları) hariç.
   AGENCY: [],
   BRAND: [
-    { href: "/marka", label: "Genel bakış", icon: HomeIcon, exact: true },
-    { href: "/marka/kampanyalar", label: "Kampanyalar", icon: MegaphoneIcon },
-    { href: "/marka/takvim", label: "Takvim", icon: CalendarIcon },
-    { href: "/marka/kesfet", label: "Influencer bul", icon: UsersIcon },
-    { href: "/marka/teklifler", label: "Teklifler", icon: WalletIcon },
-    { href: "/creative", label: "Creative", icon: SparkleIcon },
-    { href: "/marka/reklam", label: "Reklam", icon: MegaphoneIcon },
-    { href: "/marka/etkinlikler", label: "Etkinlikler", icon: CalendarIcon },
-    { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon },
-    { href: "/marka/gelen-kutusu", label: "Gelen kutusu", icon: BellIcon },
-    { href: "/marka/kanallar", label: "Kanallar ve asistan", icon: LinkIcon },
-    { href: "/profil", label: "Profilim", icon: UserIcon },
-    { href: "/blog", label: "Blog", icon: FileIcon },
-    { href: "/docs", label: "Yardım", icon: FileIcon },
-    { href: "/destek", label: "Destek", icon: AlertIcon },
+    { href: "/marka", label: "Genel bakış", icon: HomeIcon, exact: true, order: 10 },
+    { href: "/marka/kampanyalar", label: "Kampanyalar", icon: MegaphoneIcon, order: 20 },
+    { href: "/marka/takvim", label: "Takvim", icon: CalendarIcon, order: 30 },
+    { href: "/marka/kesfet", label: "Influencer bul", icon: UsersIcon, order: 40 },
+    { href: "/marka/teklifler", label: "Teklifler", icon: WalletIcon, order: 50 },
+    { href: "/creative", label: "Creative", icon: SparkleIcon, order: 60 },
+    { href: "/marka/reklam", label: "Reklam", icon: MegaphoneIcon, order: 70 },
+    { href: "/marka/etkinlikler", label: "Etkinlikler", icon: CalendarIcon, order: 80 },
+    { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon, order: 90 },
+    { href: "/marka/gelen-kutusu", label: "Gelen kutusu", icon: BellIcon, order: 100 },
+    { href: "/marka/kanallar", label: "Kanallar ve asistan", icon: LinkIcon, order: 110 },
+    { href: "/profil", label: "Profilim", icon: UserIcon, order: 200 },
+    { href: "/blog", label: "Blog", icon: NewspaperIcon, order: 210 },
+    { href: "/docs", label: "Yardım", icon: BookOpenIcon, order: 220 },
+    { href: "/destek", label: "Destek", icon: AlertIcon, order: 230 },
   ],
   INFLUENCER: [
-    { href: "/influencer", label: "İşlerim", icon: HomeIcon, exact: true },
-    { href: "/influencer/takvim", label: "Takvim", icon: CalendarIcon },
-    { href: "/influencer/teklifler", label: "Teklifler", icon: MegaphoneIcon },
-    { href: "/influencer/davetlerim", label: "Davetlerim", icon: CalendarIcon },
-    { href: "/creative", label: "Creative", icon: SparkleIcon },
-    { href: "/influencer/odemeler", label: "Ödemeler", icon: WalletIcon },
-    { href: "/profil", label: "Profilim", icon: UserIcon },
-    { href: "/blog", label: "Blog", icon: FileIcon },
-    { href: "/docs", label: "Rehber", icon: FileIcon },
-    { href: "/destek", label: "Destek", icon: AlertIcon },
+    { href: "/influencer", label: "İşlerim", icon: HomeIcon, exact: true, order: 10 },
+    { href: "/influencer/takvim", label: "Takvim", icon: CalendarIcon, order: 20 },
+    { href: "/influencer/teklifler", label: "Teklifler", icon: MegaphoneIcon, order: 30 },
+    { href: "/influencer/davetlerim", label: "Davetlerim", icon: CalendarIcon, order: 40 },
+    { href: "/creative", label: "Creative", icon: SparkleIcon, order: 50 },
+    { href: "/influencer/odemeler", label: "Ödemeler", icon: WalletIcon, order: 60 },
+    { href: "/profil", label: "Profilim", icon: UserIcon, order: 200 },
+    { href: "/blog", label: "Blog", icon: NewspaperIcon, order: 210 },
+    { href: "/docs", label: "Rehber", icon: BookOpenIcon, order: 220 },
+    { href: "/destek", label: "Destek", icon: AlertIcon, order: 230 },
   ],
 };
 navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai", "/admin/krediler"].includes(i.href));
+
+/** Rolün menü öğelerini tanımlı öncelik/sıra değerine göre sıralı döndürür. */
+export function getOrderedNavForRole(role: Role): NavItem[] {
+  const list = role === "AGENCY" ? navByRole.ADMIN : (navByRole[role] ?? []);
+  return list
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => (a.item.order ?? (a.idx + 1) * 10) - (b.item.order ?? (b.idx + 1) * 10) || a.idx - b.idx)
+    .map((x) => x.item);
+}
 
 /** Rolün varsayılan olarak açık gelen ekranları (PagePermission kaydı yoksa). */
 export function isDefaultOpenForRole(role: Role, href: string): boolean {

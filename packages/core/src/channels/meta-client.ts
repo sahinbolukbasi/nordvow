@@ -144,7 +144,8 @@ export function httpMetaClient(): MetaClient {
       // Instagram Login (IGAA…) token'larında graph.instagram.com ucu kullanılır.
       if (!token.startsWith("EAA")) {
         const version = await getConfig("whatsapp.graphApiVersion");
-        const res = await fetch(`https://graph.instagram.com/${version}/${igId}/messages`, {
+        const target = igId || "me";
+        const res = await fetch(`https://graph.instagram.com/${version}/${target}/messages`, {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body,
@@ -190,12 +191,24 @@ export async function resolveIgPage(igId: string, token: string): Promise<IgPage
   const key = `${igId}:${token.slice(-12)}`;
   const hit = igPageCache.get(key);
   if (hit && Date.now() - hit.at < 3_600_000) return hit.page;
-  const r = await graphGet<{ data?: { id: string; access_token?: string; instagram_business_account?: { id: string } }[] }>(
-    `/me/accounts?fields=id,access_token,instagram_business_account&limit=100`,
-    token,
-  );
-  const p = (r.data ?? []).find((x) => x.instagram_business_account?.id === igId || x.id === igId);
-  const page = p?.access_token ? { pageId: p.id, pageToken: p.access_token } : null;
+  let page: IgPage | null = null;
+  try {
+    const r = await graphGet<{ data?: { id: string; access_token?: string; instagram_business_account?: { id: string } }[] }>(
+      `/me/accounts?fields=id,access_token,instagram_business_account&limit=100`,
+      token,
+    );
+    const p = (r.data ?? []).find((x) => x.instagram_business_account?.id === igId || x.id === igId);
+    if (p?.access_token) page = { pageId: p.id, pageToken: p.access_token };
+  } catch {
+    // Token doğrudan Page Access Token ise /me/accounts hata verir; /me ile Sayfa kimliğini kontrol et.
+    const me = await graphGet<{ id?: string; instagram_business_account?: { id: string } }>(
+      `/me?fields=id,instagram_business_account`,
+      token,
+    ).catch(() => null);
+    if (me?.id && (!igId || me.id === igId || me.instagram_business_account?.id === igId)) {
+      page = { pageId: me.id, pageToken: token };
+    }
+  }
   igPageCache.set(key, { page, at: Date.now() });
   return page;
 }
@@ -203,6 +216,16 @@ export async function resolveIgPage(igId: string, token: string): Promise<IgPage
 /** Instagram gönderen (IGSID) profil bilgisi: kullanıcı adı ve ad. */
 export async function fetchIgSenderProfile(igsid: string, igId: string, token: string): Promise<{ username: string | null; name: string | null }> {
   if (envStr("META_API_MODE", "mock") !== "http") return { username: null, name: null };
+  if (!token.startsWith("EAA")) {
+    const version = await getConfig("whatsapp.graphApiVersion");
+    const res = await fetch(`https://graph.instagram.com/${version}/${igsid}?fields=username,name`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const r = (await res.json().catch(() => ({}))) as { username?: string; name?: string; error?: { message: string; code: number } };
+    if (!res.ok || r.error) throw new MetaApiError(r.error?.message ?? `IG HTTP ${res.status}`, r.error?.code ?? res.status, undefined, undefined, res.status);
+    return { username: r.username ?? null, name: r.name ?? null };
+  }
   const page = await resolveIgPage(igId, token).catch(() => null);
   const r = await graphGet<{ username?: string; name?: string }>(`/${igsid}?fields=username,name`, page?.pageToken ?? token);
   return { username: r.username ?? null, name: r.name ?? null };
@@ -224,13 +247,22 @@ export async function showTyping(opts: { channel: "WHATSAPP" | "INSTAGRAM"; toke
         signal: AbortSignal.timeout(5_000),
       });
     } else if (opts.channel === "INSTAGRAM" && opts.igId && opts.recipientId) {
-      const page = await resolveIgPage(opts.igId, opts.token).catch(() => null);
-      await fetch(`https://graph.facebook.com/${version}/${page?.pageId ?? opts.igId}/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${page?.pageToken ?? opts.token}` },
-        body: JSON.stringify({ recipient: { id: opts.recipientId }, sender_action: "typing_on" }),
-        signal: AbortSignal.timeout(5_000),
-      });
+      if (!opts.token.startsWith("EAA")) {
+        await fetch(`https://graph.instagram.com/${version}/${opts.igId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${opts.token}` },
+          body: JSON.stringify({ recipient: { id: opts.recipientId }, sender_action: "typing_on" }),
+          signal: AbortSignal.timeout(5_000),
+        });
+      } else {
+        const page = await resolveIgPage(opts.igId, opts.token).catch(() => null);
+        await fetch(`https://graph.facebook.com/${version}/${page?.pageId ?? opts.igId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${page?.pageToken ?? opts.token}` },
+          body: JSON.stringify({ recipient: { id: opts.recipientId }, sender_action: "typing_on" }),
+          signal: AbortSignal.timeout(5_000),
+        });
+      }
     }
   } catch {
     /* yok say */

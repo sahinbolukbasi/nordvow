@@ -513,6 +513,8 @@ export function CreativeComposer({
 
   const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
 
   // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
@@ -1104,7 +1106,25 @@ export function CreativeComposer({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-full border border-line bg-bg p-0.5" role="radiogroup" aria-label={tt("Kredi tercihi")}>
+            <button
+              type="button"
+              onClick={() => setMobileSettingsOpen((v) => !v)}
+              aria-expanded={mobileSettingsOpen}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-standard lg:hidden",
+                mobileSettingsOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
+              )}
+            >
+              {tt("Kalite & Ayarlar")} {mobileSettingsOpen ? "▲" : "▼"}
+            </button>
+            <div
+              className={cn(
+                "w-full rounded-2xl border border-line bg-bg p-1 lg:inline-flex lg:w-auto lg:rounded-full lg:p-0.5",
+                mobileSettingsOpen ? "flex flex-wrap gap-1" : "hidden lg:inline-flex",
+              )}
+              role="radiogroup"
+              aria-label={tt("Kredi tercihi")}
+            >
               {TIERS.map((t) => {
                 const active = tier === t.id;
                 return (
@@ -1418,6 +1438,18 @@ export function CreativeComposer({
 
         {/* Alt Bölüm: Yatay Kaydırılabilir (Slider) Hazır Fikir Promptları + Kayıtlı Promptlar + Sohbet Kutusu */}
         <div className="flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 p-2.5 sm:p-3">
+          {/* Mobilde Açılır/Kapanır Fikir & Ek Araçlar Akordeonu */}
+          <button
+            type="button"
+            onClick={() => setMobileToolsOpen((v) => !v)}
+            aria-expanded={mobileToolsOpen}
+            className="flex w-full items-center justify-between rounded-xl border border-line bg-surface px-3 py-1.5 text-[11px] font-medium text-fg-muted lg:hidden"
+          >
+            <span>{tt("Hazır Fikirler, Dosya & Kitaplık Araçları")}</span>
+            <span>{mobileToolsOpen ? "▲" : "▼"}</span>
+          </button>
+
+          <div className={cn("flex-col gap-2", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
           {/* Slider Sekmeleri ve Sol/Sağ Kaydırma Okları */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
@@ -1525,6 +1557,7 @@ export function CreativeComposer({
                 </div>
               ))
             )}
+          </div>
           </div>
 
           {promptNotice ? (
@@ -1649,7 +1682,7 @@ export function CreativeComposer({
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-1.5">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className={cn("flex-wrap items-center gap-1.5", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
                 <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
                   + {tt("Toplu Fotoğraf / Video Ekle")}
                   <input

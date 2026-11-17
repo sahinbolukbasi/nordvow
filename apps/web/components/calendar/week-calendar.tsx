@@ -23,7 +23,7 @@ import { StatusDot } from "@/components/ui/status";
 import { rescheduleDeliverable } from "@/lib/actions/deliverables";
 import { cn } from "@/lib/cn";
 import { deliverableTone } from "@/lib/status-tone";
-import { fmtDayLabel } from "@/lib/time";
+import { fmtDayLabel, fmtWeekDayLabel } from "@/lib/time";
 
 export type CalendarCard = {
   id: string;
@@ -123,10 +123,17 @@ export function WeekCalendar({
             <div
               key={d}
               role="columnheader"
-              className={cn("border-b border-l border-border bg-surface px-3 py-3 text-label", d === today ? "text-fg" : "text-fg-muted")}
+              className={cn(
+                "flex items-center justify-between gap-1.5 border-b border-l border-border bg-surface px-3 py-3 text-label",
+                d === today ? "border-b-2 border-b-neon-pink bg-neon-pink/10 font-semibold text-fg" : "text-fg-muted",
+              )}
             >
-              {fmtDayLabel(d)}
-              {d === today ? <span className="sr-only">{" "}{tt("(bugün)")}</span> : null}
+              <span>{fmtWeekDayLabel(d)}</span>
+              {d === today ? (
+                <span className="rounded-full bg-neon-pink px-2 py-0.5 text-[10px] font-semibold text-black">
+                  {tt("Bugün")}
+                </span>
+              ) : null}
             </div>
           ))}
         </div>
@@ -180,10 +187,17 @@ export function WeekCalendar({
               <div
                 key={d}
                 role="columnheader"
-                className={cn("border-b border-l border-border bg-surface px-3 py-3 text-label", d === today ? "text-fg" : "text-fg-muted")}
+                className={cn(
+                  "flex items-center justify-between gap-1.5 border-b border-l border-border bg-surface px-3 py-3 text-label",
+                  d === today ? "border-b-2 border-b-neon-pink bg-neon-pink/10 font-semibold text-fg" : "text-fg-muted",
+                )}
               >
-                {fmtDayLabel(d)}
-                {d === today ? <span className="sr-only">{" "}{tt("(bugün)")}</span> : null}
+                <span>{fmtWeekDayLabel(d)}</span>
+                {d === today ? (
+                  <span className="rounded-full bg-neon-pink px-2 py-0.5 text-[10px] font-semibold text-black">
+                    {tt("Bugün")}
+                  </span>
+                ) : null}
               </div>
             ))}
           </div>

@@ -78,11 +78,33 @@ export async function reviewApplicationAction(_p: ActionState, fd: FormData): Pr
     if (str(fd, "decision") === "approve") {
       await approveApplication(actor, id, { existingBrandId: optStr(fd, "existingBrandId"), note: optStr(fd, "note") });
       try {
-        const u = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true, phone: true, name: true, locale: true } });
+        const appRow = await prisma.signupApplication.findUnique({
+          where: { id },
+          select: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                name: true,
+                locale: true,
+                influencer: { select: { socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 } } },
+              },
+            },
+          },
+        });
+        const u = appRow?.user;
         if (u) {
           const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
           await dispatchNotification("USER_APPROVED", [
-            { userId: u.id, email: u.email, phone: u.phone, locale: u.locale, vars: { ad: u.name, link: `${base}/giris` } },
+            {
+              userId: u.id,
+              email: u.email,
+              phone: u.phone,
+              instagram: u.influencer?.socialAccounts[0]?.handle ?? null,
+              locale: u.locale,
+              vars: { ad: u.name, link: `${base}/giris` },
+            },
           ]);
         }
       } catch {

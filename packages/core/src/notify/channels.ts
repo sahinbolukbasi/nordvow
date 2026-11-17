@@ -1,13 +1,17 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { createHash, createHmac } from "node:crypto";
+import { prisma } from "../db";
 import { envStr } from "../env";
+import { metaClient } from "../channels/meta-client";
+import { vault } from "../channels/vault";
+import { composerMode } from "../messaging/windows";
 
 /**
  * Bildirim kanal adapterleri. Anahtar/konfig yoksa MOCK: gerçek gönderim yapılmaz, çağrı
  * başarılı sayılır ve log'a "MOCKED" yazılır. AWS SES (EMAIL_PROVIDER=ses + EMAIL_FROM)
  * tanımlandığında gerçek e-posta gönderimi yapılır.
  */
-export type ChannelSendResult = { status: "SENT" | "MOCKED" | "FAILED"; error?: string };
+export type ChannelSendResult = { status: "SENT" | "MOCKED" | "FAILED" | "SKIPPED"; error?: string };
 
 let sesCredClient: BedrockRuntimeClient | undefined;
 
@@ -27,7 +31,11 @@ export function whatsappNotifyConfigured(): boolean {
   return envStr("WHATSAPP_ACCESS_TOKEN", "").trim().length > 0 || envStr("META_WABA_TOKEN", "").trim().length > 0;
 }
 export function instagramNotifyConfigured(): boolean {
-  return envStr("INSTAGRAM_ACCESS_TOKEN", "").trim().length > 0 || envStr("META_IG_TOKEN", "").trim().length > 0;
+  return (
+    envStr("INSTAGRAM_ACCESS_TOKEN", "").trim().length > 0 ||
+    envStr("META_IG_TOKEN", "").trim().length > 0 ||
+    envStr("META_SYSTEM_USER_TOKEN", "").trim().length > 0
+  );
 }
 
 async function sendViaAwsSes(to: string, subject: string, body: string, html?: string): Promise<void> {
@@ -104,10 +112,90 @@ export async function sendWhatsAppNotify(toPhone: string, body: string): Promise
   }
 }
 
-export async function sendInstagramNotify(toHandle: string, body: string): Promise<ChannelSendResult> {
+export async function sendInstagramNotify(
+  toHandle: string,
+  body: string,
+  opts?: { userId?: string | null },
+): Promise<ChannelSendResult> {
   if (!instagramNotifyConfigured()) return { status: "MOCKED" };
   try {
-    void toHandle; void body;
+    let igsid: string | null = null;
+    if (opts?.userId) {
+      const links = await prisma.configValue.findMany({
+        where: { key: { startsWith: "bot.link.INSTAGRAM." } },
+        select: { key: true, value: true },
+      });
+      const hit = links.find((l) => (l.value as { userId?: string } | null)?.userId === opts.userId);
+      if (hit) igsid = hit.key.slice("bot.link.INSTAGRAM.".length);
+    }
+
+    const cleanHandle = toHandle.replace(/^@/, "").trim();
+    const contact = igsid
+      ? await prisma.contact.findFirst({ where: { channel: "INSTAGRAM", externalId: igsid }, orderBy: { createdAt: "desc" } })
+      : cleanHandle
+        ? await prisma.contact.findFirst({
+            where: {
+              channel: "INSTAGRAM",
+              OR: [
+                { name: { equals: cleanHandle, mode: "insensitive" } },
+                { name: { equals: `@${cleanHandle}`, mode: "insensitive" } },
+              ],
+            },
+            orderBy: { createdAt: "desc" },
+          })
+        : null;
+
+    const targetIgsid = igsid ?? contact?.externalId ?? null;
+    if (!targetIgsid || !contact) {
+      return { status: "SKIPPED", error: "Kullanıcı henüz Instagram botuna mesaj atmadı." };
+    }
+
+    const conv = await prisma.conversation.findFirst({
+      where: { contactId: contact.id, status: { not: "closed" } },
+      orderBy: { updatedAt: "desc" },
+    });
+    if (!conv) {
+      return { status: "SKIPPED", error: "Aktif Instagram konuşması bulunamadı." };
+    }
+
+    const now = new Date();
+    const mode = composerMode("INSTAGRAM", conv, now, true);
+    if (mode.mode !== "free_text") {
+      return { status: "SKIPPED", error: mode.reason };
+    }
+
+    const globalIgToken =
+      envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+    const globalIgUserId = envStr("INSTAGRAM_IG_USER_ID", "");
+
+    const conn = await prisma.channelConnection.findFirst({
+      where: { tenantId: conv.tenantId, provider: "INSTAGRAM", status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+    });
+    const useConn = !!conn && !conn.tokenRef.startsWith("env:");
+    const tenantToken = useConn ? await vault().get(conn.tokenRef).catch(() => "") : "";
+    const extIds = (conn?.externalIds ?? {}) as Record<string, unknown>;
+    const token = tenantToken || globalIgToken;
+    const igId = String(extIds.ig_user_id ?? extIds.page_id ?? "") || globalIgUserId;
+    if (!token || !igId) {
+      return { status: "MOCKED" };
+    }
+
+    const res = await metaClient().sendInstagram(igId, token, targetIgsid, body.slice(0, 1000), mode.tag);
+    await prisma.message.create({
+      data: {
+        tenantId: conv.tenantId,
+        conversationId: conv.id,
+        externalId: res.messageId,
+        direction: "OUTBOUND",
+        body: body.slice(0, 1000),
+        category: "service",
+        status: "sent",
+        statusAt: now,
+        fromAi: true,
+        createdAt: now,
+      },
+    });
     return { status: "SENT" };
   } catch (e) {
     return { status: "FAILED", error: (e as Error).message };

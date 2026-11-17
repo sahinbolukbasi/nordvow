@@ -8,7 +8,7 @@ import type { Role } from "@infulancer/core/enums";
 import { PanelIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/tooltip";
-import { isActive, isDefaultOpenForRole, navByRole, navLabel } from "./nav";
+import { getOrderedNavForRole, isActive, isDefaultOpenForRole, navLabel } from "./nav";
 import { useT } from "@/lib/i18n/client";
 import { isPathVisibleForMenu, type PagePermissionRow } from "@infulancer/core/access/page-visibility";
 import type { Role as CoreRole } from "@infulancer/core/enums";
@@ -51,7 +51,7 @@ export function Sidebar({ role, perm }: { role: Role; perm?: PermCtx }) {
   const pathname = usePathname();
   const t = useT();
   const collapsed = useSyncExternalStore(subscribe, readCollapsed, () => false);
-  const candidateItems = role === "AGENCY" ? navByRole.ADMIN : (navByRole[role] ?? []);
+  const candidateItems = getOrderedNavForRole(role);
   const items = candidateItems.filter((i) =>
     perm ? isPathVisibleForMenu(perm.perms, perm.role, perm.userId, i.href, isDefaultOpenForRole(role, i.href)) : isDefaultOpenForRole(role, i.href),
   );

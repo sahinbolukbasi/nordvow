@@ -603,7 +603,8 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-[13px] text-fg-passive">
           <span>© {new Date().getFullYear()} {BRAND_NAME}</span>
-          <nav aria-label={tt("Yasal")} className="flex gap-6">
+          <nav aria-label={tt("Yasal")} className="flex flex-wrap gap-6">
+            <Link href="/blog" className="font-medium text-fg-muted hover:text-fg">{tt("Blog")}</Link>
             <Link href="/gizlilik" className="hover:text-fg">{tt("Gizlilik")}</Link>
             <Link href="/kullanim-kosullari" className="hover:text-fg">{tt("Kullanım koşulları")}</Link>
             <Link href="/kvkk" className="hover:text-fg">{tt("KVKK")}</Link>

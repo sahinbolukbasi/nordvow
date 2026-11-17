@@ -4,7 +4,7 @@ import { receiveWebhook } from "@infulancer/core/channels/webhook";
 import { handleUserWhatsAppInbound } from "@infulancer/core/messaging/user-whatsapp-ai";
 
 function verifyMetaSignature(raw: string, sigHeader: string | null): boolean {
-  const secret = envStr("META_APP_SECRET", "");
+  const secret = envStr("META_APP_SECRET", "").trim();
   if (!secret) return envStr("WEBHOOK_REQUIRE_SIGNATURE", "false") !== "true";
   if (!sigHeader?.startsWith("sha256=")) return false;
   const expected = "sha256=" + createHmac("sha256", secret).update(raw, "utf8").digest("hex");
@@ -34,6 +34,7 @@ export async function POST(req: Request) {
   const body = await req.text();
   const sig = req.headers.get("x-hub-signature-256");
   if (!verifyMetaSignature(body, sig)) {
+    console.warn(`[webhook:meta] bad_signature (hasHeader=${Boolean(sig)})`);
     return new Response(null, { status: 401 });
   }
   let handledByPersonalAi = false;

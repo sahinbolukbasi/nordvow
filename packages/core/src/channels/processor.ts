@@ -84,14 +84,18 @@ async function dispatch(p: Any): Promise<string | null> {
   }
   if (p.object === "instagram" || p.object === "page") {
     const provider: ChannelProvider = p.object === "instagram" ? "INSTAGRAM" : "MESSENGER";
+    const hasGlobalIgToken = Boolean(envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", ""));
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
       let t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
       if (!t && provider === "INSTAGRAM") {
         t = await tenantByExternal("INSTAGRAM", "page_id", String(entry.id));
         if (!t) {
-          const recId = entry.messaging?.[0]?.recipient?.id;
+          const recId = entry.messaging?.[0]?.recipient?.id ?? entry.changes?.[0]?.value?.recipient?.id;
           if (recId) t = await tenantByExternal("INSTAGRAM", "ig_user_id", String(recId));
+        }
+        if (!t && hasGlobalIgToken) {
+          t = await defaultSystemTenant();
         }
       }
       tenant ??= t;
@@ -179,14 +183,18 @@ async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, 
     if (mid) await purgeMessage(tenantId, { externalId: mid });
     return;
   }
-  if (!msg.mid || msg.is_echo) return;
-  if (!(await firstSeen(msg.mid, provider.toLowerCase()))) return;
+  if (msg.is_echo || (m.sender?.id && m.sender.id === m.recipient?.id)) return;
+  const postbackText = m.postback ? String(m.postback.title || m.postback.payload || "").trim() : "";
+  const mid = msg.mid ?? (postbackText && m.sender?.id ? `postback:${m.timestamp ?? Date.now()}:${m.sender.id}` : null);
+  if (!mid || !m.sender?.id) return;
+  if (!(await firstSeen(mid, provider.toLowerCase()))) return;
+  const text = msg.text ?? (postbackText || (msg.attachments?.length ? "[Medya/Ek]" : null));
   await handleInbound(tenantId, provider, {
-    externalMessageId: msg.mid,
-    from: m.sender?.id,
+    externalMessageId: mid,
+    from: String(m.sender.id),
     phoneE164: null,
     name: null,
-    text: msg.text ?? null,
+    text,
     at: new Date(Number(m.timestamp ?? Date.now())),
     fromAd: !!m.referral?.ad_id || m.referral?.source === "ADS",
     mediaUrl: msg.attachments?.[0]?.payload?.url ?? null,
@@ -267,11 +275,9 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { enabled: true } });
     const botDisabledByFirm = agentRows.length > 0 && agentRows.every((a) => !a.enabled);
     if (!botDisabledByFirm) {
-      const pre = await prescreenCreator(tenantId, conv.id, input.text);
-      if (!pre.handled) {
-        const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername });
-        if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
-      }
+      void prescreenCreator(tenantId, conv.id, input.text).catch(() => undefined);
+      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername, isFirst });
+      if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
     }
   }
   return { conversationId: conv.id, optOut: false };

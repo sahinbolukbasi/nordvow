@@ -88,7 +88,12 @@ export async function sendOffersAction(input: {
         const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
         const infs = await prisma.influencer.findMany({
           where: { id: { in: r.created.map((c) => c.influencerId) } },
-          select: { id: true, name: true, user: { select: { id: true, email: true, phone: true, locale: true } } },
+          select: {
+            id: true,
+            name: true,
+            socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 },
+            user: { select: { id: true, email: true, phone: true, locale: true } },
+          },
         });
         const infMap = new Map(infs.map((i) => [i.id, i]));
         const offersWithFee = await prisma.offer.findMany({
@@ -103,6 +108,7 @@ export async function sendOffersAction(input: {
               userId: inf.user.id,
               email: inf.user.email,
               phone: inf.user.phone,
+              instagram: inf.socialAccounts[0]?.handle ?? null,
               locale: inf.user.locale,
               vars: {
                 ad: inf.name,
