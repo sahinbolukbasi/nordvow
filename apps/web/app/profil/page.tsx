@@ -131,7 +131,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <details className="rounded-3xl border border-line px-5 py-4">
             <summary className="cursor-pointer text-sm text-fg-muted hover:text-fg">{tt("Markaların gördüğü önizleme")}</summary>
             <div className="mt-4">
-              <CreatorShowcase influencerId={id} />
+              <CreatorShowcase influencerId={id} view="influencer" />
             </div>
           </details>
         </div>

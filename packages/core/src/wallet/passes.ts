@@ -17,7 +17,7 @@ export type PassData = {
   kind: WalletKind;
   /** Pass üzerinde görünen başlık (etkinlik adı veya kupon başlığı). */
   title: string;
-  /** Alt başlık (kişi adı veya marka adı). */
+  /** Alt başlık (kişi adı veya kupon değer etiketi). */
   subtitle: string;
   /** QR içeriğinde kodlanan doğrulama jetonu. */
   code: string;
@@ -25,6 +25,22 @@ export type PassData = {
   fields: { label: string; value: string }[];
   /** Marka rengi (hex). */
   accentColor?: string;
+  /** Organizatör / marka adı (yoksa platform marka adı kullanılır). */
+  organizer?: string;
+  /** Kart durumu etiketi (ör. Geçerli, Kullanılabilir). */
+  statusLabel?: string;
+  /** Arka yüz açıklaması. */
+  description?: string;
+  /** Kullanım koşulları. */
+  terms?: string;
+  /** İlgili tarih (ISO 8601 veya Date; Apple Wallet kilit ekranı bildirimi için). */
+  relevantDate?: Date | string | null;
+  /** Son geçerlilik tarihi (ISO 8601 veya Date). */
+  expirationDate?: Date | string | null;
+  /** Etkinlik konumu (Apple Wallet yakında bildirimi için). */
+  location?: { latitude: number; longitude: number; relevantText?: string } | null;
+  /** Web görünümü bağlantısı. */
+  webUrl?: string;
 };
 
 export type WalletLinks = {
@@ -43,7 +59,11 @@ function appBase(): string {
 }
 
 export function appleWalletConfigured(): boolean {
-  return envStr("APPLE_WALLET_CERT", "").trim().length > 0 && envStr("APPLE_WALLET_TEAM_ID", "").trim().length > 0;
+  return (
+    envStr("APPLE_WALLET_CERT", "").trim().length > 0 &&
+    envStr("APPLE_WALLET_WWDR", "").trim().length > 0 &&
+    envStr("APPLE_WALLET_TEAM_ID", "").trim().length > 0
+  );
 }
 export function googleWalletConfigured(): boolean {
   return envStr("GOOGLE_WALLET_ISSUER_ID", "").trim().length > 0 && envStr("GOOGLE_WALLET_SA_KEY", "").trim().length > 0;

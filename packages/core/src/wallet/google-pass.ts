@@ -7,8 +7,8 @@ import { googleWalletConfigured, type PassData } from "./passes";
  * Google Wallet "Save to Wallet" bağlantısı üretimi.
  *
  * Servis hesabı anahtarıyla (GOOGLE_WALLET_SA_KEY = JSON) imzalanmış bir JWT oluşturulur;
- * JWT içinde generic pass object gömülür. Kullanıcı linke tıklayınca Google Wallet'a eklenir.
- * Anahtar/Issuer ID yoksa null döner (çağıran web görünümüne düşer).
+ * JWT içinde generic pass class (cardTemplateOverride ile 2 sütunlu ön yüz düzeni) ve
+ * generic pass object gömülür.
  *
  * Gereken ortam değişkenleri:
  *   GOOGLE_WALLET_ISSUER_ID  — pay.google.com/business/console'dan alınan 19 haneli numara
@@ -27,31 +27,117 @@ function serviceAccount(): ServiceAccount | null {
   }
 }
 
-/** Issuer ID ile sınıf (class) kimliği. Tür başına tek sınıf yeterli. */
+/**
+ * Issuer ID ile sınıf (class) kimliği.
+ * v2 eki: mevcut düz class'ı kullanan hesaplarda yeni cardTemplateOverride düzeninin
+ * hemen uygulanması için yeni sürüm sınıfı kullanılır.
+ */
 function classId(issuerId: string, kind: PassData["kind"]): string {
-  return `${issuerId}.nordvow_${kind}`;
+  return `${issuerId}.nordvow_${kind}_v2`;
+}
+
+function appBaseHttps(): string | null {
+  const base = envStr("APP_URL", "https://nordvow.com").replace(/\/$/, "");
+  return base.startsWith("https://") ? base : null;
+}
+
+/** Ön yüzdeki 2x2 bilgi ızgarasını tanımlayan Generic Class. */
+function buildGenericClass(issuerId: string, kind: PassData["kind"]) {
+  return {
+    id: classId(issuerId, kind),
+    classTemplateInfo: {
+      cardTemplateOverride: {
+        cardRowTemplateInfos: [
+          {
+            twoItems: {
+              startItem: { firstValue: { fields: [{ fieldPath: "object.textModulesData['f0']" }] } },
+              endItem: { firstValue: { fields: [{ fieldPath: "object.textModulesData['f1']" }] } },
+            },
+          },
+          {
+            twoItems: {
+              startItem: { firstValue: { fields: [{ fieldPath: "object.textModulesData['f2']" }] } },
+              endItem: { firstValue: { fields: [{ fieldPath: "object.textModulesData['f3']" }] } },
+            },
+          },
+        ],
+      },
+    },
+  };
 }
 
 /** Generic pass object'i (JWT içine gömülür). */
 function buildGenericObject(issuerId: string, data: PassData, serial: string) {
   const objectId = `${issuerId}.${serial.replace(/[^\w.-]/g, "_")}`;
-  const hex = (data.accentColor ?? "#ff2bd6").startsWith("#") ? (data.accentColor ?? "#ff2bd6") : "#ff2bd6";
-  return {
+  const organizer = (data.organizer ?? BRAND_NAME).trim() || BRAND_NAME;
+  const httpsBase = appBaseHttps();
+
+  const rowModules: { id: string; header: string; body: string }[] =
+    data.kind === "ticket"
+      ? [
+          { id: "f0", header: "KATILIMCI", body: data.subtitle || "Misafir" },
+          { id: "f1", header: "DURUM", body: data.statusLabel || "Geçerli" },
+          { id: "f2", header: "TARİH", body: data.fields[0]?.value || "-" },
+          { id: "f3", header: "MEKAN", body: data.fields[1]?.value || "-" },
+        ]
+      : [
+          { id: "f0", header: "MARKA", body: organizer },
+          { id: "f1", header: "DURUM", body: data.statusLabel || "Kullanılabilir" },
+          { id: "f2", header: "SON KULLANIM", body: data.fields[0]?.value || "Süresiz" },
+          { id: "f3", header: "KOD", body: data.code },
+        ];
+
+  if (data.description?.trim()) {
+    rowModules.push({ id: "desc", header: "AÇIKLAMA", body: data.description.trim() });
+  }
+  if (data.terms?.trim()) {
+    rowModules.push({ id: "terms", header: "KULLANIM KOŞULLARI", body: data.terms.trim() });
+  }
+
+  const obj: Record<string, unknown> = {
     id: objectId,
     classId: classId(issuerId, data.kind),
     genericType: "GENERIC_TYPE_UNSPECIFIED",
-    hexBackgroundColor: hex,
-    cardTitle: { defaultValue: { language: "tr", value: BRAND_NAME } },
-    header: { defaultValue: { language: "tr", value: data.title } },
-    subheader: { defaultValue: { language: "tr", value: data.subtitle } },
-    barcode: { type: "QR_CODE", value: data.code },
-    textModulesData: data.fields.slice(0, 4).map((f, i) => ({ id: `f${i}`, header: f.label, body: f.value })),
+    hexBackgroundColor: "#13131d",
+    cardTitle: { defaultValue: { language: "tr", value: organizer } },
+    subheader: {
+      defaultValue: {
+        language: "tr",
+        value: data.kind === "ticket" ? "ETKİNLİK BİLETİ" : data.title,
+      },
+    },
+    header: {
+      defaultValue: {
+        language: "tr",
+        value: data.kind === "ticket" ? data.title : data.subtitle,
+      },
+    },
+    barcode: {
+      type: "QR_CODE",
+      value: data.code,
+      alternateText: data.code,
+    },
+    textModulesData: rowModules,
   };
-}
 
-/** Generic class tanımı (ilk kullanımda JWT içinde gönderilir; Google idempotent kabul eder). */
-function buildGenericClass(issuerId: string, kind: PassData["kind"]) {
-  return { id: classId(issuerId, kind) };
+  if (httpsBase) {
+    obj.logo = {
+      sourceUri: { uri: `${httpsBase}/api/wallet/assets/logo.png` },
+      contentDescription: { defaultValue: { language: "tr", value: organizer } },
+    };
+    const accentParam = data.accentColor ? `&accent=${encodeURIComponent(data.accentColor)}` : "";
+    obj.heroImage = {
+      sourceUri: { uri: `${httpsBase}/api/wallet/assets/hero.png?kind=${data.kind}${accentParam}` },
+      contentDescription: { defaultValue: { language: "tr", value: data.title } },
+    };
+    if (data.webUrl?.startsWith("https://")) {
+      obj.linksModuleData = {
+        uris: [{ uri: data.webUrl, description: "Web kartını aç", id: "web" }],
+      };
+    }
+  }
+
+  return obj;
 }
 
 /**

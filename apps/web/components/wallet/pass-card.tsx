@@ -6,7 +6,12 @@ export function WalletButtons({ appleUrl, googleUrl, live }: { appleUrl: string;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-3">
-        <a href={appleUrl} target="_blank" rel="noopener noreferrer" aria-label="Apple Wallet'a ekle" className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-white ring-1 ring-white/20 transition-standard hover:ring-white/40">
+        <a
+          href={appleUrl}
+          {...(live ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+          aria-label="Apple Wallet'a ekle"
+          className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-white ring-1 ring-white/20 transition-standard hover:ring-white/40"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M16.37 1.43c.06 1-.33 1.98-.95 2.69-.66.76-1.73 1.35-2.77 1.27-.08-.98.37-2 .95-2.64.66-.73 1.82-1.28 2.77-1.32zM19.8 8.4c-1.08.65-1.76 1.8-1.76 3.08 0 1.44.86 2.74 2.2 3.31-.26.83-.6 1.63-1.08 2.37-.66 1-1.35 1.98-2.44 2-1.05.02-1.4-.62-2.6-.62-1.2 0-1.59.6-2.58.64-1.05.04-1.85-1.07-2.52-2.06C5.3 17.1 4.2 13.6 5.62 11.2c.7-1.18 1.96-1.93 3.32-1.95 1.03-.02 2 .69 2.6.69.6 0 1.78-.86 3-.73.5.02 1.95.2 2.88 1.52l-.02.01z"/></svg>
           <span className="flex flex-col leading-none">
             <span className="text-[9px] opacity-80">Ekle</span>

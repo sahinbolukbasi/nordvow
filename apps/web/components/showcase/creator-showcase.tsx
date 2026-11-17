@@ -5,7 +5,9 @@ import { prisma, type Platform } from "@infulancer/core/db";
 import { categoryLabel } from "@infulancer/core/domain/categories";
 import { contentTypeLabels, formatKurus, platformLabels } from "@infulancer/core/domain/labels";
 import { runInstagramExplorerForInfluencer } from "@infulancer/core/social/explorer";
+import { computeInfluencerNordvowScore } from "@infulancer/core/scoring/engine";
 import { InfluencerAnalyticsDeck } from "@/components/showcase/influencer-analytics-deck";
+import { NordvowScorePanel } from "@/components/scoring/nordvow-score-panel";
 import { BrandBadge, type BrandLogoName } from "@/components/icons/brand-logos";
 import { ExternalIcon } from "@/components/icons";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -31,10 +33,12 @@ export async function CreatorShowcase({
   influencerId,
   actions,
   isAdmin = false,
+  view,
 }: {
   influencerId: string;
   actions?: ReactNode;
   isAdmin?: boolean;
+  view?: "brand" | "influencer" | "admin";
 }) {
   const tt = await getTT();
   const inf = await prisma.influencer.findUnique({
@@ -56,7 +60,7 @@ export async function CreatorShowcase({
   if (!inf) return null;
   const showPricesEffective = inf.showPrices || isAdmin;
   const showCollabsEffective = inf.showCollaborations || isAdmin;
-  const [rates, portfolio, collabs, explorerReport, tikTokAccount] = await Promise.all([
+  const [rates, portfolio, collabs, explorerReport, tikTokAccount, nordvowScore] = await Promise.all([
     showPricesEffective ? prisma.rateCard.findMany({ where: { influencerId, active: true }, orderBy: [{ platform: "asc" }, { priceKurus: "asc" }] }) : Promise.resolve([]),
     prisma.portfolioItem.findMany({ where: { influencerId }, orderBy: [{ sort: "asc" }, { createdAt: "desc" }], take: 24 }),
     showCollabsEffective
@@ -102,7 +106,9 @@ export async function CreatorShowcase({
         },
       },
     }),
+    computeInfluencerNordvowScore(influencerId).catch(() => null),
   ]);
+  const resolvedView = view ?? (isAdmin ? "admin" : "brand");
   const total = inf.socialAccounts.reduce((s, a) => s + a.followers, 0);
   const bestEr = inf.socialAccounts.reduce((m, a) => Math.max(m, Number(a.engagementRate)), 0);
 
@@ -162,6 +168,9 @@ export async function CreatorShowcase({
           ))}
         </dl>
       </section>
+
+      {/* Nordvow Ölçüm ve Skorlama Kartı */}
+      {nordvowScore ? <NordvowScorePanel report={nordvowScore} view={resolvedView} /> : null}
 
       {/* Instagram Gezgini (AI Analiz, 7g/30g/90g Zaman Çizelgesi Grafikleri, Kaydetme/İzlenme, Marka Geçmişi & NLP Yorum Analizi) */}
       {explorerReport ? <InfluencerAnalyticsDeck report={explorerReport} isAdmin={isAdmin} /> : null}
