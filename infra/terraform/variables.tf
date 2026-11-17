@@ -115,6 +115,11 @@ variable "integration_secret_keys" {
     "META_IG_TOKEN",
     "INSTAGRAM_ACCESS_TOKEN",
     "INSTAGRAM_IG_USER_ID",
+    "TIKTOK_CLIENT_KEY",
+    "TIKTOK_CLIENT_SECRET",
+    "TIKTOK_REDIRECT_URI",
+    "TIKTOK_APP_AUDITED",
+    "TOKEN_ENCRYPTION_KEY",
   ]
 }
 
