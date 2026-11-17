@@ -6,13 +6,16 @@ export const dynamic = "force-dynamic";
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = (process.env.APP_URL ?? "https://nordvow.com").replace(/\/+$/, "");
 
+  const now = new Date();
   const staticRoutes: MetadataRoute.Sitemap = [
-    { url: `${baseUrl}/`, changeFrequency: "weekly", priority: 1.0 },
-    { url: `${baseUrl}/blog`, changeFrequency: "daily", priority: 0.9 },
-    { url: `${baseUrl}/gizlilik`, changeFrequency: "monthly", priority: 0.3 },
-    { url: `${baseUrl}/kullanim-kosullari`, changeFrequency: "monthly", priority: 0.3 },
-    { url: `${baseUrl}/kvkk`, changeFrequency: "monthly", priority: 0.3 },
-    { url: `${baseUrl}/cerez-politikasi`, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${baseUrl}/`, lastModified: now, changeFrequency: "weekly", priority: 1.0 },
+    { url: `${baseUrl}/blog`, lastModified: now, changeFrequency: "daily", priority: 0.9 },
+    { url: `${baseUrl}/kayit`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${baseUrl}/destek`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+    { url: `${baseUrl}/gizlilik`, lastModified: now, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${baseUrl}/kullanim-kosullari`, lastModified: now, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${baseUrl}/kvkk`, lastModified: now, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${baseUrl}/cerez-politikasi`, lastModified: now, changeFrequency: "monthly", priority: 0.3 },
   ];
 
   try {
