@@ -7,6 +7,9 @@ import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { acceptCounterByBrand, counterOffer, offerItemsSchema, respondOffer, saveRateCard, sendOffers, withdrawOffer, type OfferItem } from "@infulancer/core/domain/offers";
+import { envStr } from "@infulancer/core/env";
+import { dispatchNotification } from "@infulancer/core/notify/dispatch";
+import { ensureShipmentForOffer } from "@infulancer/core/shipping/service";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
@@ -80,6 +83,42 @@ export async function sendOffersAction(input: {
       if (r.created.length) await notifyAdmins(tx, { title: `${brand.name} ${r.created.length} teklif gönderdi`, body: d.title, href: "/admin/teklifler" });
     });
     for (const c of r.created) await audit.append({ actor: toAuditActor(actor), action: "OFFER_SENT", entityType: "Offer", entityId: c.id, data: { influencerId: c.influencerId } });
+    try {
+      if (r.created.length) {
+        const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+        const infs = await prisma.influencer.findMany({
+          where: { id: { in: r.created.map((c) => c.influencerId) } },
+          select: { id: true, name: true, user: { select: { id: true, email: true, phone: true, locale: true } } },
+        });
+        const infMap = new Map(infs.map((i) => [i.id, i]));
+        const offersWithFee = await prisma.offer.findMany({
+          where: { id: { in: r.created.map((c) => c.id) } },
+          select: { id: true, influencerId: true, totalKurus: true },
+        });
+        const recipients = offersWithFee
+          .map((o) => {
+            const inf = infMap.get(o.influencerId);
+            if (!inf?.user) return null;
+            return {
+              userId: inf.user.id,
+              email: inf.user.email,
+              phone: inf.user.phone,
+              locale: inf.user.locale,
+              vars: {
+                ad: inf.name,
+                marka: brand.name,
+                baslik: d.title,
+                tutar: formatKurus(o.totalKurus),
+                link: `${base}/influencer/teklifler`,
+              },
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => !!x);
+        if (recipients.length) await dispatchNotification("NEW_OFFER", recipients);
+      }
+    } catch {
+      /* e-posta/bildirim hatası teklif gönderimini bozmasın */
+    }
     const names = new Map((await prisma.influencer.findMany({ where: { id: { in: r.skipped.map((s) => s.influencerId) } }, select: { id: true, name: true } })).map((i) => [i.id, i.name]));
     revalidateAll();
     return { ok: r.created.length > 0, sent: r.created.length, skipped: r.skipped.map((s) => ({ name: names.get(s.influencerId) ?? s.influencerId, reason: s.reason })), error: r.created.length ? undefined : "Hiçbir teklif gönderilemedi." };
@@ -97,6 +136,35 @@ export async function respondOfferAction(_p: ActionState, fd: FormData): Promise
       note: optStr(fd, "note"),
     });
     const o = await respondOffer(input.id, actor.influencerId!, input.decision, input.note);
+    if (input.decision === "KABUL") {
+      const recipientName = optStr(fd, "recipientName");
+      const recipientPhone = optStr(fd, "recipientPhone");
+      const addressLine = optStr(fd, "addressLine");
+      const city = optStr(fd, "city");
+      const district = optStr(fd, "district");
+      const postalCode = optStr(fd, "postalCode");
+      const variantRaw = optStr(fd, "selectedVariant");
+      let selectedVariant: Record<string, string> | null = null;
+      if (variantRaw) {
+        try {
+          selectedVariant = JSON.parse(variantRaw) as Record<string, string>;
+        } catch {
+          selectedVariant = null;
+        }
+      }
+      if (recipientName && recipientPhone && addressLine && city && district) {
+        await ensureShipmentForOffer(o.id, {
+          recipientName,
+          recipientPhone,
+          shippingAddress: { addressLine, city, district, postalCode },
+          selectedVariant,
+          saveAddress: str(fd, "saveAddress") === "1",
+          addressLabel: optStr(fd, "addressLabel") ?? undefined,
+        });
+      } else {
+        await ensureShipmentForOffer(o.id);
+      }
+    }
     const inf = await prisma.influencer.findUniqueOrThrow({ where: { id: actor.influencerId! }, select: { name: true } });
     const label = input.decision === "KABUL" ? "kabul etti" : "reddetti";
     await prisma.$transaction(async (tx) => {

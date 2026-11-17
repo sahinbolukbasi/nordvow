@@ -93,6 +93,20 @@ export async function requestPasswordResetAction(_prev: ActionState, fd: FormDat
       if (sendRes.status !== "SENT") {
         console.warn("[password-reset] sendEmail status:", sendRes.status, sendRes.error ?? "");
       }
+      await prisma.notificationLog
+        .create({
+          data: {
+            eventKey: "PASSWORD_RESET",
+            channel: "EMAIL",
+            userId: user.id,
+            toAddress: user.email,
+            subject,
+            body,
+            status: sendRes.status,
+            error: sendRes.error ?? null,
+          },
+        })
+        .catch(() => undefined);
       await audit.append({
         actor: { id: user.id, role: user.role },
         action: "PASSWORD_RESET_REQUESTED",

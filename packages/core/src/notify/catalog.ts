@@ -16,6 +16,19 @@ export type NotifEvent = {
 
 export const NOTIF_EVENTS: NotifEvent[] = [
   {
+    key: "USER_APPROVED",
+    label: "Kayıt onayı (Hoş geldiniz)",
+    vars: ["ad", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Nordvow'a hoş geldiniz", body: "Kaydınız onaylandı! Hesabınız aktif edildi." },
+      EMAIL: {
+        subject: "Nordvow'a Hoş Geldiniz — Kaydınız Onaylandı",
+        body: "Merhaba {{ad}},\n\nNordvow sistemine kaydınız onaylandı! Artık hesabınıza giriş yaparak iş birliklerinizi, kampanyalarınızı ve tüm araçları kullanabilirsiniz.\n\nGiriş yapın: {{link}}",
+      },
+    },
+  },
+  {
     key: "EVENT_CREATED",
     label: "Etkinlik oluşturuldu",
     vars: ["baslik", "tarih"],
@@ -110,6 +123,46 @@ export const NOTIF_EVENTS: NotifEvent[] = [
       EMAIL: { subject: "Duyuru", body: "Merhaba {{ad}},\n\n{{mesaj}}\n\n{{link}}" },
       WHATSAPP: { body: "{{mesaj}} {{link}}" },
       INSTAGRAM: { body: "{{mesaj}} {{link}}" },
+    },
+  },
+  {
+    key: "SHIPMENT_ADDRESS_CONFIRMED",
+    label: "Influencer teslimat adresini onayladı",
+    vars: ["influencer", "kampanya", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Teslimat adresi onaylandı", body: "{{influencer}} teslimat adresini onayladı, ürün gönderimine hazır." },
+      EMAIL: { subject: "Ürün gönderimine hazır: {{influencer}}", body: "Merhaba,\n\n{{influencer}}, “{{kampanya}}” kampanyası için teslimat adresini onayladı ve ürün gönderimine hazır.\n\nLojistik paneli: {{link}}" },
+    },
+  },
+  {
+    key: "SHIPMENT_DISPATCHED",
+    label: "Kampanya ürünü kargoya verildi",
+    vars: ["marka", "kargo", "takipNo", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Ürününüz kargoya verildi", body: "{{marka}} kampanya ürününüzü kargoya verdi! Takip No: {{takipNo}}" },
+      EMAIL: { subject: "Kargoya verildi: {{marka}}", body: "Merhaba,\n\n{{marka}} kampanya ürününüzü {{kargo}} ile kargoya verdi.\nTakip No: {{takipNo}}\n\nDetay ve takip: {{link}}" },
+    },
+  },
+  {
+    key: "SHIPMENT_DELIVERED_INFLUENCER",
+    label: "Ürün influencer'a teslim edildi",
+    vars: ["marka", "kampanya", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Ürününüz teslim edildi", body: "Ürününüz teslim edildi! Artık içeriğinizi hazırlayıp Nordvow üzerinden yükleyebilirsiniz." },
+      EMAIL: { subject: "Ürününüz teslim edildi: {{kampanya}}", body: "Merhaba,\n\n{{marka}} tarafından gönderilen “{{kampanya}}” ürünü teslim edildi! Artık içeriğinizi hazırlayıp Nordvow üzerinden yükleyebilirsiniz.\n\nİş detayı: {{link}}" },
+    },
+  },
+  {
+    key: "SHIPMENT_DELIVERED_BRAND",
+    label: "Ürün teslim edildi (marka bildirimi)",
+    vars: ["influencer", "kampanya", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Ürün teslim edildi", body: "Ürün {{influencer}}'na teslim edildi." },
+      EMAIL: { subject: "Teslimat tamamlandı: {{influencer}}", body: "Merhaba,\n\n“{{kampanya}}” kampanyası kapsamında gönderilen ürün {{influencer}}'na teslim edildi.\n\nLojistik paneli: {{link}}" },
     },
   },
 ];

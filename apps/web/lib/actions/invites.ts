@@ -1,6 +1,9 @@
 "use server";
 import { redirect } from "next/navigation";
 import { approveApplication, createInvite, registerWithInvite, rejectApplication, revokeInvite } from "@infulancer/core/access/invites";
+import { prisma } from "@infulancer/core/db";
+import { envStr } from "@infulancer/core/env";
+import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -74,8 +77,19 @@ export async function reviewApplicationAction(_p: ActionState, fd: FormData): Pr
     const id = str(fd, "id");
     if (str(fd, "decision") === "approve") {
       await approveApplication(actor, id, { existingBrandId: optStr(fd, "existingBrandId"), note: optStr(fd, "note") });
+      try {
+        const u = await prisma.user.findUnique({ where: { id }, select: { id: true, email: true, phone: true, name: true, locale: true } });
+        if (u) {
+          const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+          await dispatchNotification("USER_APPROVED", [
+            { userId: u.id, email: u.email, phone: u.phone, locale: u.locale, vars: { ad: u.name, link: `${base}/giris` } },
+          ]);
+        }
+      } catch {
+        /* hoş geldin bildirimi hatası onayı bozmasın */
+      }
       revalidateAll();
-      return { ok: true, message: "Başvuru onaylandı; kullanıcı panele erişebilir." };
+      return { ok: true, message: "Başvuru onaylandı; kullanıcıya hoş geldiniz e-postası gönderildi." };
     }
     await rejectApplication(actor, id, str(fd, "note"));
     revalidateAll();
