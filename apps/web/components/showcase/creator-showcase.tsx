@@ -61,16 +61,16 @@ export async function CreatorShowcase({
     prisma.portfolioItem.findMany({ where: { influencerId }, orderBy: [{ sort: "asc" }, { createdAt: "desc" }], take: 24 }),
     showCollabsEffective
       ? prisma.assignment.findMany({
-          where: { influencerId, contractStatus: "KABUL" },
-          orderBy: { createdAt: "desc" },
-          take: 30,
-          select: {
-            id: true,
-            feeKurus: true,
-            campaign: { select: { name: true, startsAt: true, endsAt: true, brand: { select: { name: true } } } },
-            deliverables: { where: { status: { in: [...PUBLISHED] } }, select: { platform: true, contentType: true, postUrl: true } },
-          },
-        })
+        where: { influencerId, contractStatus: "KABUL" },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: {
+          id: true,
+          feeKurus: true,
+          campaign: { select: { name: true, startsAt: true, endsAt: true, brand: { select: { name: true } } } },
+          deliverables: { where: { status: { in: [...PUBLISHED] } }, select: { platform: true, contentType: true, postUrl: true } },
+        },
+      })
       : Promise.resolve([]),
     runInstagramExplorerForInfluencer(influencerId, { triggeredBy: isAdmin ? "admin" : "brand" }),
     prisma.tikTokAccount.findFirst({

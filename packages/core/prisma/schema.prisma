@@ -2620,3 +2620,45 @@ model TikTokPost {
   @@index([status])
   @@map("tiktok_posts")
 }
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum BlogAudience {
+  ALL
+  INFLUENCER
+  BRAND
+}
+
+/// SEO destekli blog yazıları ve okunma istatistikleri.
+model BlogPost {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  title            String
+  excerpt          String
+  content          String
+  coverImageUrl    String?      @map("cover_image_url")
+  category         String       @default("Influencer Pazarlama")
+  tags             String[]     @default([])
+  targetAudience   BlogAudience @default(ALL) @map("target_audience")
+  status           BlogStatus   @default(DRAFT)
+  seoTitle         String?      @map("seo_title")
+  seoDescription   String?      @map("seo_description")
+  seoKeywords      String[]     @default([]) @map("seo_keywords")
+  authorName       String       @default("Nordvow Editör") @map("author_name")
+  readingTimeMin   Int          @default(3) @map("reading_time_min")
+  viewCount        Int          @default(0) @map("view_count")
+  readCount        Int          @default(0) @map("read_count")
+  totalReadSeconds Int          @default(0) @map("total_read_seconds")
+  lastReadAt       DateTime?    @map("last_read_at")
+  publishedAt      DateTime?    @map("published_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt])
+  @@index([category])
+  @@index([targetAudience])
+  @@map("blog_posts")
+}

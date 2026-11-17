@@ -3,6 +3,7 @@
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
+import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ShippingProvider } from "@infulancer/core/enums";
 import {
@@ -20,8 +21,10 @@ export async function saveBrandShippingIntegrationAction(
   _p: ActionState,
   fd: FormData,
 ): Promise<ActionState> {
-  const actor = await requireActor("BRAND");
+  const actor = await requireActor("ADMIN", "BRAND");
   return attempt(async () => {
+    const targetBrandId = actor.role === "ADMIN" ? (optStr(fd, "brandId") ?? actor.brandId) : actor.brandId;
+    if (!targetBrandId) throw new Error("Marka seçilmedi.");
     const provider = str(fd, "provider") as ShippingProvider;
     const senderName = optStr(fd, "senderName");
     const senderPhone = optStr(fd, "senderPhone");
@@ -32,7 +35,7 @@ export async function saveBrandShippingIntegrationAction(
 
     const hasSender = Boolean(senderName && senderPhone && addressLine && city && district);
 
-    await upsertBrandShippingIntegration(actor.brandId!, {
+    await upsertBrandShippingIntegration(targetBrandId, {
       provider,
       apiKey: optStr(fd, "apiKey"),
       apiSecret: optStr(fd, "apiSecret"),
@@ -57,11 +60,53 @@ export async function saveBrandShippingIntegrationAction(
 
 export async function testBrandShippingIntegrationAction(
   provider: ShippingProvider,
+  brandId?: string,
 ): Promise<{ ok: boolean; message: string; latencyMs: number }> {
-  const actor = await requireActor("BRAND");
-  const res = await testBrandShippingIntegration(actor.brandId!, provider);
+  const actor = await requireActor("ADMIN", "BRAND");
+  const targetBrandId = actor.role === "ADMIN" ? (brandId ?? actor.brandId) : actor.brandId;
+  if (!targetBrandId) throw new Error("Marka seçilmedi.");
+  const res = await testBrandShippingIntegration(targetBrandId, provider);
   revalidateAll();
   return res;
+}
+
+export async function saveBrandSenderAddressAction(
+  _p: ActionState,
+  fd: FormData,
+): Promise<ActionState> {
+  const actor = await requireActor("BRAND", "ADMIN");
+  return attempt(async () => {
+    const targetBrandId = actor.role === "ADMIN" ? (optStr(fd, "brandId") ?? actor.brandId) : actor.brandId;
+    if (!targetBrandId) throw new Error("Marka bulunamadı.");
+    const senderName = str(fd, "senderName");
+    const senderPhone = str(fd, "senderPhone");
+    const addressLine = str(fd, "addressLine");
+    const city = str(fd, "city");
+    const district = str(fd, "district");
+    const postalCode = optStr(fd, "postalCode");
+
+    const existing = await prisma.brandShippingIntegration.findFirst({
+      where: { brandId: targetBrandId, isActive: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    const provider: ShippingProvider = existing?.provider ?? "CUSTOM_MANUAL";
+
+    await upsertBrandShippingIntegration(targetBrandId, {
+      provider,
+      isActive: existing?.isActive ?? true,
+      defaultSenderAddressId: existing?.defaultSenderAddressId ?? null,
+      senderAddress: {
+        senderName,
+        senderPhone,
+        addressLine,
+        city,
+        district,
+        postalCode,
+      },
+    });
+    revalidateAll();
+    return { ok: true, message: "Gönderici adresi kaydedildi." };
+  });
 }
 
 export async function saveCampaignShippingConfigAction(
@@ -92,14 +137,20 @@ export async function dispatchSingleShipmentAction(
   _p: ActionState,
   fd: FormData,
 ): Promise<ActionState> {
-  const actor = await requireActor("BRAND");
+  const actor = await requireActor("BRAND", "ADMIN");
   return attempt(async () => {
     const shipmentId = str(fd, "shipmentId");
     const provider = (optStr(fd, "provider") ?? "CUSTOM_MANUAL") as ShippingProvider;
     const manualCarrierName = optStr(fd, "manualCarrierName");
     const manualTrackingNumber = optStr(fd, "manualTrackingNumber");
+    let brandId = actor.brandId;
+    if (actor.role === "ADMIN") {
+      const s = await prisma.shipment.findUnique({ where: { id: shipmentId }, select: { brandId: true } });
+      if (!s) throw new DomainError("BULUNAMADI", "Gönderi bulunamadı.");
+      brandId = s.brandId;
+    }
     await dispatchSingleShipment({
-      brandId: actor.brandId!,
+      brandId: brandId!,
       shipmentId,
       provider,
       manualCarrierName,
@@ -116,7 +167,34 @@ export async function bulkDispatchShipmentsAction(input: {
   manualCarrierName?: string | null;
   manualTrackingNumber?: string | null;
 }): Promise<{ ok: boolean; succeeded: number; failed: { id: string; error: string }[] }> {
-  const actor = await requireActor("BRAND");
+  const actor = await requireActor("BRAND", "ADMIN");
+  if (actor.role === "ADMIN") {
+    const rows = await prisma.shipment.findMany({
+      where: { id: { in: input.shipmentIds } },
+      select: { id: true, brandId: true },
+    });
+    const byBrand = new Map<string, string[]>();
+    for (const r of rows) {
+      const list = byBrand.get(r.brandId) ?? [];
+      list.push(r.id);
+      byBrand.set(r.brandId, list);
+    }
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (const [brandId, ids] of byBrand) {
+      const res = await bulkDispatchShipments({
+        brandId,
+        shipmentIds: ids,
+        provider: input.provider,
+        manualCarrierName: input.manualCarrierName,
+        manualTrackingNumber: input.manualTrackingNumber,
+      });
+      succeeded.push(...res.succeeded);
+      failed.push(...res.failed);
+    }
+    revalidateAll();
+    return { ok: succeeded.length > 0, succeeded: succeeded.length, failed };
+  }
   const res = await bulkDispatchShipments({
     brandId: actor.brandId!,
     ...input,

@@ -81,7 +81,7 @@ export default async function BrandCampaignPage({
   const [meta, hubData, shippingDash] = await Promise.all([
     prisma.campaign.findUniqueOrThrow({
       where: { id: campaign.id },
-      select: { currency: true, executionMode: true, brand: { select: { defaultExecutionMode: true } } },
+      select: { currency: true, executionMode: true, objective: true, brand: { select: { defaultExecutionMode: true } } },
     }),
     loadCampaignHubData(campaign.id),
     getCampaignShipmentsDashboard(campaign.id),
@@ -412,12 +412,12 @@ export default async function BrandCampaignPage({
         messages={hubData.messages}
         storyRows={hubData.storyRows}
       />
-      {shippingDash.config.requiresProductShipment || shippingDash.shipments.length > 0 ? (
+      {shippingDash.config.requiresProductShipment || shippingDash.shipments.length > 0 || meta.objective === "urun_gonderimi" ? (
         <section className="flex flex-col gap-3" id="kargo">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-section">{tt("Kargo & Lojistik Yönetimi")}</h2>
-            <Link href="/marka/ayarlar/kargo" className={buttonClass("ghost", "sm")}>
-              {tt("Kargo Entegrasyon Ayarları")}
+            <Link href="/profil?sekme=kargo" className={buttonClass("ghost", "sm")}>
+              {tt("Gönderici Adresi & Kargo Özeti")}
             </Link>
           </div>
           <CampaignShippingDashboard

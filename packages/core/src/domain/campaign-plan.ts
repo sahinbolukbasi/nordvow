@@ -37,6 +37,7 @@ export const OBJECTIVES = [
   { id: "etkilesim", title: "Etkileşim", text: "Beğeni, yorum, kaydetme" },
   { id: "satis", title: "Satış", text: "Kupon ve tıklama" },
   { id: "video", title: "Video izlenme", text: "Reels, TikTok, YouTube" },
+  { id: "urun_gonderimi", title: "Ürün gönderimi", text: "Ürün teslimi ve kargo takibi" },
 ] as const;
 export type Objective = (typeof OBJECTIVES)[number]["id"];
 

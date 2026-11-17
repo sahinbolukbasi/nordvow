@@ -15,6 +15,8 @@ import {
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
 import { CampaignDeleteButton, CampaignHub } from "@/components/campaign/campaign-hub";
+import { CampaignShippingDashboard } from "@/components/shipping/campaign-shipping-dashboard";
+import { getCampaignShipmentsDashboard } from "@infulancer/core/shipping/service";
 import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
 import { ApproveSummaryButton, RecommendButton } from "@/components/forms/agent-job-forms";
 import { BriefPanel } from "@/components/brief-panel";
@@ -412,7 +414,14 @@ export default async function CampaignDetailPage({
     </div>
   );
 
-  const hubData = await loadCampaignHubData(campaign.id);
+  const [hubData, shippingDash] = await Promise.all([
+    loadCampaignHubData(campaign.id),
+    getCampaignShipmentsDashboard(campaign.id),
+  ]);
+  const showShipping =
+    shippingDash.config.requiresProductShipment ||
+    shippingDash.shipments.length > 0 ||
+    campaign.objective === "urun_gonderimi";
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
@@ -454,6 +463,45 @@ export default async function CampaignDetailPage({
         messages={hubData.messages}
         storyRows={hubData.storyRows}
       />
+      {showShipping ? (
+        <section className="flex flex-col gap-3" id="kargo">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-section">{tt("Kargo & Lojistik Yönetimi")}</h2>
+            <ButtonLink href="/admin/kargo" variant="ghost" size="sm">
+              {tt("Tüm Kargolar")}
+            </ButtonLink>
+          </div>
+          <CampaignShippingDashboard
+            shippingMode={shippingDash.config.shippingMode}
+            kpi={shippingDash.kpi}
+            shipments={shippingDash.shipments.map((s) => ({
+              id: s.id,
+              collaborationId: s.collaborationId,
+              influencerId: s.influencerId,
+              influencerName: s.influencer.name,
+              influencerCity: s.influencer.city,
+              recipientName: s.recipientName,
+              recipientPhone: s.recipientPhone,
+              shippingAddress: s.shippingAddress as {
+                addressLine?: string;
+                city?: string;
+                district?: string;
+                postalCode?: string | null;
+              } | null,
+              selectedVariant: s.selectedVariant as Record<string, string> | null,
+              provider: s.provider,
+              carrierName: s.carrierName,
+              trackingNumber: s.trackingNumber,
+              trackingUrl: s.trackingUrl,
+              barcodeLabelUrl: s.barcodeLabelUrl,
+              status: s.status,
+              estimatedDeliveryDate: s.estimatedDeliveryDate?.toISOString() ?? null,
+              deliveredAt: s.deliveredAt?.toISOString() ?? null,
+            }))}
+            integrations={shippingDash.integrations}
+          />
+        </section>
+      ) : null}
       <Tabs
         key={sekme ?? "genel"}
         label={tt("Kampanya bölümleri")}

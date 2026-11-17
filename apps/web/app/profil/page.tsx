@@ -14,6 +14,8 @@ import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
 import { WhatsAppConnectCard } from "@/components/profile/whatsapp-connect-card";
 import { getOrCreateWhatsAppLink } from "@infulancer/core/messaging/user-whatsapp-ai";
 import { envStr } from "@infulancer/core/env";
+import { shipmentStatusLabels, type SenderAddress } from "@infulancer/core/shipping/types";
+import { BrandSenderAddressForm } from "@/components/shipping/brand-sender-address-form";
 import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { TikTokCreatorPanel } from "@/components/tiktok/tiktok-creator-panel";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
@@ -235,12 +237,40 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   let brandModeSettings: { mode: "SELF" | "AJANS"; selectedAgencyId: string | null; agencies: AgencyOption[] } | null = null;
   if (actor.role === "BRAND" && actor.brandId) {
     const brandId = actor.brandId;
-    const [campaigns, offers, brandCfg, agencies] = await Promise.all([
+    const [campaigns, offers, brandCfg, agencies, shippingIntegrations, brandShipments] = await Promise.all([
       prisma.campaign.findMany({ where: { brandId }, orderBy: { startsAt: "desc" }, select: { id: true, name: true, status: true, startsAt: true, endsAt: true, brandTotalFeeKurus: true, _count: { select: { assignments: { where: { contractStatus: { not: "RED" } } } } } } }),
       prisma.offer.findMany({ where: { brandId }, orderBy: { createdAt: "desc" }, take: 30 }),
       prisma.brand.findUnique({ where: { id: brandId }, select: { defaultExecutionMode: true, preferredAgencyUserId: true } }),
       prisma.user.findMany({ where: { role: "AGENCY", status: "ACTIVE" }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+      prisma.brandShippingIntegration.findMany({
+        where: { brandId },
+        orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }],
+        select: { senderAddress: true },
+      }),
+      prisma.shipment.findMany({
+        where: { brandId },
+        orderBy: { updatedAt: "desc" },
+        take: 40,
+        select: {
+          id: true,
+          campaignId: true,
+          status: true,
+          trackingNumber: true,
+          carrierName: true,
+          updatedAt: true,
+          campaign: { select: { name: true } },
+          influencer: { select: { name: true } },
+        },
+      }),
     ]);
+    const savedSenderAddress =
+      (shippingIntegrations.find((i) => i.senderAddress)?.senderAddress as SenderAddress | null | undefined) ?? null;
+    const shipStats = {
+      total: brandShipments.length,
+      pending: brandShipments.filter((s) => s.status === "PENDING_ADDRESS" || s.status === "READY_TO_SHIP").length,
+      inTransit: brandShipments.filter((s) => s.status === "LABEL_CREATED" || s.status === "IN_TRANSIT" || s.status === "OUT_FOR_DELIVERY").length,
+      delivered: brandShipments.filter((s) => s.status === "DELIVERED").length,
+    };
     brandModeSettings = { mode: brandCfg?.defaultExecutionMode ?? "AJANS", selectedAgencyId: brandCfg?.preferredAgencyUserId ?? null, agencies };
     headline = `${user.brand?.name ?? "Marka"} · marka yetkilisi`;
     tabs.push({
@@ -265,6 +295,66 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       ),
     });
     tabs.push({ id: "teklifler", label: `Teklifler (${offers.length})`, content: <OfferRows offers={offers} /> });
+    tabs.push({
+      id: "kargo",
+      label: `Kargo & Gönderici (${shipStats.total})`,
+      content: (
+        <div className="flex flex-col gap-5">
+          <Card interactive={false} className="flex flex-col gap-3">
+            <CardTitle>{tt("Gönderici Adresi")}</CardTitle>
+            <p className="text-[13px] text-fg-muted">
+              {tt("Ürün gönderimli kampanyalarınızda kullanılacak varsayılan gönderici adresiniz. Kargo firma entegrasyonları ajans/admin tarafından yönetilir.")}
+            </p>
+            <BrandSenderAddressForm initial={savedSenderAddress} />
+          </Card>
+
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              [tt("Toplam Gönderi"), String(shipStats.total)],
+              [tt("Hazırlanan / Adres Bekleyen"), String(shipStats.pending)],
+              [tt("Yoldaki Kargolar"), String(shipStats.inTransit)],
+              [tt("Teslim Edilen"), String(shipStats.delivered)],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-2xl border border-line bg-bg/40 p-3">
+                <dt className="text-[12px] text-fg-muted">{k}</dt>
+                <dd className="text-xl font-semibold tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <Card interactive={false} className="flex flex-col gap-3">
+            <CardTitle>{tt("Kampanya Gönderileri & Kargo Takibi")}</CardTitle>
+            {brandShipments.length === 0 ? (
+              <p className="text-sm text-fg-passive">{tt("Henüz ürün gönderimi kaydı bulunmuyor.")}</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-line rounded-2xl border border-line">
+                {brandShipments.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <div className="flex min-w-0 flex-col">
+                      <span className="font-medium text-fg">
+                        {s.influencer.name} · <span className="text-fg-muted">{s.campaign.name}</span>
+                      </span>
+                      <span className="text-[12px] text-fg-passive">
+                        {s.carrierName ? `${s.carrierName} · ` : ""}
+                        {s.trackingNumber ? `Takip: ${s.trackingNumber}` : tt("Takip numarası bekleniyor")} · {fmtDateTime(s.updatedAt)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="rounded-full border border-line px-2.5 py-0.5 text-[11px] font-medium text-fg">
+                        {shipmentStatusLabels[s.status]}
+                      </span>
+                      <Link href={`/marka/kampanyalar/${s.campaignId}#kargo`} className="text-xs underline underline-offset-4">
+                        {tt("Kampanyada yönet →")}
+                      </Link>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      ),
+    });
   }
   tabs.push({
     id: "islemler",

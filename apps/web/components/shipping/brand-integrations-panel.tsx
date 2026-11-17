@@ -26,7 +26,7 @@ export type BrandIntegrationRow = {
   lastTestOk: boolean | null;
 };
 
-function IntegrationCard({ item }: { item: BrandIntegrationRow }) {
+function IntegrationCard({ item, brandId }: { item: BrandIntegrationRow; brandId?: string }) {
   const [state, action, pending] = useActionState(
     saveBrandShippingIntegrationAction,
     idleState,
@@ -43,7 +43,7 @@ function IntegrationCard({ item }: { item: BrandIntegrationRow }) {
 
   const onTest = () => {
     startTest(async () => {
-      const res = await testBrandShippingIntegrationAction(item.provider);
+      const res = await testBrandShippingIntegrationAction(item.provider, brandId);
       setTestResult(res);
     });
   };
@@ -106,6 +106,7 @@ function IntegrationCard({ item }: { item: BrandIntegrationRow }) {
       {expanded ? (
         <form action={action} className="flex flex-col gap-4 border-t border-line pt-4">
           <input type="hidden" name="provider" value={item.provider} />
+          {brandId ? <input type="hidden" name="brandId" value={brandId} /> : null}
           <label className="flex items-center gap-2 text-[13px] font-medium text-fg">
             <input
               type="checkbox"
@@ -243,8 +244,10 @@ function IntegrationCard({ item }: { item: BrandIntegrationRow }) {
 
 export function BrandShippingIntegrationsPanel({
   items,
+  brandId,
 }: {
   items: BrandIntegrationRow[];
+  brandId?: string;
 }) {
   const byProvider = new Map(items.map((i) => [i.provider, i]));
   const orderedProviders: { provider: ShippingProvider; label: string }[] = [
@@ -275,7 +278,7 @@ export function BrandShippingIntegrationsPanel({
           lastTestedAt: null,
           lastTestOk: null,
         };
-        return <IntegrationCard key={provider} item={existing} />;
+        return <IntegrationCard key={provider} item={existing} brandId={brandId} />;
       })}
     </div>
   );

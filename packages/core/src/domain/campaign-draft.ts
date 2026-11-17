@@ -34,6 +34,10 @@ const OBJECTIVE_TARGETS: Record<Objective, { kpi: string; target: number; weight
     { kpi: "views", target: 1000000, weight: 2, windowDays: 30 },
     { kpi: "er", target: 0.04, weight: 1, windowDays: 30 },
   ],
+  urun_gonderimi: [
+    { kpi: "reach", target: 250000, weight: 2, windowDays: 30 },
+    { kpi: "er", target: 0.04, weight: 1, windowDays: 30 },
+  ],
 };
 const DAY = 86_400_000;
 
@@ -99,6 +103,13 @@ export async function createDraft(actor: Actor, input: { brandId?: string | null
     },
   });
   await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_CREATED", entityType: "Campaign", entityId: c.id, data: { brandId, name, objective, via: "wizard" } });
+  if (objective === "urun_gonderimi") {
+    await prisma.campaignShippingConfig.upsert({
+      where: { campaignId: c.id },
+      create: { campaignId: c.id, requiresProductShipment: true },
+      update: { requiresProductShipment: true },
+    });
+  }
   return c;
 }
 
@@ -113,6 +124,13 @@ export async function updateBasics(actor: Actor, id: string, input: { name: stri
     where: { id },
     data: { name, objective, description: input.description?.trim().slice(0, 4000) || null, ...(prev.objective !== objective ? { targets: OBJECTIVE_TARGETS[objective] } : {}) },
   });
+  if (objective === "urun_gonderimi") {
+    await prisma.campaignShippingConfig.upsert({
+      where: { campaignId: id },
+      create: { campaignId: id, requiresProductShipment: true },
+      update: { requiresProductShipment: true },
+    });
+  }
   await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_UPDATED", entityType: "Campaign", entityId: id, data: { step: "temel", name, objective } });
 }
 

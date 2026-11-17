@@ -116,7 +116,7 @@ export function BasicsStep({ id, brands, values }: { id?: string; brands?: { id:
       </Field>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-label text-fg-muted">{tt("Kampanyanın amacı")}</legend>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4" role="radiogroup" aria-label={tt("Kampanyanın amacı")}>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5" role="radiogroup" aria-label={tt("Kampanyanın amacı")}>
           {OBJECTIVES.map((o) => (
             <button
               key={o.id}

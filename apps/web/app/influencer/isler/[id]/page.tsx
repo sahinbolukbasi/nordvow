@@ -167,6 +167,13 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
           contentTriggerRule={shippingData.config.contentTriggerRule}
           savedAddresses={shippingData.addresses}
         />
+      ) : shippingData.config.requiresProductShipment ? (
+        <Card interactive={false} className="flex flex-col gap-1.5">
+          <span className="text-sm font-semibold text-fg">{tt("Ürün Kargosu Gelecek")}</span>
+          <p className="text-[13px] text-fg-muted">
+            {tt("Bu kampanyada tarafınıza ürün gönderimi yapılacaktır. Marka gönderiyi oluşturduğunda adres onayını ve yalnızca kendi kargonuzun takip bilgilerini buradan görebileceksiniz.")}
+          </p>
+        </Card>
       ) : null}
 
       {!rejected ? (
