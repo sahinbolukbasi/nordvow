@@ -15,17 +15,24 @@ const TONES = [
 export const LANDING_TONES = TONES;
 const CREATOR_TONES = ["from-rose-400 to-fuchsia-500", "from-sky-400 to-cyan-500", "from-amber-400 to-orange-500", "from-lime-400 to-emerald-500", "from-violet-400 to-indigo-500", "from-teal-400 to-sky-500"] as const;
 
-/** Video/görsel adresi: https veya sitedeki /landing/ yolu (javascript:, data: vb. reddedilir). */
+/** Video/görsel adresi: https, /api/media/ veya /landing/ yolu (javascript:, data: vb. reddedilir). */
 const mediaUrl = z
   .string()
   .trim()
   .max(500)
-  .refine((v) => v === "" || /^https:\/\/[^\s"'<>]+$/i.test(v) || /^\/landing\/[\w.\-/]+$/.test(v), { error: "https:// ile başlayan bir adres veya /landing/… yolu girin." });
+  .refine(
+    (v) =>
+      v === "" ||
+      /^https?:\/\/[^\s"'<>]+$/i.test(v) ||
+      /^\/(landing|api\/media)\/[\w.\-/]+$/.test(v),
+    { error: "Geçerli bir https:// adresi veya yüklenmiş medya yolu girin." },
+  );
 const text = (max: number, min = 1) => z.string().trim().min(min, { error: "Boş bırakılamaz." }).max(max, { error: `En fazla ${max} karakter.` });
 
 export const videoSchema = z.object({
   src: mediaUrl.optional().default(""),
   poster: mediaUrl.optional().default(""),
+  avatar: mediaUrl.optional().default(""),
   creator: text(60),
   handle: text(40),
   platform: z.enum(["Instagram", "TikTok", "YouTube"]),
@@ -49,6 +56,7 @@ export const creatorSchema = z.object({
   handle: text(40),
   niche: text(24),
   followers: text(12),
+  avatar: mediaUrl.optional().default(""),
   tone: z.enum(CREATOR_TONES).catch(CREATOR_TONES[0]),
   platform: z.enum(["Instagram", "TikTok", "YouTube"]).default("Instagram"),
   city: z.string().trim().max(30).default(""),
@@ -71,6 +79,7 @@ export function defaultLandingContent(): LandingContent {
     videos: LANDING_VIDEOS.map((v, i) => ({
       src: v.src ?? "",
       poster: v.poster ?? "",
+      avatar: v.avatar ?? "",
       creator: v.creator,
       handle: v.handle,
       platform: v.platform,
@@ -84,6 +93,7 @@ export function defaultLandingContent(): LandingContent {
       handle: c.handle,
       niche: c.niche,
       followers: c.followers,
+      avatar: "",
       tone: CREATOR_TONES[i % CREATOR_TONES.length]!,
       platform: c.platform,
       city: c.city,
@@ -112,7 +122,7 @@ export async function resetLandingContent(): Promise<void> {
 
 /** Bileşenlerin beklediği tiplere dönüştürür. */
 export function toVideos(c: LandingContent): LandingVideo[] {
-  return c.videos.map((v) => ({ ...v, src: v.src || undefined, poster: v.poster || undefined }));
+  return c.videos.map((v) => ({ ...v, src: v.src || undefined, poster: v.poster || undefined, avatar: v.avatar || undefined }));
 }
 export function toReferences(c: LandingContent): (LandingReference & { logo?: string })[] {
   return c.references.filter((r) => r.visible).map((r) => ({ ...r, logo: r.logo || undefined }));

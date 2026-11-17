@@ -1,14 +1,89 @@
 "use client";
-import { useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, ResetIcon, XIcon } from "@/components/icons";
 import { ReelCard } from "@/components/landing/reel-card";
 import { Button, Input, Select, Textarea } from "@/components/ui/form";
 import { resetLandingAction, saveLandingAction } from "@/lib/actions/landing";
 import type { LandingContent, LandingReferenceItem, LandingVideoItem } from "@/lib/landing-store";
+import { mediaSrc } from "@/lib/media";
 import { cn } from "@/lib/cn";
 
 type Tab = "videos" | "references" | "creators";
 const iconBtn = "inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-fg-muted transition-standard hover:bg-surface-hover hover:text-fg disabled:opacity-30";
+
+function MediaUploadInline({
+  kind,
+  label,
+  onUploaded,
+}: {
+  kind: "image" | "video";
+  label: string;
+  onUploaded: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const accept = kind === "video" ? "video/mp4,video/webm,video/quicktime" : "image/jpeg,image/png,image/webp";
+  const maxBytes = kind === "video" ? 50 * 1024 * 1024 : 8 * 1024 * 1024;
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (file.size > maxBytes) {
+        throw new Error(kind === "video" ? "Video en fazla 50 MB olabilir." : "Görsel en fazla 8 MB olabilir.");
+      }
+      const pres = await fetch("/api/media", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mime: file.type, size: file.size }),
+      });
+      const pj = await pres.json();
+      if (!pres.ok) throw new Error(pj.error ?? "Yükleme hazırlığı başarısız.");
+      const put = await fetch(pj.url, { method: "PUT", headers: { "content-type": file.type }, body: file });
+      if (!put.ok) throw new Error("Dosya yüklenemedi.");
+      const conf = await fetch("/api/media", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: pj.key }),
+      });
+      const cj = await conf.json();
+      if (!conf.ok) throw new Error(cj.error ?? "Doğrulanamadı.");
+      const url = mediaSrc(cj.key);
+      if (url) onUploaded(url);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Yükleme hatası.");
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+        className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-bg px-3 text-xs font-medium text-fg transition-standard hover:border-fg disabled:opacity-50"
+      >
+        {busy ? "Yükleniyor…" : label}
+      </button>
+      {err ? <span className="text-[11px] text-critical">{err}</span> : null}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void upload(f);
+        }}
+      />
+    </div>
+  );
+}
 
 function L({ label, hint, children, className }: { label: string; hint?: string; children: ReactNode; className?: string }) {
   return (
@@ -47,10 +122,11 @@ function move<T>(arr: T[], i: number, d: -1 | 1): T[] {
 /** Tanıtım sayfası içerik editörü: video/reklam kartları, referanslar ve kayan içerik üreticileri. */
 export function LandingEditor({ initial, tones, creatorTones }: { initial: LandingContent; tones: readonly string[]; creatorTones: readonly string[] }) {
   const [data, setData] = useState(initial);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initial));
   const [tab, setTab] = useState<Tab>("videos");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
-  const dirty = JSON.stringify(data) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(data) !== savedSnapshot;
 
   const setVideo = (i: number, patch: Partial<LandingVideoItem>) => setData((d) => ({ ...d, videos: d.videos.map((v, k) => (k === i ? { ...v, ...patch } : v)) }));
   const setRef = (i: number, patch: Partial<LandingReferenceItem>) => setData((d) => ({ ...d, references: d.references.map((r, k) => (k === i ? { ...r, ...patch } : r)) }));
@@ -58,7 +134,12 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
   const save = () =>
     start(async () => {
       const res = await saveLandingAction(data);
-      setMsg(res.ok ? { ok: true, text: "Kaydedildi. Ana sayfa güncellendi." } : { ok: false, text: `${res.error}${res.path ? ` (alan: ${res.path})` : ""}` });
+      if (res.ok) {
+        setSavedSnapshot(JSON.stringify(data));
+        setMsg({ ok: true, text: "Kaydedildi. Ana sayfa güncellendi." });
+      } else {
+        setMsg({ ok: false, text: `${res.error}${res.path ? ` (alan: ${res.path})` : ""}` });
+      }
     });
   const reset = () =>
     start(async () => {
@@ -96,7 +177,7 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
         <Button variant="ghost" size="sm" onClick={reset} disabled={pending}>
           <ResetIcon size={14} /> Varsayılan
         </Button>
-        <a href="/" target="_blank" rel="noopener noreferrer" className="text-[13px] text-fg-muted hover:text-fg">
+        <a href="/?onizleme=1" target="_blank" rel="noopener noreferrer" className="text-[13px] text-fg-muted hover:text-fg">
           Ana sayfayı aç ↗
         </a>
         <Button size="sm" onClick={save} disabled={pending || !dirty}>
@@ -112,7 +193,7 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
           {data.videos.map((v, i) => (
             <div key={i} className="grid grid-cols-1 gap-4 rounded-[12px] border border-border p-4 md:grid-cols-[160px_1fr]">
               <div className="w-[160px]">
-                <ReelCard video={{ ...v, src: v.src || undefined, poster: v.poster || undefined }} />
+                <ReelCard video={{ ...v, src: v.src || undefined, poster: v.poster || undefined, avatar: v.avatar || undefined }} />
               </div>
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2">
@@ -126,11 +207,23 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
                   />
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <L label="Video adresi" hint="https://… veya /landing/dosya.mp4" className="md:col-span-2">
-                    <Input value={v.src} onChange={(e) => setVideo(i, { src: e.target.value })} placeholder="https://cdn…/video.mp4" />
+                  <L label="Video adresi (veya dosya yükle)" hint="MP4/WebM/MOV yükleyin veya https://… adresi girin" className="md:col-span-2">
+                    <div className="flex flex-wrap items-start gap-2">
+                      <Input value={v.src} onChange={(e) => setVideo(i, { src: e.target.value })} placeholder="https://cdn…/video.mp4" className="min-w-[200px] flex-1" />
+                      <MediaUploadInline kind="video" label="Video yükle" onUploaded={(url) => setVideo(i, { src: url })} />
+                    </div>
                   </L>
                   <L label="Kapak görseli (isteğe bağlı)">
-                    <Input value={v.poster} onChange={(e) => setVideo(i, { poster: e.target.value })} placeholder="https://…/kapak.jpg" />
+                    <div className="flex items-start gap-2">
+                      <Input value={v.poster} onChange={(e) => setVideo(i, { poster: e.target.value })} placeholder="https://…/kapak.jpg" className="flex-1" />
+                      <MediaUploadInline kind="image" label="Kapak yükle" onUploaded={(url) => setVideo(i, { poster: url })} />
+                    </div>
+                  </L>
+                  <L label="Üretici profil resmi (isteğe bağlı)">
+                    <div className="flex items-start gap-2">
+                      <Input value={v.avatar ?? ""} onChange={(e) => setVideo(i, { avatar: e.target.value })} placeholder="https://…/profil.jpg" className="flex-1" />
+                      <MediaUploadInline kind="image" label="Fotoğraf yükle" onUploaded={(url) => setVideo(i, { avatar: url })} />
+                    </div>
                   </L>
                   <L label="Platform">
                     <Select value={v.platform} onChange={(e) => setVideo(i, { platform: e.target.value as LandingVideoItem["platform"] })}>
@@ -173,7 +266,7 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
             onClick={() =>
               setData((d) => ({
                 ...d,
-                videos: [...d.videos, { src: "", poster: "", creator: "İçerik üreticisi", handle: "@kullanici", platform: "Instagram", caption: "Açıklama · #işbirliği", metric: "—", tone: tones[d.videos.length % tones.length] as LandingVideoItem["tone"], sponsored: true }],
+                videos: [...d.videos, { src: "", poster: "", avatar: "", creator: "İçerik üreticisi", handle: "@kullanici", platform: "Instagram", caption: "Açıklama · #işbirliği", metric: "—", tone: tones[d.videos.length % tones.length] as LandingVideoItem["tone"], sponsored: true }],
               }))
             }
             disabled={data.videos.length >= 12}
@@ -210,7 +303,10 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
                   <Input value={r.sector} onChange={(e) => setRef(i, { sector: e.target.value })} maxLength={40} />
                 </L>
                 <L label="Logo adresi (isteğe bağlı)">
-                  <Input value={r.logo} onChange={(e) => setRef(i, { logo: e.target.value })} placeholder="https://…/logo.png" />
+                  <div className="flex items-start gap-2">
+                    <Input value={r.logo} onChange={(e) => setRef(i, { logo: e.target.value })} placeholder="https://…/logo.png" className="flex-1" />
+                    <MediaUploadInline kind="image" label="Logo yükle" onUploaded={(url) => setRef(i, { logo: url })} />
+                  </div>
                 </L>
                 <L label="Alıntı" className="md:col-span-2">
                   <Textarea value={r.quote} onChange={(e) => setRef(i, { quote: e.target.value })} rows={3} maxLength={300} />
@@ -270,6 +366,18 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
           <p className="text-[13px] text-fg-muted">Ana sayfada kayan içerik üreticisi şeridi. Gerçek hesapları yalnız izinleriyle ekleyin.</p>
           {data.creators.map((c, i) => (
             <div key={i} className="grid grid-cols-1 items-end gap-3 rounded-[12px] border border-border p-3 md:grid-cols-4">
+              <L label="Profil resmi" className="md:col-span-2">
+                <div className="flex items-center gap-2">
+                  {c.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- editör avatar önizleme
+                    <img src={c.avatar} alt={c.handle} className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
+                  ) : (
+                    <span className={cn("h-9 w-9 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
+                  )}
+                  <Input value={c.avatar ?? ""} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: e.target.value } : x)) }))} placeholder="https://… veya fotoğraf yükle" className="flex-1" />
+                  <MediaUploadInline kind="image" label="Fotoğraf yükle" onUploaded={(url) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: url } : x)) }))} />
+                </div>
+              </L>
               <L label="Kullanıcı adı">
                 <Input value={c.handle} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, handle: e.target.value } : x)) }))} maxLength={40} />
               </L>
@@ -318,7 +426,7 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
           ))}
           <Button
             variant="secondary"
-            onClick={() => setData((d) => ({ ...d, creators: [...d.creators, { handle: "@kullanici", niche: "Alan", followers: "—", platform: "Instagram", city: "", engagement: "", brand: "", tone: creatorTones[d.creators.length % creatorTones.length] as (typeof d.creators)[number]["tone"] }] }))}
+            onClick={() => setData((d) => ({ ...d, creators: [...d.creators, { handle: "@kullanici", niche: "Alan", followers: "—", avatar: "", platform: "Instagram", city: "", engagement: "", brand: "", tone: creatorTones[d.creators.length % creatorTones.length] as (typeof d.creators)[number]["tone"] }] }))}
             disabled={data.creators.length >= 30}
           >
             <PlusIcon size={14} /> Üretici ekle

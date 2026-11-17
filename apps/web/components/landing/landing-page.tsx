@@ -204,7 +204,7 @@ const BENTO = ["md:col-span-4", "md:col-span-2", "md:col-span-2", "md:col-span-2
 export type LandingData = {
   videos: LandingVideo[];
   references: (LandingReference & { logo?: string })[];
-  creators: { handle: string; niche: string; followers: string; tone: string; platform: string; city: string; engagement: string; brand: string }[];
+  creators: { handle: string; niche: string; followers: string; avatar?: string; tone: string; platform: string; city: string; engagement: string; brand: string }[];
 };
 export async function LandingPage({ stats, data }: { stats: LandingStats; data: LandingData }) {
   const tt = await getTT();
@@ -306,7 +306,12 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
             <div key={String(rev)} className={cn("flex w-max gap-4", rev ? "mt-4 animate-marquee-reverse" : "animate-marquee")} aria-hidden={rev || undefined}>
               {creators.map((c, k) => (
                 <div key={`${c.handle}-${k}`} className="flex items-center gap-3 rounded-full border border-line bg-glass py-2 pr-5 pl-2" aria-hidden={k >= data.creators.length || undefined}>
-                  <span className={cn("h-9 w-9 rounded-full bg-gradient-to-br", c.tone)} />
+                  {c.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- dinamik üretici avatarı
+                    <img src={c.avatar} alt={c.handle} className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
+                  ) : (
+                    <span className={cn("h-9 w-9 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
+                  )}
                   <span className="flex flex-col leading-tight">
                     <span className="text-sm text-fg">{c.handle}</span>
                     <span className="text-[11px] text-fg-passive">
@@ -358,7 +363,12 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
                   <div className="group flex h-full flex-col gap-4 rounded-3xl border border-line bg-glass p-5 transition-colors duration-300 hover:border-line-strong">
                     <div className="flex items-center gap-3">
                       <span className="relative">
-                        <span aria-hidden className={cn("block h-12 w-12 rounded-full bg-gradient-to-br ring-2 ring-line-strong", c.tone)} />
+                        {c.avatar ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- dinamik üretici profil resmi
+                          <img src={c.avatar} alt={c.handle} className="block h-12 w-12 rounded-full object-cover ring-2 ring-line-strong" />
+                        ) : (
+                          <span aria-hidden className={cn("block h-12 w-12 rounded-full bg-gradient-to-br ring-2 ring-line-strong", c.tone)} />
+                        )}
                         <span aria-hidden className="absolute -right-1 -bottom-1 h-4 w-4 rounded-full border-2 border-canvas bg-emerald-400" />
                       </span>
                       <span className="flex min-w-0 flex-col leading-tight">

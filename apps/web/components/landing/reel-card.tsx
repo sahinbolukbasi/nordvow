@@ -14,33 +14,40 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [userPaused, setUserPaused] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const loadError = Boolean(video.src) && failedSrc === video.src;
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !video.src) return;
+    el.load();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduced) return;
+    const tryPlay = () => {
+      el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    };
     const io = new IntersectionObserver(
       ([e]) => {
         if (!e) return;
-        if (e.isIntersecting && !userPaused) el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+        if (e.isIntersecting && !userPaused) tryPlay();
         else {
           el.pause();
           setPlaying(false);
         }
       },
-      { threshold: 0.4 },
+      { threshold: 0.25 },
     );
     io.observe(el);
+    tryPlay();
     return () => io.disconnect();
-  }, [userPaused]);
+  }, [userPaused, video.src]);
 
   const toggle = () => {
     const el = ref.current;
     if (!el) return;
     if (el.paused) {
       setUserPaused(false);
-      void el.play().then(() => setPlaying(true));
+      void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
     } else {
       setUserPaused(true);
       el.pause();
@@ -48,22 +55,30 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
     }
   };
 
+  const showVideo = Boolean(video.src) && !loadError;
+
   return (
     <figure
       className={cn("relative aspect-[9/16] w-full overflow-hidden rounded-[22px] border border-border bg-surface", className)}
       style={{ animationDelay: `${delay}ms` }}
     >
-      {video.src ? (
+      {showVideo ? (
         <video
+          key={video.src}
           ref={ref}
           src={video.src}
           poster={video.poster}
+          autoPlay
           muted
           loop
           playsInline
-          preload="metadata"
+          preload="auto"
+          onClick={toggle}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onError={() => setFailedSrc(video.src ?? null)}
           aria-label={`${tt(video.creator)} içeriği: ${tt(video.caption)}`}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full cursor-pointer object-cover"
         />
       ) : (
         <div aria-hidden className="absolute inset-0 overflow-hidden">
@@ -76,13 +91,18 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
         </div>
       )}
       {/* Üst ilerleme çubuğu (story görünümü) */}
-      <div aria-hidden className="absolute inset-x-3 top-3 h-0.5 overflow-hidden rounded-full bg-white/25">
+      <div aria-hidden className="pointer-events-none absolute inset-x-3 top-3 h-0.5 overflow-hidden rounded-full bg-white/25">
         <div className="h-full origin-left bg-white animate-reel-progress" style={{ animationDelay: `${delay}ms` }} />
       </div>
-      <div aria-hidden className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
-      <figcaption className="absolute inset-x-0 bottom-0 flex flex-col gap-1 p-4 text-left text-white">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+      <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 p-4 text-left text-white">
         <span className="flex items-center gap-2 text-[13px] font-medium">
-          <span aria-hidden className="h-6 w-6 rounded-full border border-white/50 bg-white/20" />
+          {video.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element -- dinamik avatar
+            <img src={video.avatar} alt={video.handle} className="h-6 w-6 shrink-0 rounded-full border border-white/50 object-cover" />
+          ) : (
+            <span aria-hidden className="h-6 w-6 shrink-0 rounded-full border border-white/50 bg-white/20" />
+          )}
           {video.handle}
           <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] uppercase tracking-wide">{video.platform}</span>
           {video.sponsored ? <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black">{tt("Reklam")}</span> : null}
@@ -90,7 +110,7 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
         <span className="text-[13px] leading-snug text-white/85">{tt(video.caption)}</span>
         <span className="text-[12px] font-semibold tabular-nums">{tt(video.metric)}</span>
       </figcaption>
-      {video.src ? (
+      {showVideo ? (
         <button
           type="button"
           onClick={toggle}

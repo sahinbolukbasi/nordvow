@@ -174,3 +174,4 @@ export async function buildCouponTemplateXlsx(): Promise<Buffer> {
 export function buildCouponTemplateCsv(): string {
   return "\uFEFF" + ["Kupon Kodu,Influencer (opsiyonel)", "YAZ20-001,ornek@eposta.com", "YAZ20-002,"].join("\r\n") + "\r\n";
 }
+

@@ -13,9 +13,15 @@ export const metadata: Metadata = {
 };
 export const dynamic = "force-dynamic";
 /** Girişli kullanıcı rol ana sayfasına gider; ziyaretçi tanıtım sayfasını görür. */
-export default async function RootPage() {
+export default async function RootPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ onizleme?: string }>;
+}) {
+  const sp = await searchParams;
+  const preview = sp.onizleme === "1";
   const actor = await getActor();
-  if (actor) {
+  if (actor && !preview) {
     const st = await getUserStatus(actor.userId);
     if (!st) redirect("/api/auth/clear-session?hata=oturum");
     if (st.status !== "ACTIVE") redirect("/onay-bekliyor");
