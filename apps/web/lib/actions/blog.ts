@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, revalidateAll, str, tags } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -42,12 +43,45 @@ export async function saveBlogPostAction(
 
     if (id) {
       await updateBlogPost(id, payload);
+      revalidatePath("/admin/blog");
+      revalidatePath("/blog");
+      revalidatePath("/sitemap.xml");
       revalidateAll();
-      return { ok: true, message: "Blog yazısı güncellendi." };
+      return { ok: true, message: status === "PUBLISHED" ? "Blog yazısı güncellendi ve yayımlandı." : "Blog yazısı taslak olarak güncellendi." };
     }
     await createBlogPost(payload);
+    revalidatePath("/admin/blog");
+    revalidatePath("/blog");
+    revalidatePath("/sitemap.xml");
     revalidateAll();
-    return { ok: true, message: "Blog yazısı oluşturuldu." };
+    return { ok: true, message: status === "PUBLISHED" ? "Blog yazısı oluşturuldu ve yayımlandı." : "Blog yazısı taslak olarak kaydedildi." };
+  });
+}
+
+export async function toggleBlogPostStatusAction(
+  id: string,
+  status: BlogStatus,
+): Promise<ActionState> {
+  await requireActor("ADMIN");
+  return attempt(async () => {
+    const existing = await (await import("@infulancer/core/db")).prisma.blogPost.findUniqueOrThrow({
+      where: { id },
+      select: { title: true, excerpt: true, content: true },
+    });
+    await updateBlogPost(id, {
+      title: existing.title,
+      excerpt: existing.excerpt,
+      content: existing.content,
+      status,
+    });
+    revalidatePath("/admin/blog");
+    revalidatePath("/blog");
+    revalidatePath("/sitemap.xml");
+    revalidateAll();
+    return {
+      ok: true,
+      message: status === "PUBLISHED" ? "Blog yazısı yayımlandı." : "Blog yazısı taslağa alındı.",
+    };
   });
 }
 

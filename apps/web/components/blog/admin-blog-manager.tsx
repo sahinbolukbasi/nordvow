@@ -21,6 +21,7 @@ import {
   deleteBlogPostAction,
   saveBlogPostAction,
   seedStarterBlogPostsAction,
+  toggleBlogPostStatusAction,
 } from "@/lib/actions/blog";
 import { idleState } from "@/lib/action-state";
 import { Button, Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -219,25 +220,27 @@ export function AdminBlogManager({ posts }: { posts: AdminBlogRow[] }) {
               </Field>
             </div>
 
-            <Field label="Kısa Özet (Listelerde ve Meta Açıklamada Görünür)">
+            <Field label="Kısa Özet (Listelerde ve Meta Açıklamada Görünür — en az 10 karakter)">
               {(p) => (
                 <Textarea
                   {...p}
                   name="excerpt"
                   rows={2}
                   required
+                  minLength={10}
                   defaultValue={editing?.excerpt ?? ""}
                 />
               )}
             </Field>
 
-            <Field label="İçerik (Markdown destekler: ## Başlık, - Liste, **Kalın**)">
+            <Field label="İçerik (Markdown destekler — en az 20 karakter)">
               {(p) => (
                 <Textarea
                   {...p}
                   name="content"
                   rows={10}
                   required
+                  minLength={20}
                   defaultValue={editing?.content ?? ""}
                 />
               )}
@@ -388,6 +391,21 @@ export function AdminBlogManager({ posts }: { posts: AdminBlogRow[] }) {
                               Gör ↗
                             </Link>
                           ) : null}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionMsg(null);
+                              startTransition(async () => {
+                                const nextStatus = post.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED";
+                                const res = await toggleBlogPostStatusAction(post.id, nextStatus);
+                                setActionMsg(res.ok ? (res.message ?? "Güncellendi.") : (res.error ?? "Hata oluştu."));
+                              });
+                            }}
+                            disabled={busy}
+                            className="text-emerald-600 underline underline-offset-4 hover:text-emerald-500 dark:text-emerald-400"
+                          >
+                            {post.status === "PUBLISHED" ? "Taslağa Al" : "Yayınla"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => startEdit(post)}
