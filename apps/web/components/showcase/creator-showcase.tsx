@@ -76,7 +76,10 @@ export async function CreatorShowcase({
   ]);
   const total = inf.socialAccounts.reduce((s, a) => s + a.followers, 0);
   const bestEr = inf.socialAccounts.reduce((m, a) => Math.max(m, Number(a.engagementRate)), 0);
-  const publishedCount = collabs.reduce((s, c) => s + c.deliverables.length, 0);
+
+  const showcaseAvatar =
+    pickAvatar(inf.socialAccounts, inf.avatarKey) ??
+    (explorerReport?.avatarUrl && /^https?:\/\//.test(explorerReport.avatarUrl) ? explorerReport.avatarUrl : null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,7 +87,7 @@ export async function CreatorShowcase({
       <section className="relative overflow-hidden rounded-3xl border border-line bg-glass p-6">
         <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-neon-pink/20 blur-3xl" />
         <div className="relative flex flex-wrap items-start gap-5">
-          <Avatar name={inf.name} src={pickAvatar(inf.socialAccounts, inf.avatarKey)} size={96} className="ring-2 ring-neon-pink/60" />
+          <Avatar name={inf.name} src={showcaseAvatar} size={96} className="ring-2 ring-neon-pink/60" />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-[30px] leading-tight font-semibold tracking-tight">{inf.name}</h1>
@@ -109,15 +112,19 @@ export async function CreatorShowcase({
           </div>
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
-        {inf.bio ? <p className="relative mt-4 max-w-3xl text-sm leading-relaxed whitespace-pre-line text-fg-muted">{inf.bio}</p> : null}
+        {inf.bio || explorerReport?.biography ? (
+          <p className="relative mt-4 max-w-3xl text-sm leading-relaxed whitespace-pre-line text-fg-muted">
+            {inf.bio || explorerReport?.biography}
+          </p>
+        ) : null}
         <dl className="relative mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             [tt("Toplam takipçi"), compact.format(total || (explorerReport?.followers ?? 0))],
+            [tt("Takip edilen"), explorerReport?.followsCount != null ? compact.format(explorerReport.followsCount) : "—"],
+            [tt("Paylaşım sayısı"), explorerReport?.postsCount != null ? compact.format(explorerReport.postsCount) : inf.socialAccounts[0]?.postsCount != null ? compact.format(inf.socialAccounts[0].postsCount) : "—"],
             [tt("En iyi etkileşim (ER)"), bestEr ? pct.format(bestEr) : explorerReport ? `%${explorerReport.avgErPct}` : "—"],
-            [tt("Ort. Reels izlenme"), explorerReport ? compact.format(explorerReport.avgReelsViews) : "—"],
-            [tt("Ort. kaydetme (Saves)"), explorerReport ? compact.format(explorerReport.avgSaves) : "—"],
+            [tt("Ort. beğeni / yorum"), explorerReport ? `${compact.format(explorerReport.avgLikes)} / ${compact.format(explorerReport.avgComments)}` : "—"],
             [tt("İş birliği"), showCollabsEffective ? String(Math.max(collabs.length, explorerReport?.brandCollaborations.length ?? 0)) : tt("Gizli")],
-            [tt("Yayınlanan içerik"), showCollabsEffective ? String(publishedCount || (explorerReport?.recentMedia.length ?? 0)) : tt("Gizli")],
           ].map(([k, v]) => (
             <div key={k} className="rounded-2xl border border-line bg-bg/40 p-3">
               <dt className="text-[12px] text-fg-muted">{k}</dt>

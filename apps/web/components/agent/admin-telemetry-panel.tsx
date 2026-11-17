@@ -108,7 +108,35 @@ export function AdminTelemetryPanel({
             </div>
           ) : null}
 
-          {/* 3. Ajan Tarama Logları (Agent Execution Matrix) */}
+          {/* 3. Çekilen Profil & Medya Özeti */}
+          {report?.ingestion ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <div className="rounded-xl border border-line bg-bg/40 p-3">
+                <span className="text-[11px] text-fg-muted">{tt("Takipçi")}</span>
+                <p className="mt-0.5 text-base font-semibold tabular-nums text-fg">{report.ingestion.followers.toLocaleString("tr-TR")}</p>
+              </div>
+              <div className="rounded-xl border border-line bg-bg/40 p-3">
+                <span className="text-[11px] text-fg-muted">{tt("Takip edilen")}</span>
+                <p className="mt-0.5 text-base font-semibold tabular-nums text-fg">{report.ingestion.followsCount.toLocaleString("tr-TR")}</p>
+              </div>
+              <div className="rounded-xl border border-line bg-bg/40 p-3">
+                <span className="text-[11px] text-fg-muted">{tt("Paylaşım sayısı")}</span>
+                <p className="mt-0.5 text-base font-semibold tabular-nums text-fg">{report.ingestion.mediaCount.toLocaleString("tr-TR")}</p>
+              </div>
+              <div className="rounded-xl border border-line bg-bg/40 p-3">
+                <span className="text-[11px] text-fg-muted">{tt("Taranan medya")}</span>
+                <p className="mt-0.5 text-base font-semibold tabular-nums text-fg">
+                  {report.ingestion.posts.length + report.ingestion.reels.length + (report.ingestion.stories?.length ?? 0)}
+                </p>
+              </div>
+              <div className="rounded-xl border border-line bg-bg/40 p-3">
+                <span className="text-[11px] text-fg-muted">{tt("Etkileşim (ER)")}</span>
+                <p className="mt-0.5 text-base font-semibold tabular-nums text-fg">%{report.ingestion.erPct}</p>
+              </div>
+            </div>
+          ) : null}
+
+          {/* 4. Ajan Tarama Logları (Agent Execution Matrix) */}
           <div className="flex flex-col gap-2">
             <span className="text-label text-fg-muted">{tt("Ajan Tarama Matrisi")}</span>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">

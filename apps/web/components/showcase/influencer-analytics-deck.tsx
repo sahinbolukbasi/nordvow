@@ -41,7 +41,13 @@ export function InfluencerAnalyticsDeck({
   const [range, setRange] = useState<TimeRange>("30d");
   const [chartMetric, setChartMetric] = useState<ChartMetric>("followers");
   const [activeTab, setActiveTab] = useState<SectionTab>("genel");
+  const [mediaFilter, setMediaFilter] = useState<"ALL" | "REELS" | "POST" | "CAROUSEL" | "STORY">("ALL");
   const [showRawLogs, setShowRawLogs] = useState(false);
+
+  const filteredMedia = useMemo(() => {
+    if (mediaFilter === "ALL") return report.recentMedia;
+    return report.recentMedia.filter((m) => m.mediaType === mediaFilter);
+  }, [report.recentMedia, mediaFilter]);
 
   const filteredSeries = useMemo(() => {
     const all = report.dailySeries;
@@ -480,12 +486,31 @@ export function InfluencerAnalyticsDeck({
             ))}
           </div>
 
-          {/* Son Gönderiler & Reels Detay Tablosu */}
-          <div className="flex flex-col gap-2">
-            <h4 className="text-sm font-semibold text-fg">{tt("Son Paylaşılan Gönderi ve Reels Performansları")}</h4>
-            <div className="overflow-x-auto rounded-2xl border border-line">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-fg/[0.03] text-left text-[12px] text-fg-muted">
+          {/* Son 50 Gönderi, Reels & Hikâye Detay Tablosu */}
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-fg">
+                {tt("Son Paylaşımlar (Reels, Post, Carousel, Hikâye)")} · {filteredMedia.length}
+              </h4>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(["ALL", "REELS", "POST", "CAROUSEL", "STORY"] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => setMediaFilter(fmt)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                      mediaFilter === fmt ? "bg-fg text-bg" : "border border-line bg-bg text-fg-muted hover:text-fg",
+                    )}
+                  >
+                    {fmt === "ALL" ? tt("Tümü") : fmt}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="max-h-[560px] overflow-auto rounded-2xl border border-line">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="sticky top-0 z-10 bg-surface text-left text-[12px] text-fg-muted shadow-xs">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">{tt("Tür")}</th>
                     <th className="px-4 py-2.5 font-medium">{tt("İçerik / Açıklama")}</th>
@@ -498,30 +523,64 @@ export function InfluencerAnalyticsDeck({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {report.recentMedia.map((m) => (
-                    <tr key={m.id} className="align-top">
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <span className="rounded-full border border-line bg-bg px-2.5 py-0.5 text-[11px] font-semibold text-fg">
-                          {m.mediaType}
-                        </span>
-                        {m.isSponsored ? (
-                          <span className="ml-1.5 rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
-                            {m.detectedBrand ?? tt("İşbirliği")}
-                          </span>
-                        ) : null}
+                  {filteredMedia.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-6 text-center text-[13px] text-fg-muted">
+                        {mediaFilter === "STORY"
+                          ? tt("Aktif hikâye (Story) verisi yalnızca içerik üreticisi Instagram OAuth bağlantısı yaptığında 24 saatlik pencereden çekilebilir.")
+                          : tt("Bu formatta paylaşım kaydı bulunamadı.")}
                       </td>
-                      <td className="max-w-xs px-4 py-2.5">
-                        <p className="line-clamp-2 text-[12px] text-fg">{m.caption}</p>
-                        <span className="text-[11px] text-fg-passive">{fmtDate(new Date(m.publishedAt))}</span>
-                      </td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums">{compact.format(m.views)}</td>
-                      <td className="px-4 py-2.5 tabular-nums">{compact.format(m.likes)}</td>
-                      <td className="px-4 py-2.5 tabular-nums">{compact.format(m.comments)}</td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums text-fg">{compact.format(m.saves)}</td>
-                      <td className="px-4 py-2.5 tabular-nums text-fg-muted">{compact.format(m.shares)}</td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums">%{m.erPct.toFixed(2)}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredMedia.map((m) => (
+                      <tr key={m.id} className="align-top">
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <span className="rounded-full border border-line bg-bg px-2.5 py-0.5 text-[11px] font-semibold text-fg">
+                            {m.mediaType}
+                          </span>
+                          {m.isSponsored ? (
+                            <span className="ml-1.5 rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
+                              {m.detectedBrand ?? tt("İşbirliği")}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="max-w-sm px-4 py-2.5">
+                          <div className="flex items-start gap-2.5">
+                            {m.thumbnailUrl ? (
+                              <img
+                                src={m.thumbnailUrl}
+                                alt=""
+                                loading="lazy"
+                                className="h-11 w-11 shrink-0 rounded-lg border border-line object-cover"
+                              />
+                            ) : null}
+                            <div className="min-w-0 flex-1">
+                              <p className="line-clamp-2 text-[12px] text-fg">{m.caption}</p>
+                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-passive">
+                                <span>{fmtDate(new Date(m.publishedAt))}</span>
+                                {m.permalink ? (
+                                  <a
+                                    href={m.permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-fg-muted underline hover:text-fg"
+                                  >
+                                    Instagram <ExternalIcon size={10} />
+                                  </a>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums">{m.views > 0 ? compact.format(m.views) : "—"}</td>
+                        <td className="px-4 py-2.5 tabular-nums">{compact.format(m.likes)}</td>
+                        <td className="px-4 py-2.5 tabular-nums">{compact.format(m.comments)}</td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums text-fg">{m.saves > 0 ? compact.format(m.saves) : "—"}</td>
+                        <td className="px-4 py-2.5 tabular-nums text-fg-muted">{m.shares > 0 ? compact.format(m.shares) : "—"}</td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums">%{m.erPct.toFixed(2)}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

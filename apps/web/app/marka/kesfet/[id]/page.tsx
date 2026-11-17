@@ -9,6 +9,15 @@ import { requireActor } from "@/lib/auth-guard";
 export const metadata: Metadata = { title: "İçerik üreticisi profili" };
 export const dynamic = "force-dynamic";
 
+async function syncIfStale(influencerId: string, accounts: { lastSyncedAt: Date | null }[]) {
+  const staleAt = Date.now() - 3_600_000;
+  if (accounts.some((a) => !a.lastSyncedAt)) {
+    await syncInfluencer(influencerId).catch(() => {});
+  } else if (accounts.some((a) => a.lastSyncedAt && a.lastSyncedAt.getTime() < staleAt)) {
+    void syncInfluencer(influencerId).catch(() => {});
+  }
+}
+
 /** Marka: içerik üreticisinin detaylı profili (vitrin). Gizli profiller açılmaz. */
 export default async function CreatorProfileForBrand({ params }: { params: Promise<{ id: string }> }) {
   const tt = await getTT();
@@ -19,10 +28,7 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
     select: { id: true, socialAccounts: { select: { lastSyncedAt: true } } },
   });
   if (!inf) notFound();
-  const staleAt = Date.now() - 3_600_000;
-  if (inf.socialAccounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < staleAt)) {
-    void syncInfluencer(inf.id).catch(() => {});
-  }
+  await syncIfStale(inf.id, inf.socialAccounts);
   return (
     <div className="flex flex-col gap-4">
       <ButtonLink href="/marka/kesfet" variant="ghost" size="sm" className="w-fit">{tt("← Influencer bul")}</ButtonLink>

@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { envStr } from "../env";
 import { converseChat } from "../llm/bedrock";
+import { vault } from "../channels/vault";
 
 export type IngestedComment = {
   id: string;
@@ -12,9 +13,11 @@ export type IngestedComment = {
 
 export type IngestedMediaItem = {
   id: string;
-  mediaType: "POST" | "CAROUSEL" | "REELS";
+  mediaType: "POST" | "CAROUSEL" | "REELS" | "STORY";
   caption: string;
   permalink: string;
+  thumbnailUrl?: string | null;
+  mediaUrl?: string | null;
   timestamp: string;
   likes: number;
   commentsCount: number;
@@ -110,6 +113,9 @@ export type IngestedAccountData = {
   userId: string | null;
   accountStatus: "ACTIVE" | "PENDING" | "SUSPENDED" | "REJECTED";
   handle: string;
+  fullName?: string | null;
+  biography?: string | null;
+  avatarUrl?: string | null;
   fetchedAt: string;
   apiConnected: boolean;
   apiErrorCode: TelemetryErrorCode | null;
@@ -122,6 +128,7 @@ export type IngestedAccountData = {
   prevErPct: number | null;
   posts: IngestedMediaItem[];
   reels: IngestedMediaItem[];
+  stories?: IngestedMediaItem[];
   comments: IngestedComment[];
   followerSample: FollowerSampleProfile[];
   durationMs: number;
@@ -235,89 +242,172 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
   let followers = igAcc?.followers ?? 0;
   let followsCount = 0;
   let mediaCount = igAcc?.postsCount ?? 0;
+  let fullName: string | null = null;
+  let biography: string | null = null;
+  let avatarUrl: string | null = igAcc?.avatarUrl ?? null;
+  let externalId: string | null = igAcc?.externalId ?? null;
+  let usedOAuth = false;
   const posts: IngestedMediaItem[] = [];
   const reels: IngestedMediaItem[] = [];
+  const stories: IngestedMediaItem[] = [];
   const comments: IngestedComment[] = [];
 
-  if (!igUser || !token) {
-    apiErrorCode = "NOT_CONFIGURED";
-  } else if (handle) {
+  type RawMetaMedia = {
+    id: string;
+    caption?: string;
+    media_type?: string;
+    media_product_type?: string;
+    media_url?: string;
+    thumbnail_url?: string;
+    timestamp?: string;
+    permalink?: string;
+    like_count?: number;
+    comments_count?: number;
+    comments?: { data?: { id: string; text?: string; username?: string; timestamp?: string }[] };
+  };
+
+  const pushMediaList = (items: RawMetaMedia[], forceStory = false) => {
+    for (const m of items) {
+      const isStory = forceStory || m.media_product_type === "STORY";
+      const isReel = !isStory && (m.media_product_type === "REELS" || m.media_type === "VIDEO");
+      const mediaType: IngestedMediaItem["mediaType"] = isStory
+        ? "STORY"
+        : isReel
+          ? "REELS"
+          : m.media_type === "CAROUSEL_ALBUM"
+            ? "CAROUSEL"
+            : "POST";
+      const itemComments: IngestedComment[] = (m.comments?.data ?? []).map((c) => ({
+        id: c.id,
+        mediaId: m.id,
+        username: c.username ?? "kullanici",
+        text: c.text ?? "",
+        timestamp: c.timestamp ?? m.timestamp ?? new Date().toISOString(),
+      }));
+      comments.push(...itemComments);
+
+      const item: IngestedMediaItem = {
+        id: m.id,
+        mediaType,
+        caption: m.caption ?? "",
+        permalink: m.permalink ?? `https://www.instagram.com/${handle}`,
+        thumbnailUrl: m.thumbnail_url ?? m.media_url ?? null,
+        mediaUrl: m.media_url ?? null,
+        timestamp: m.timestamp ?? new Date().toISOString(),
+        likes: m.like_count ?? 0,
+        commentsCount: m.comments_count ?? itemComments.length,
+        saves: 0,
+        shares: 0,
+        reach: 0,
+        impressions: 0,
+        plays: 0,
+        comments: itemComments,
+      };
+      if (mediaType === "STORY") stories.push(item);
+      else if (mediaType === "REELS") reels.push(item);
+      else posts.push(item);
+    }
+  };
+
+  // 1a. Influencer'ın kendi bağlı Instagram OAuth token'ı varsa önce onu dene (yorumlar + hikâyeler + 50 medya)
+  if (igAcc?.tokenRef && igAcc.externalId) {
     try {
-      const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,followers_count,follows_count,media_count,profile_picture_url,media.limit(20){id,caption,media_type,media_product_type,timestamp,permalink,like_count,comments_count,comments.limit(20){id,text,username,timestamp}}}`;
-      const url = `https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      const json = (await res.json().catch(() => ({}))) as {
-        error?: { message?: string; code?: number };
-        business_discovery?: {
-          id?: string;
-          followers_count?: number;
-          follows_count?: number;
-          media_count?: number;
-          media?: {
-            data?: {
-              id: string;
-              caption?: string;
-              media_type?: string;
-              media_product_type?: string;
-              timestamp?: string;
-              permalink?: string;
-              like_count?: number;
-              comments_count?: number;
-              comments?: { data?: { id: string; text?: string; username?: string; timestamp?: string }[] };
-            }[];
+      const ownToken = await vault().get(igAcc.tokenRef).catch(() => null);
+      if (ownToken) {
+        const baseHost = ownToken.startsWith("IGAA") ? "https://graph.instagram.com/v24.0" : "https://graph.facebook.com/v24.0";
+        const profFields = "id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url";
+        const profRes = await fetch(`${baseHost}/${igAcc.externalId}?fields=${profFields}&access_token=${encodeURIComponent(ownToken)}`, {
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (profRes.ok) {
+          const prof = (await profRes.json().catch(() => ({}))) as {
+            id?: string;
+            name?: string;
+            biography?: string;
+            followers_count?: number;
+            follows_count?: number;
+            media_count?: number;
+            profile_picture_url?: string;
+          };
+          usedOAuth = true;
+          apiConnected = true;
+          apiMessage = `Instagram OAuth bağlantısı aktif (@${handle}).`;
+          externalId = prof.id ?? externalId;
+          fullName = prof.name ?? null;
+          biography = prof.biography ?? null;
+          avatarUrl = prof.profile_picture_url ?? avatarUrl;
+          followers = prof.followers_count ?? followers;
+          followsCount = prof.follows_count ?? 0;
+          mediaCount = prof.media_count ?? mediaCount;
+
+          const mediaFields = "id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count,comments.limit(20){id,text,username,timestamp}";
+          const [mediaRes, storyRes] = await Promise.all([
+            fetch(`${baseHost}/${igAcc.externalId}/media?fields=${mediaFields}&limit=50&access_token=${encodeURIComponent(ownToken)}`, {
+              signal: AbortSignal.timeout(15_000),
+            }),
+            fetch(`${baseHost}/${igAcc.externalId}/stories?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink&limit=25&access_token=${encodeURIComponent(ownToken)}`, {
+              signal: AbortSignal.timeout(10_000),
+            }),
+          ]);
+          if (mediaRes.ok) {
+            const mj = (await mediaRes.json().catch(() => ({}))) as { data?: RawMetaMedia[] };
+            pushMediaList(mj.data ?? []);
+          }
+          if (storyRes.ok) {
+            const sj = (await storyRes.json().catch(() => ({}))) as { data?: RawMetaMedia[] };
+            pushMediaList(sj.data ?? [], true);
+          }
+        }
+      }
+    } catch {
+      /* OAuth başarısız olursa Business Discovery fallback'ine geç */
+    }
+  }
+
+  // 1b. Business Discovery (herkese açık Business/Creator hesaplar için son 50 gönderi + profil)
+  if (!usedOAuth) {
+    if (!igUser || !token) {
+      apiErrorCode = "NOT_CONFIGURED";
+    } else if (handle) {
+      try {
+        const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(50){id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count}}`;
+        const url = `https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string; code?: number };
+          business_discovery?: {
+            id?: string;
+            username?: string;
+            name?: string;
+            biography?: string;
+            followers_count?: number;
+            follows_count?: number;
+            media_count?: number;
+            profile_picture_url?: string;
+            media?: { data?: RawMetaMedia[] };
           };
         };
-      };
 
-      if (res.ok && json.business_discovery) {
-        const bd = json.business_discovery;
-        apiConnected = true;
-        apiMessage = `Meta Graph API bağlantısı aktif (@${handle}).`;
-        followers = bd.followers_count ?? followers;
-        followsCount = bd.follows_count ?? 0;
-        mediaCount = bd.media_count ?? mediaCount;
-
-        for (const m of bd.media?.data ?? []) {
-          const isReel = m.media_product_type === "REELS" || m.media_type === "VIDEO";
-          const mediaType: IngestedMediaItem["mediaType"] = isReel
-            ? "REELS"
-            : m.media_type === "CAROUSEL_ALBUM"
-              ? "CAROUSEL"
-              : "POST";
-          const itemComments: IngestedComment[] = (m.comments?.data ?? []).map((c) => ({
-            id: c.id,
-            mediaId: m.id,
-            username: c.username ?? "kullanici",
-            text: c.text ?? "",
-            timestamp: c.timestamp ?? m.timestamp ?? new Date().toISOString(),
-          }));
-          comments.push(...itemComments);
-
-          const item: IngestedMediaItem = {
-            id: m.id,
-            mediaType,
-            caption: m.caption ?? "",
-            permalink: m.permalink ?? `https://www.instagram.com/${handle}`,
-            timestamp: m.timestamp ?? new Date().toISOString(),
-            likes: m.like_count ?? 0,
-            commentsCount: m.comments_count ?? itemComments.length,
-            saves: 0,
-            shares: 0,
-            reach: 0,
-            impressions: 0,
-            plays: 0,
-            comments: itemComments,
-          };
-          if (mediaType === "REELS") reels.push(item);
-          else posts.push(item);
+        if (res.ok && json.business_discovery) {
+          const bd = json.business_discovery;
+          apiConnected = true;
+          apiMessage = `Meta Graph API bağlantısı aktif (@${handle}).`;
+          externalId = bd.id ?? externalId;
+          fullName = bd.name ?? null;
+          biography = bd.biography ?? null;
+          avatarUrl = bd.profile_picture_url ?? avatarUrl;
+          followers = bd.followers_count ?? followers;
+          followsCount = bd.follows_count ?? 0;
+          mediaCount = bd.media_count ?? mediaCount;
+          pushMediaList(bd.media?.data ?? []);
+        } else {
+          apiMessage = json.error?.message ?? `Meta Graph API yanıt vermedi (HTTP ${res.status}).`;
+          apiErrorCode = classifyMetaError(res.status, apiMessage, json.error?.code);
         }
-      } else {
-        apiMessage = json.error?.message ?? `Meta Graph API yanıt vermedi (HTTP ${res.status}).`;
-        apiErrorCode = classifyMetaError(res.status, apiMessage, json.error?.code);
+      } catch (e) {
+        apiMessage = `Meta Graph API hatası: ${(e as Error).message}`;
+        apiErrorCode = classifyMetaError(0, apiMessage);
       }
-    } catch (e) {
-      apiMessage = `Meta Graph API hatası: ${(e as Error).message}`;
-      apiErrorCode = classifyMetaError(0, apiMessage);
     }
   }
 
@@ -344,13 +434,16 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     await prisma.socialAccount.update({
       where: { id: igAcc.id },
       data: {
+        externalId,
+        avatarUrl,
+        profileUrl: `https://www.instagram.com/${handle}`,
         followers,
         postsCount: mediaCount,
         avgLikes,
         avgComments,
         engagementRate: erPct / 100,
         lastSyncedAt: new Date(),
-        syncSource: "instagram_business_discovery",
+        syncSource: usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
       },
     });
     if (!alreadyToday) {
@@ -371,6 +464,9 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     userId: inf.user?.id ?? null,
     accountStatus: inf.user?.status ?? "ACTIVE",
     handle,
+    fullName,
+    biography,
+    avatarUrl,
     fetchedAt: new Date().toISOString(),
     apiConnected,
     apiErrorCode,
@@ -381,8 +477,9 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     mediaCount,
     erPct,
     prevErPct,
-    posts: posts.slice(0, 20),
-    reels: reels.slice(0, 20),
+    posts: posts.slice(0, 50),
+    reels: reels.slice(0, 50),
+    stories,
     comments,
     followerSample: [],
     durationMs: Date.now() - start,
@@ -543,12 +640,27 @@ export function runAudienceBotDetectionAgent(data: IngestedAccountData): BotDete
   const spikeAnomaly = data.prevFollowers && data.prevFollowers > 100 ? followerDelta / data.prevFollowers > 0.15 : false;
 
   if (sample.length === 0) {
+    const reasons: string[] = [];
+    let botEst = 0;
+    if (spikeAnomaly) {
+      reasons.push("Günlük takipçi artışında %15 üzeri ani sıçrama tespit edildi");
+      botEst += 20;
+    }
+    if (data.followers > 0 && data.followsCount > 0 && data.followsCount > data.followers * 1.5) {
+      reasons.push(`Takip edilen (${data.followsCount}) / takipçi (${data.followers}) oranı yüksek`);
+      botEst += 15;
+    }
+    if (data.followers > 10_000 && data.erPct > 0 && data.erPct < 0.25) {
+      reasons.push(`Etkileşim oranı (%${data.erPct}) takipçi ölçeğine göre düşük`);
+      botEst += 15;
+    }
+    const organicEst = data.followers > 0 ? Math.max(0, 100 - botEst) : 0;
     return {
       sampleSize: 0,
-      organicFollowerPct: 0,
-      suspiciousBotPct: 0,
-      anomalyDetected: spikeAnomaly,
-      flaggedReasons: spikeAnomaly ? ["Günlük takipçi artışında %15 üzeri ani sıçrama tespit edildi"] : [],
+      organicFollowerPct: organicEst,
+      suspiciousBotPct: data.followers > 0 ? botEst : 0,
+      anomalyDetected: spikeAnomaly || botEst >= 25,
+      flaggedReasons: reasons,
       durationMs: Date.now() - start,
     };
   }

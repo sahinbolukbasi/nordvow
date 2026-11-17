@@ -3,6 +3,7 @@ import { prisma } from "../db";
 import { envStr } from "../env";
 import { converseChat } from "../llm/bedrock";
 import { invokeAgentCore, isAgentCoreEnabled } from "../assistant/agentcore";
+import { vault } from "../channels/vault";
 import { syncInfluencer } from "./sync";
 
 /**
@@ -50,9 +51,11 @@ export type FormatBreakdownItem = {
 
 export type RecentMediaItem = {
   id: string;
-  mediaType: "REELS" | "POST" | "CAROUSEL";
+  mediaType: "REELS" | "POST" | "CAROUSEL" | "STORY";
   caption: string;
   permalink: string | null;
+  thumbnailUrl?: string | null;
+  mediaUrl?: string | null;
   publishedAt: string;
   views: number;
   likes: number;
@@ -134,9 +137,13 @@ export type InfluencerExplorerReport = {
   realDataOnly?: boolean;
   influencerId: string;
   handle: string;
+  avatarUrl?: string | null;
+  biography?: string | null;
   generatedAt: string;
   verificationStatus: VerificationStatus;
   followers: number;
+  followsCount?: number;
+  postsCount?: number;
   followersGrowth30d: number;
   followersGrowth30dPct: number;
   avgErPct: number;
@@ -227,25 +234,92 @@ type MetaMediaRaw = {
   id: string;
   caption?: string;
   media_type?: string;
+  media_product_type?: string;
+  media_url?: string;
+  thumbnail_url?: string;
   permalink?: string;
   timestamp?: string;
   like_count?: number;
   comments_count?: number;
+  comments?: { data?: { id: string; text?: string; username?: string; timestamp?: string }[] };
 };
 
 /**
- * Meta Graph API üzerinden canlı gönderi ve profil verilerini çeker (yapılandırılmışsa).
+ * Meta Graph API üzerinden canlı gönderi ve profil verilerini çeker (OAuth varsa hikayeler/yorumlar dahil, yoksa Business Discovery son 50 medya).
  */
-async function fetchMetaGraphMedia(handle: string): Promise<{
+async function fetchMetaGraphMedia(
+  handle: string,
+  oauth?: { tokenRef: string | null; externalId: string | null },
+): Promise<{
   ok: boolean;
+  usedOAuth: boolean;
+  externalId?: string;
   followers?: number;
+  followsCount?: number;
   postsCount?: number;
+  avatarUrl?: string;
+  biography?: string;
   media: MetaMediaRaw[];
+  stories: MetaMediaRaw[];
   durationMs: number;
   detail: string;
 }> {
   const start = Date.now();
   const clean = handle.trim().replace(/^@/, "");
+
+  if (oauth?.tokenRef && oauth.externalId) {
+    try {
+      const ownToken = await vault().get(oauth.tokenRef).catch(() => null);
+      if (ownToken) {
+        const baseHost = ownToken.startsWith("IGAA") ? "https://graph.instagram.com/v24.0" : "https://graph.facebook.com/v24.0";
+        const profRes = await fetch(
+          `${baseHost}/${oauth.externalId}?fields=id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url&access_token=${encodeURIComponent(ownToken)}`,
+          { signal: AbortSignal.timeout(12_000) },
+        );
+        if (profRes.ok) {
+          const prof = (await profRes.json().catch(() => ({}))) as {
+            id?: string;
+            biography?: string;
+            followers_count?: number;
+            follows_count?: number;
+            media_count?: number;
+            profile_picture_url?: string;
+          };
+          const [mediaRes, storyRes] = await Promise.all([
+            fetch(
+              `${baseHost}/${oauth.externalId}/media?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count,comments.limit(20){id,text,username,timestamp}&limit=50&access_token=${encodeURIComponent(ownToken)}`,
+              { signal: AbortSignal.timeout(15_000) },
+            ),
+            fetch(
+              `${baseHost}/${oauth.externalId}/stories?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp&limit=25&access_token=${encodeURIComponent(ownToken)}`,
+              { signal: AbortSignal.timeout(10_000) },
+            ),
+          ]);
+          const mediaJson = mediaRes.ok ? ((await mediaRes.json().catch(() => ({}))) as { data?: MetaMediaRaw[] }) : {};
+          const storyJson = storyRes.ok ? ((await storyRes.json().catch(() => ({}))) as { data?: MetaMediaRaw[] }) : {};
+          const media = mediaJson.data ?? [];
+          const stories = storyJson.data ?? [];
+          return {
+            ok: true,
+            usedOAuth: true,
+            externalId: prof.id ?? oauth.externalId,
+            followers: prof.followers_count,
+            followsCount: prof.follows_count,
+            postsCount: prof.media_count,
+            avatarUrl: prof.profile_picture_url,
+            biography: prof.biography,
+            media,
+            stories,
+            durationMs: Date.now() - start,
+            detail: `Instagram OAuth üzerinden @${clean} için ${media.length} medya, ${stories.length} aktif hikâye ve profil verisi çekildi.`,
+          };
+        }
+      }
+    } catch {
+      /* OAuth başarısız olursa Business Discovery'ye düş */
+    }
+  }
+
   const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
   const token =
     envStr("IG_GRAPH_TOKEN", "") ||
@@ -256,21 +330,26 @@ async function fetchMetaGraphMedia(handle: string): Promise<{
   if (!igUser || !token || !clean) {
     return {
       ok: false,
+      usedOAuth: false,
       media: [],
+      stories: [],
       durationMs: Date.now() - start,
-      detail: "Meta Graph API kimlik bilgileri eksik; Instagram Gezgini otonom bot taraması devreye alındı.",
+      detail: "Meta Graph API kimlik bilgileri eksik; veritabanı önbelleği kullanıldı.",
     };
   }
 
   try {
-    const fields = `business_discovery.username(${encodeURIComponent(clean)}){id,followers_count,media_count,media.limit(16){id,caption,media_type,permalink,timestamp,like_count,comments_count}}`;
+    const fields = `business_discovery.username(${encodeURIComponent(clean)}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(50){id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count}}`;
     const url = `https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
     const json = (await res.json().catch(() => ({}))) as {
       business_discovery?: {
         id: string;
+        biography?: string;
         followers_count?: number;
+        follows_count?: number;
         media_count?: number;
+        profile_picture_url?: string;
         media?: { data?: MetaMediaRaw[] };
       };
       error?: { message?: string };
@@ -278,26 +357,36 @@ async function fetchMetaGraphMedia(handle: string): Promise<{
     if (!res.ok || !json.business_discovery) {
       return {
         ok: false,
+        usedOAuth: false,
         media: [],
+        stories: [],
         durationMs: Date.now() - start,
-        detail: json.error?.message ?? `HTTP ${res.status} — açık profil otonom tarayıcı ile analiz edildi.`,
+        detail: json.error?.message ?? `HTTP ${res.status} — Business Discovery yanıt vermedi.`,
       };
     }
     const bd = json.business_discovery;
     return {
       ok: true,
+      usedOAuth: false,
+      externalId: bd.id,
       followers: bd.followers_count,
+      followsCount: bd.follows_count,
       postsCount: bd.media_count,
+      avatarUrl: bd.profile_picture_url,
+      biography: bd.biography,
       media: bd.media?.data ?? [],
+      stories: [],
       durationMs: Date.now() - start,
-      detail: `Meta Graph API business_discovery üzerinden @${clean} için ${(bd.media?.data ?? []).length} medya ve resmi takipçi verisi doğrulandı.`,
+      detail: `Meta Graph API business_discovery üzerinden @${clean} için ${(bd.media?.data ?? []).length} medya ve profil verisi doğrulandı.`,
     };
   } catch (e) {
     return {
       ok: false,
+      usedOAuth: false,
       media: [],
+      stories: [],
       durationMs: Date.now() - start,
-      detail: `Meta API zaman aşımı (${(e as Error).message}); Instagram Gezgini bot taraması kullanıldı.`,
+      detail: `Meta API zaman aşımı (${(e as Error).message}).`,
     };
   }
 }
@@ -317,10 +406,12 @@ export async function runInstagramExplorerForInfluencer(
     select: { value: true, updatedAt: true },
   });
 
+  const cached = existingRow?.value as Partial<InfluencerExplorerReport> | undefined;
   if (
     !opts.forceRefresh &&
-    existingRow?.value &&
-    (existingRow.value as { realDataOnly?: boolean }).realDataOnly === true &&
+    cached?.realDataOnly === true &&
+    ((cached.recentMedia?.length ?? 0) > 0 || (cached.followers ?? 0) > 0) &&
+    existingRow &&
     Date.now() - existingRow.updatedAt.getTime() < 30 * 60 * 1000
   ) {
     return existingRow.value as unknown as InfluencerExplorerReport;
@@ -362,25 +453,59 @@ export async function runInstagramExplorerForInfluencer(
   const rawLogs: RawScanLogEntry[] = [];
 
   // 1. Meta Graph API Canlı Sorgusu
-  const metaRes = await fetchMetaGraphMedia(handle);
+  const metaRes = await fetchMetaGraphMedia(handle, {
+    tokenRef: igAcc?.tokenRef ?? null,
+    externalId: igAcc?.externalId ?? null,
+  });
   rawLogs.push({
     timestamp: new Date().toISOString(),
     source: "META_GRAPH_API",
-    endpoint: `GET /v24.0/business_discovery.username(${handle})`,
+    endpoint: metaRes.usedOAuth ? `GET /v24.0/${igAcc?.externalId}/media+stories` : `GET /v24.0/business_discovery.username(${handle})`,
     status: metaRes.ok ? "OK" : "FALLBACK",
-    itemsScanned: metaRes.media.length,
+    itemsScanned: metaRes.media.length + metaRes.stories.length,
     durationMs: metaRes.durationMs,
     detail: metaRes.detail,
   });
 
   const baseFollowers = metaRes.followers ?? igAcc?.followers ?? 0;
-  const baseEr = igAcc ? Number(igAcc.engagementRate) : 0;
-  const erPct = Number((baseEr * 100).toFixed(2));
-  const avgLikes = igAcc?.avgLikes ?? 0;
-  const avgComments = igAcc?.avgComments ?? 0;
+  const computedAvgLikes = metaRes.media.length
+    ? Math.round(metaRes.media.reduce((s, m) => s + (m.like_count ?? 0), 0) / metaRes.media.length)
+    : (igAcc?.avgLikes ?? 0);
+  const computedAvgComments = metaRes.media.length
+    ? Math.round(metaRes.media.reduce((s, m) => s + (m.comments_count ?? 0), 0) / metaRes.media.length)
+    : (igAcc?.avgComments ?? 0);
+  const avgLikes = computedAvgLikes;
+  const avgComments = computedAvgComments;
   const avgSaves = 0;
   const avgShares = 0;
   const avgReelsViews = igAcc?.avgViews ?? 0;
+  const baseEr =
+    baseFollowers > 0 && metaRes.media.length > 0
+      ? (avgLikes + avgComments) / baseFollowers
+      : igAcc
+        ? Number(igAcc.engagementRate)
+        : 0;
+  const erPct = Number((baseEr * 100).toFixed(2));
+
+  if (metaRes.ok && igAcc) {
+    await prisma.socialAccount
+      .update({
+        where: { id: igAcc.id },
+        data: {
+          externalId: metaRes.externalId ?? igAcc.externalId,
+          avatarUrl: metaRes.avatarUrl ?? igAcc.avatarUrl,
+          profileUrl: `https://www.instagram.com/${handle}`,
+          followers: baseFollowers,
+          postsCount: metaRes.postsCount ?? igAcc.postsCount,
+          avgLikes,
+          avgComments,
+          engagementRate: baseEr,
+          lastSyncedAt: new Date(),
+          syncSource: metaRes.usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
+        },
+      })
+      .catch(() => undefined);
+  }
 
   const botStart = Date.now();
 
@@ -414,8 +539,43 @@ export async function runInstagramExplorerForInfluencer(
     firstSnap && firstSnap.followers > 0 ? Number(((followersGrowth30d / firstSnap.followers) * 100).toFixed(1)) : 0;
   const avgViewsGrowth30dPct = 0;
 
-  // 3. İçerik Türüne Göre Kırılım (yalnız gerçek medya verisi varsa)
-  const formatBreakdown: FormatBreakdownItem[] = [];
+  // 3. İçerik Türüne Göre Kırılım (gerçek medya verisinden hesaplanır)
+  const formatGroups: Record<"REELS" | "CAROUSEL" | "POST" | "STORY", { label: string; items: MetaMediaRaw[] }> = {
+    REELS: { label: "Reels", items: [] },
+    CAROUSEL: { label: "Carousel", items: [] },
+    POST: { label: "Tekli Post", items: [] },
+    STORY: { label: "Hikâye (Story)", items: metaRes.stories },
+  };
+  for (const m of metaRes.media) {
+    const isReel = m.media_product_type === "REELS" || m.media_type === "VIDEO";
+    if (isReel) formatGroups.REELS.items.push(m);
+    else if (m.media_type === "CAROUSEL_ALBUM") formatGroups.CAROUSEL.items.push(m);
+    else formatGroups.POST.items.push(m);
+  }
+  const totalMediaItems = metaRes.media.length + metaRes.stories.length;
+  const oldestTs = metaRes.media.length
+    ? Math.min(...metaRes.media.map((m) => (m.timestamp ? new Date(m.timestamp).getTime() : Date.now())))
+    : Date.now();
+  const spanWeeks = Math.max(1, (Date.now() - oldestTs) / (7 * 24 * 60 * 60 * 1000));
+  const formatBreakdown: FormatBreakdownItem[] = (Object.entries(formatGroups) as [FormatBreakdownItem["format"], { label: string; items: MetaMediaRaw[] }][])
+    .filter(([, g]) => g.items.length > 0)
+    .map(([format, g]) => {
+      const fLikes = Math.round(g.items.reduce((s, m) => s + (m.like_count ?? 0), 0) / g.items.length);
+      const fComments = Math.round(g.items.reduce((s, m) => s + (m.comments_count ?? 0), 0) / g.items.length);
+      const fEr = baseFollowers > 0 ? Number((((fLikes + fComments) / baseFollowers) * 100).toFixed(2)) : 0;
+      return {
+        format,
+        label: g.label,
+        sharePct: totalMediaItems > 0 ? Math.round((g.items.length / totalMediaItems) * 100) : 0,
+        avgViews: format === "REELS" ? avgReelsViews : 0,
+        avgLikes: fLikes,
+        avgComments: fComments,
+        avgSaves: 0,
+        avgShares: 0,
+        erPct: fEr,
+        weeklyFrequency: Number((g.items.length / spanWeeks).toFixed(1)),
+      };
+    });
 
   // 4. İşbirliği & Marka Geçmişi Tespiti (Platform Kampanyaları + Caption / Mention Taraması)
   const brandCollaborations: DetectedBrandCollab[] = [];
@@ -483,35 +643,38 @@ export async function runInstagramExplorerForInfluencer(
     }
   }
 
-  // 5. Son Gönderi & Reels Performans Listesi (yalnız gerçek Meta API verisi varsa)
+  // 5. Son 50 Gönderi, Reels & Hikâye Performans Listesi (yalnız gerçek Meta API verisi varsa)
   const recentMedia: RecentMediaItem[] = [];
-  if (metaRes.media.length > 0) {
-    for (const m of metaRes.media.slice(0, 8)) {
+  const pushRecent = (items: MetaMediaRaw[], forceStory = false) => {
+    for (const m of items) {
       const cap = m.caption ?? "";
       const ext = extractBrandFromCaption(cap);
       const l = m.like_count ?? 0;
       const c = m.comments_count ?? 0;
-      const sv = 0;
-      const sh = 0;
-      const v = 0;
+      const isStory = forceStory || m.media_product_type === "STORY";
+      const isReel = !isStory && (m.media_product_type === "REELS" || m.media_type === "VIDEO");
       recentMedia.push({
         id: m.id,
-        mediaType: m.media_type === "VIDEO" ? "REELS" : m.media_type === "CAROUSEL_ALBUM" ? "CAROUSEL" : "POST",
-        caption: cap.slice(0, 180) || `@${handle} paylaşımı`,
+        mediaType: isStory ? "STORY" : isReel ? "REELS" : m.media_type === "CAROUSEL_ALBUM" ? "CAROUSEL" : "POST",
+        caption: cap.slice(0, 220) || `@${handle} paylaşımı`,
         permalink: m.permalink ?? `https://www.instagram.com/${handle}`,
+        thumbnailUrl: m.thumbnail_url ?? m.media_url ?? null,
+        mediaUrl: m.media_url ?? null,
         publishedAt: m.timestamp ?? new Date().toISOString(),
-        views: v,
+        views: 0,
         likes: l,
         comments: c,
-        saves: sv,
-        shares: sh,
+        saves: 0,
+        shares: 0,
         erPct: baseFollowers > 0 ? Number((((l + c) / baseFollowers) * 100).toFixed(2)) : 0,
         isSponsored: ext.isSponsored,
         detectedBrand: ext.brandName,
         disclosureTag: ext.disclosureTag,
       });
     }
-  }
+  };
+  if (metaRes.stories.length > 0) pushRecent(metaRes.stories, true);
+  if (metaRes.media.length > 0) pushRecent(metaRes.media.slice(0, 50));
 
   // 6. Organik vs Sponsorlu Performans Kıyaslaması (yalnız gerçek veriden)
   const spAvgViews = brandCollaborations.length
@@ -542,15 +705,57 @@ export async function runInstagramExplorerForInfluencer(
     performanceRetentionPct: retentionRatio,
   };
 
-  // 7. Kitle, Yorum Duygu (Sentiment) — sahte veri yok, yalnızca gerçek veri varsa hesaplanır
+  // 7. Kitle, Yorum Duygu (Sentiment) — gerçek OAuth yorumları veya caption/etkileşim analizi
   const hasRealData = baseFollowers > 0 || recentMedia.length > 0 || brandCollaborations.length > 0;
-  const positivePct = 0;
-  const purchaseIntentPct = 0;
-  const negativePct = 0;
-  const neutralPct = 0;
+  const allOAuthComments = metaRes.media.flatMap((m) => m.comments?.data ?? []);
+  const wordFreq = new Map<string, number>();
+  const STOP_TR = new Set(["için", "daha", "gibi", "olan", "ile", "çok", "bir", "bu", "ve", "de", "da"]);
+  for (const m of metaRes.media) {
+    for (const w of (m.caption ?? "").toLowerCase().split(/[^a-zçğıöşü0-9#@]+/)) {
+      if (w.length >= 4 && !STOP_TR.has(w)) wordFreq.set(w, (wordFreq.get(w) ?? 0) + 1);
+    }
+  }
+  const topKeywords = [...wordFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w]) => w);
+
+  let positivePct = 0;
+  let purchaseIntentPct = 0;
+  let negativePct = 0;
+  let neutralPct = 0;
+  if (allOAuthComments.length > 0) {
+    let pos = 0;
+    let intent = 0;
+    let neg = 0;
+    let neu = 0;
+    for (const c of allOAuthComments) {
+      const t = (c.text ?? "").toLowerCase();
+      if (/kötü|berbat|pişman|bozuk|sahte|beğenmedim/.test(t)) neg++;
+      else if (/fiyat|link|nereden|kaç tl|sipariş|indirim|kod|stok/.test(t)) intent++;
+      else if (/harika|bayıldım|mükemmel|süper|güzel|efsane|teşekkür/.test(t)) pos++;
+      else neu++;
+    }
+    const tot = allOAuthComments.length;
+    positivePct = Math.round((pos / tot) * 100);
+    purchaseIntentPct = Math.round((intent / tot) * 100);
+    negativePct = Math.round((neg / tot) * 100);
+    neutralPct = Math.max(0, 100 - positivePct - purchaseIntentPct - negativePct);
+  }
   const saveToLikeRatioPct = avgLikes > 0 && avgSaves > 0 ? Number(((avgSaves / avgLikes) * 100).toFixed(1)) : 0;
-  const botEst = 0;
-  const authScore = 0;
+  const followsRatioHigh = baseFollowers > 0 && (metaRes.followsCount ?? 0) > baseFollowers * 1.5;
+  const lowErForScale = baseFollowers > 10_000 && erPct > 0 && erPct < 0.25;
+  const botEst = hasRealData ? (followsRatioHigh ? 18 : 0) + (lowErForScale ? 15 : 0) + 4 : 0;
+  const authScore = hasRealData ? Math.max(0, 100 - botEst) : 0;
+  const commentToLikePct = avgLikes > 0 ? Number(((avgComments / avgLikes) * 100).toFixed(1)) : 0;
+
+  const sampleInsights: string[] = [];
+  if (allOAuthComments.length > 0) {
+    sampleInsights.push(`${allOAuthComments.length} gerçek yorum metni NLP ile analiz edildi.`);
+  } else if (recentMedia.length > 0) {
+    sampleInsights.push(`Son ${recentMedia.length} paylaşımda ortalama ${avgLikes.toLocaleString("tr-TR")} beğeni ve ${avgComments.toLocaleString("tr-TR")} yorum (%${commentToLikePct} yorum/beğeni oranı).`);
+    sampleInsights.push("Yorum metinlerinin tek tek okunabilmesi için içerik üreticisinin Instagram OAuth bağlantısını onaylaması gerekir.");
+  }
+  if (metaRes.followsCount != null && baseFollowers > 0) {
+    sampleInsights.push(`Takipçi: ${baseFollowers.toLocaleString("tr-TR")} · Takip edilen: ${metaRes.followsCount.toLocaleString("tr-TR")} · Paylaşım: ${(metaRes.postsCount ?? igAcc?.postsCount ?? 0).toLocaleString("tr-TR")}.`);
+  }
 
   const sentiment: AudienceSentimentAnalysis = {
     positivePct,
@@ -559,19 +764,21 @@ export async function runInstagramExplorerForInfluencer(
     purchaseIntentPct,
     authenticityScore: authScore,
     botFollowerEstimatePct: botEst,
-    engagementPodRisk: "DÜŞÜK",
+    engagementPodRisk: botEst >= 25 ? "YÜKSEK" : botEst >= 15 ? "ORTA" : "DÜŞÜK",
     saveToLikeRatioPct,
-    commentQualityScore: 0,
-    topKeywords: [],
-    sampleInsights: [],
+    commentQualityScore: allOAuthComments.length > 0 ? Math.min(100, 50 + positivePct + purchaseIntentPct) : Math.min(100, Math.round(commentToLikePct * 15)),
+    topKeywords,
+    sampleInsights,
   };
 
-  // 8. Marka Uyum ve Seçim Önceliği Skoru (gerçek veri yoksa 0)
-  const reliabilityScore = 0;
-  const consistencyScore = 0;
-  const conversionPotentialScore = 0;
-  const sponsoredRetentionScore = 0;
-  const overallScore = 0;
+  // 8. Marka Uyum ve Seçim Önceliği Skoru (gerçek veriden hesaplanır)
+  const reliabilityScore = hasRealData ? authScore : 0;
+  const consistencyScore = recentMedia.length > 0 ? Math.min(100, Math.round((recentMedia.length / 50) * 60 + Math.min(40, (formatBreakdown.reduce((s, f) => s + f.weeklyFrequency, 0) / 5) * 40))) : 0;
+  const conversionPotentialScore = hasRealData ? Math.min(100, Math.round(erPct * 18 + purchaseIntentPct * 0.6)) : 0;
+  const sponsoredRetentionScore = retentionRatio > 0 ? Math.min(100, retentionRatio) : brandCollaborations.length > 0 ? 75 : hasRealData ? 65 : 0;
+  const overallScore = hasRealData
+    ? Math.round(reliabilityScore * 0.35 + consistencyScore * 0.25 + conversionPotentialScore * 0.25 + sponsoredRetentionScore * 0.15)
+    : 0;
 
   const scores: BrandFitScores = {
     overallScore,
@@ -579,7 +786,7 @@ export async function runInstagramExplorerForInfluencer(
     consistencyScore,
     conversionPotentialScore,
     sponsoredRetentionScore,
-    priorityTier: "C İZLENMELİ",
+    priorityTier: overallScore >= 85 ? "A+ ÖNCELİKLİ" : overallScore >= 70 ? "A UYGUN" : overallScore >= 50 ? "B DENGELİ" : "C İZLENMELİ",
   };
 
   rawLogs.push({
@@ -654,9 +861,13 @@ export async function runInstagramExplorerForInfluencer(
     realDataOnly: true,
     influencerId: inf.id,
     handle,
+    avatarUrl: metaRes.avatarUrl ?? igAcc?.avatarUrl ?? null,
+    biography: metaRes.biography ?? null,
     generatedAt: new Date().toISOString(),
     verificationStatus,
     followers: baseFollowers,
+    followsCount: metaRes.followsCount ?? 0,
+    postsCount: metaRes.postsCount ?? igAcc?.postsCount ?? recentMedia.length,
     followersGrowth30d,
     followersGrowth30dPct,
     avgErPct: erPct,
@@ -666,9 +877,9 @@ export async function runInstagramExplorerForInfluencer(
     avgComments,
     avgSaves,
     avgShares,
-    weeklyPosts: 0,
-    weeklyReels: 0,
-    weeklyStories: 0,
+    weeklyPosts: formatBreakdown.filter((f) => f.format === "POST" || f.format === "CAROUSEL").reduce((s, f) => s + f.weeklyFrequency, 0),
+    weeklyReels: formatBreakdown.find((f) => f.format === "REELS")?.weeklyFrequency ?? 0,
+    weeklyStories: formatBreakdown.find((f) => f.format === "STORY")?.weeklyFrequency ?? 0,
     aiExecutiveSummary,
     aiHighlights,
     aiRecommendation,
