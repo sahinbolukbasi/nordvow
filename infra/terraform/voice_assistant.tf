@@ -10,8 +10,8 @@ variable "enable_voice_assistant" {
 
 variable "voice_sip_origination_cidrs" {
   type        = list(string)
-  default     = ["185.0.0.0/24"]
-  description = "Türk VoIP/SIP sağlayıcınızın (Netgsm, Bulutfon, Kobikom vb.) SIP sunucu IP blokları"
+  default     = ["185.0.0.0/27"]
+  description = "Türk VoIP/SIP sağlayıcınızın (Netgsm, Bulutfon, Kobikom vb.) SIP sunucu IP blokları (/27 - /32 arası)"
 }
 
 # Türkiye (+90) SIP Trunk bağlamak için Amazon Chime SDK Voice Connector
