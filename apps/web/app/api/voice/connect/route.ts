@@ -13,6 +13,7 @@ const connectEventSchema = z.object({
   callerPhone: z.string().max(40).optional(),
   utterance: z.string().max(1500).optional(),
   history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })).optional(),
+  skipTts: z.boolean().optional(),
   durationSec: z.number().int().min(0).optional(),
   outcome: z.enum(["resolved", "transferred", "callback", "missed"]).optional(),
   transcript: z

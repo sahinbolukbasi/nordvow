@@ -220,15 +220,31 @@ resource "aws_connect_contact_flow" "ai_assistant_flow" {
             AliasArn = "arn:aws:lex:${var.region}:${local.account_id}:bot-alias/PMSDD4F3RY/YN9QNN08SS"
           }
           LexSessionAttributes = {
-            calledPhone = "$.SystemEndpoint.Address"
-            callerPhone = "$.CustomerEndpoint.Address"
+            calledPhone                              = "$.SystemEndpoint.Address"
+            callerPhone                              = "$.CustomerEndpoint.Address"
+            "x-amz-lex:audio:start-timeout-ms:*:*"   = "8000"
+            "x-amz-lex:audio:end-timeout-ms:*:*"     = "1500"
+            "x-amz-lex:audio:max-length-ms:*:*"      = "20000"
           }
         }
         Transitions = {
           NextAction = "disconnect"
           Errors = [
-            { NextAction = "disconnect", ErrorType = "NoMatchingCondition" },
+            { NextAction = "reprompt", ErrorType = "NoMatchingCondition" },
             { NextAction = "err-msg", ErrorType = "NoMatchingError" }
+          ]
+        }
+      },
+      {
+        Identifier = "reprompt"
+        Type       = "MessageParticipant"
+        Parameters = {
+          Text = "Sizi dinliyorum, buyurun."
+        }
+        Transitions = {
+          NextAction = "lex-bot"
+          Errors = [
+            { NextAction = "disconnect", ErrorType = "NoMatchingError" }
           ]
         }
       },

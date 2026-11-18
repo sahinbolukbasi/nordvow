@@ -39,6 +39,7 @@ export async function handleConnectGatewayEvent(input: {
   callerPhone?: string;
   utterance?: string;
   history?: { role: "user" | "assistant"; text: string }[];
+  skipTts?: boolean;
   durationSec?: number;
   outcome?: "resolved" | "transferred" | "callback" | "missed";
   transcript?: TranscriptTurn[];
@@ -90,23 +91,25 @@ export async function handleConnectGatewayEvent(input: {
       businessHours: bh,
     });
 
-    // Cümle cümle 8kHz telefon sesine dönüştür (barge-in destekli)
-    const audioChunks = await Promise.all(
-      turn.sentences.map(async (sentence) => {
-        const tts = await synthesizeVoiceSpeech({
-          text: sentence,
-          modelKey: config.ttsModelKey,
-          voiceId: config.ttsVoiceId,
-          format: "wav8k",
-        });
-        return {
-          sentence,
-          audioBase64: Buffer.from(tts.bytes).toString("base64"),
-          mime: tts.mime,
-          provider: tts.provider,
-        };
-      }),
-    );
+    // Cümle cümle 8kHz telefon sesine dönüştür (Lex V2 kendi TTS'ini kullanıyorsa skipTts=true ile atlanır)
+    const audioChunks = input.skipTts
+      ? []
+      : await Promise.all(
+          turn.sentences.map(async (sentence) => {
+            const tts = await synthesizeVoiceSpeech({
+              text: sentence,
+              modelKey: config.ttsModelKey,
+              voiceId: config.ttsVoiceId,
+              format: "wav8k",
+            });
+            return {
+              sentence,
+              audioBase64: Buffer.from(tts.bytes).toString("base64"),
+              mime: tts.mime,
+              provider: tts.provider,
+            };
+          }),
+        );
 
     if (turn.intent.intent === "callback" && input.callerPhone) {
       await createVoiceCallbackRequest({
