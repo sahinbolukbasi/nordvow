@@ -4,7 +4,7 @@ import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { DirectUserForm } from "@/components/forms/user-status-button";
 import { CopyLinkButton, CreateInviteForm, ReviewApplicationForm, RevokeInviteButton } from "@/components/signup/invite-forms";
-import { InviteRequestStatusButtons } from "@/components/signup/invite-request-status-buttons";
+import { InviteRequestsPanel } from "@/components/signup/invite-requests-panel";
 import type { InviteRequestRecord } from "@/lib/actions/invites";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
@@ -26,16 +26,18 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
   const section = bolum === "davetler" ? "davetler" : bolum === "talepler" ? "talepler" : "basvurular";
   const appUrl = process.env.APP_URL ?? "";
   const now = new Date();
-  const [pending, recent, invites, brands, cats, reqRow] = await Promise.all([
+  const [pending, recent, invites, brands, cats, reqRow, quickMsgRow] = await Promise.all([
     prisma.signupApplication.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" }, include: { user: true, invite: { include: { createdBy: { select: { name: true, role: true } } } } } }),
     prisma.signupApplication.findMany({ where: { status: { not: "PENDING" } }, orderBy: { reviewedAt: "desc" }, take: 20, include: { user: { select: { name: true, email: true } } } }),
     prisma.invite.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { createdBy: { select: { name: true, role: true } }, _count: { select: { applications: true } } } }),
     prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ select: { id: true, name: true } }),
     prisma.configValue.findUnique({ where: { key: "invite.requests" }, select: { value: true } }),
+    prisma.configValue.findUnique({ where: { key: "invite.quickWhatsappText" }, select: { value: true } }),
   ]);
   const inviteRequests: InviteRequestRecord[] = Array.isArray(reqRow?.value) ? (reqRow.value as InviteRequestRecord[]) : [];
-  const newRequestsCount = inviteRequests.filter((r) => r.status === "NEW").length;
+  const quickWhatsappText = typeof quickMsgRow?.value === "string" ? quickMsgRow.value : "";
+  const activeRequestsCount = inviteRequests.filter((r) => r.status !== "ARCHIVED").length;
   const catName = new Map(cats.map((c) => [c.id, c.name]));
 
   return (
@@ -55,7 +57,7 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
       <nav aria-label={tt("Bölümler")} className="flex gap-2 border-b border-border">
         {[
           ["basvurular", `Onay bekleyenler (${pending.length})`],
-          ["talepler", `Davet talepleri (${newRequestsCount > 0 ? `${newRequestsCount} yeni` : inviteRequests.length})`],
+          ["talepler", `Davet talepleri (${activeRequestsCount})`],
           ["davetler", "Davet linkleri"],
         ].map(([id, label]) => (
           <Link key={id} href={`/admin/davetler?bolum=${id}`} aria-current={section === id ? "page" : undefined} className={cn("-mb-px border-b-2 px-3 py-2 text-sm", section === id ? "border-fg text-fg" : "border-transparent text-fg-muted hover:text-fg")}>
@@ -141,45 +143,7 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
           ) : null}
         </div>
       ) : section === "talepler" ? (
-        <div className="flex flex-col gap-4">
-          {inviteRequests.length === 0 ? (
-            <p className="text-sm text-fg-passive">{tt("Henüz davet kodu başvurusu yok.")}</p>
-          ) : (
-            inviteRequests.map((r) => (
-              <Card key={r.id} interactive={false} className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex flex-col gap-1">
-                    <CardTitle>{r.role === "BRAND" && r.companyName ? `${r.companyName} (${r.name})` : r.name}</CardTitle>
-                    <p className="text-[13px] text-fg-muted">
-                      {r.role === "BRAND" ? tt("Marka / Ajans") : tt("Influencer")} · {r.email} · {r.phone}
-                    </p>
-                  </div>
-                  <span className="text-[12px] text-fg-passive">{fmtDateTime(new Date(r.createdAt))}</span>
-                </div>
-                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                  {r.instagram || r.tiktok || r.youtube ? (
-                    <>
-                      <dt className="text-fg-passive">{tt("Sosyal medya")}</dt>
-                      <dd>{[r.instagram && `IG: ${r.instagram}`, r.tiktok && `TikTok: ${r.tiktok}`, r.youtube && `YT: ${r.youtube}`].filter(Boolean).join(" · ")}</dd>
-                    </>
-                  ) : null}
-                  {r.note ? (
-                    <>
-                      <dt className="text-fg-passive">{tt("Not")}</dt>
-                      <dd className="text-fg-muted">{r.note}</dd>
-                    </>
-                  ) : null}
-                </dl>
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                  <InviteRequestStatusButtons id={r.id} current={r.status} />
-                  <Link href="/admin/davetler?bolum=davetler" className="text-[12px] text-fg-muted underline underline-offset-4 hover:text-fg">
-                    {tt("Davet linki oluştur →")}
-                  </Link>
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
+        <InviteRequestsPanel requests={inviteRequests} initialQuickText={quickWhatsappText} />
       ) : (
         <div className="flex flex-col gap-6">
           <Card interactive={false} className="flex flex-col gap-4">

@@ -10,7 +10,7 @@ const LABELS: Record<InviteRequestRecord["status"], string> = {
   NEW: "Yeni",
   CONTACTED: "Geri dönüş yapıldı",
   INVITED: "Davet gönderildi",
-  ARCHIVED: "Arşiv",
+  ARCHIVED: "Kapatıldı",
 };
 
 export function InviteRequestStatusButtons({ id, current }: { id: string; current: InviteRequestRecord["status"] }) {

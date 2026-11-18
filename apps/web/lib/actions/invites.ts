@@ -283,3 +283,20 @@ export async function updateInviteRequestStatusAction(_p: ActionState, fd: FormD
     return { ok: true, message: "Başvuru durumu güncellendi." };
   });
 }
+
+const INVITE_QUICK_MSG_KEY = "invite.quickWhatsappText";
+
+/** Davet talepleri için hızlı WhatsApp mesaj şablonunu kaydeder. */
+export async function saveQuickInviteMessageAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  await requireActor("ADMIN");
+  return attempt(async () => {
+    const text = str(fd, "text").trim().slice(0, 2000);
+    await prisma.configValue.upsert({
+      where: { key: INVITE_QUICK_MSG_KEY },
+      create: { key: INVITE_QUICK_MSG_KEY, value: text },
+      update: { value: text },
+    });
+    revalidateAll();
+    return { ok: true, message: "Hızlı WhatsApp mesajı kaydedildi." };
+  });
+}
