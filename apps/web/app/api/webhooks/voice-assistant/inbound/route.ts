@@ -10,8 +10,23 @@ function escapeXml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function resolveAllowedHost(rawHost: string | null): string {
+  const appHost = (() => {
+    try {
+      return process.env.APP_URL ? new URL(process.env.APP_URL).host : "nordvow.com";
+    } catch {
+      return "nordvow.com";
+    }
+  })();
+  const allowed = new Set(["nordvow.com", "www.nordvow.com", appHost]);
+  if (rawHost && allowed.has(rawHost.toLowerCase())) {
+    return rawHost.toLowerCase();
+  }
+  return appHost;
+}
+
 async function handleInbound(req: NextRequest) {
-  const host = req.headers.get("host") || "nordvow.com";
+  const host = resolveAllowedHost(req.headers.get("host"));
   const wsUrl =
     process.env.VOICE_WS_URL ||
     process.env.PUBLIC_WS_URL ||
@@ -37,4 +52,3 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   return handleInbound(req);
 }
-

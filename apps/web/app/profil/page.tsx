@@ -391,15 +391,16 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       <p className="text-sm text-fg-passive">{tt("Henüz kayıtlı işlem yok.")}</p>
     ),
   });
-  const envBotPhone = envStr("WHATSAPP_BOT_PHONE", "");
-  const dbWaNum = envBotPhone
-    ? null
-    : await prisma.whatsAppNumber.findFirst({
-        where: { displayNumber: { not: null } },
-        orderBy: { createdAt: "desc" },
-        select: { displayNumber: true },
-      });
-  const botPhone = envBotPhone || dbWaNum?.displayNumber || "";
+  const [botPhoneCfg, dbWaNum] = await Promise.all([
+    prisma.configValue.findUnique({ where: { key: "whatsapp.bot_phone" } }),
+    prisma.whatsAppNumber.findFirst({
+      where: { displayNumber: { not: null } },
+      orderBy: { createdAt: "desc" },
+      select: { displayNumber: true },
+    }),
+  ]);
+  const cfgBotPhone = typeof botPhoneCfg?.value === "string" ? botPhoneCfg.value.trim() : "";
+  const botPhone = cfgBotPhone || envStr("WHATSAPP_BOT_PHONE", "") || dbWaNum?.displayNumber || "";
 
   tabs.unshift({
     id: "bilgiler",

@@ -41,6 +41,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kullanicilar", label: "Kullanıcılar", icon: UsersIcon, section: "Taraflar ve İletişim", order: 120 },
     { href: "/admin/davetler", label: "Davetler", icon: UserIcon, section: "Taraflar ve İletişim", order: 130 },
     { href: "/admin/kanallar", label: "Mesajlar ve asistan", icon: LinkIcon, section: "Taraflar ve İletişim", order: 140 },
+    { href: "/admin/whatsapp-ai", label: "WhatsApp AI Takip", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 145 },
     { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Taraflar ve İletişim", order: 150 },
 
     // 3. Pazarlama & Araçlar
