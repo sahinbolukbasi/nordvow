@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { AssistantTools } from "./assistant-tools";
-import { CallLogStore } from "./call-log-store";
+import { CallLogStore, type CallExtractedDetails } from "./call-log-store";
 import { CostTracker } from "./cost-tracker";
 import { KnowledgeBase } from "./knowledge-base";
-import { SettingsStore, type AssistantSettings } from "./settings";
+import { SettingsStore, type AssistantSettings, type VoiceTone } from "./settings";
 
 interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -19,11 +19,13 @@ interface ChatMessage {
 }
 
 export interface VoiceAssistantRuntime {
+  brandId: string;
   settingsStore: SettingsStore;
   knowledgeBase: KnowledgeBase;
   costTracker: CostTracker;
   callLogStore: CallLogStore;
   assistantTools: AssistantTools;
+  syncCompanyKnowledge: (settings: AssistantSettings) => void;
   simulateChat: (input: {
     sessionId?: string;
     message: string;
@@ -31,7 +33,7 @@ export interface VoiceAssistantRuntime {
   }) => Promise<{ sessionId: string; reply: string }>;
 }
 
-const DEFAULT_FAQ = `# NordVow Bilgi Bankası
+const DEFAULT_FAQ = `# İşletme Bilgi Bankası
 
 ## Çalışma Saatleri ve İletişim
 Soru: Çalışma saatleriniz nedir? Hafta sonu açık mısınız?
@@ -42,11 +44,18 @@ Soru: Rezervasyon nasıl yapabilirim?
 Cevap: Telefon üzerinden adınız, iletişim numaranız, tarih, saat ve kişi sayısını paylaşarak hemen rezervasyon oluşturabilirsiniz.
 `;
 
+const TONE_DESCRIPTIONS: Record<VoiceTone, string> = {
+  warm: "Sıcakkanlı, samimi, güler yüzlü ve empatik bir tonla konuş.",
+  formal: "Kurumsal, saygılı, net ve profesyonel bir 'siz' diliyle konuş.",
+  energetic: "Dinamik, pozitif, hızlı ve çözüm odaklı bir tonla konuş.",
+  calm: "Sakin, güven verici, tane tane ve sabırlı bir tonla konuş.",
+};
+
 function buildVoiceSystemPrompt(settings: AssistantSettings): string {
   const capabilities: string[] = [];
   if (settings.features.knowledgeBaseEnabled) {
     capabilities.push(
-      "- İşletme hakkında sorulan sorularda önce `search_knowledge_base` aracını kullan.",
+      "- İşletme, fiyat, adres ve hizmet sorularında `search_knowledge_base` aracını kullan.",
     );
   }
   if (settings.features.reservationsEnabled) {
@@ -56,7 +65,7 @@ function buildVoiceSystemPrompt(settings: AssistantSettings): string {
   }
   if (settings.features.staffNotesEnabled) {
     capabilities.push(
-      "- Diğer tüm talep, şikayet veya geri arama isteklerinde `take_staff_note` ile görevlilere aktar.",
+      "- Önemli detaylar, şikayetler, özel istekler ve geri arama taleplerinde `take_staff_note` ile görevlilere aktar.",
     );
   }
   if (
@@ -68,11 +77,62 @@ function buildVoiceSystemPrompt(settings: AssistantSettings): string {
     );
   }
 
-  return `Sen "${settings.businessName}" adına telefon çağrılarını yanıtlayan gerçekçi, sıcakkanlı ve profesyonel bir Türkçe sesli asistansın.
-Her yanıt en fazla ${settings.conversation.maxResponseSentences} kısa cümleden oluşsun. Markdown, liste veya emoji kullanma.
+  const toneInstruction = TONE_DESCRIPTIONS[settings.voice.tone] || TONE_DESCRIPTIONS.warm;
+  const companyBlock = [
+    settings.companyProfile.sector && `Sektör: ${settings.companyProfile.sector}`,
+    settings.companyProfile.workingHours && `Çalışma Saatleri: ${settings.companyProfile.workingHours}`,
+    settings.companyProfile.address && `Adres: ${settings.companyProfile.address}`,
+    settings.companyProfile.servicesSummary && `Hizmetler: ${settings.companyProfile.servicesSummary}`,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  return `Sen "${settings.businessName}" adına telefon çağrılarını yanıtlayan gerçekçi Türkçe sesli asistansın.
+TONUN: ${toneInstruction}
+KURALLAR:
+1. Telefonda konuştuğun için yanıtların KISA, DOĞAL ve AKICI olsun (en fazla ${settings.conversation.maxResponseSentences} kısa cümle).
+2. Markdown, liste, yıldız veya emoji kullanma. Düz konuşma cümlesi kur.
+3. Karşı tarafı dinle, tek seferde bir soru sor.
+${companyBlock ? `FİRMA ÖZETİ: ${companyBlock}` : ""}
 
 YETENEKLERİN:
 ${capabilities.join("\n")}`;
+}
+
+function extractImportantDetailsFromText(
+  text: string,
+  prev?: CallExtractedDetails,
+): CallExtractedDetails {
+  const notes = new Set<string>(prev?.importantNotes || []);
+  const lower = text.toLocaleLowerCase("tr-TR");
+
+  const nameMatch = text.match(/(?:ben|adım|ismim)\s+([A-ZÇĞİÖŞÜ][a-zçğıöşü]+(?:\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+)?)/i);
+  const callerName = nameMatch?.[1] || prev?.callerName;
+
+  let intent = prev?.intent || "genel_bilgi";
+  if (lower.includes("rezervasyon") || lower.includes("randevu")) {
+    intent = "rezervasyon";
+  } else if (lower.includes("şikayet") || lower.includes("sorun")) {
+    intent = "şikayet";
+  } else if (lower.includes("not") || lower.includes("arasın")) {
+    intent = "geri_arama";
+  }
+
+  const urgency: "normal" | "high" =
+    lower.includes("acil") || lower.includes("hemen") || prev?.urgency === "high"
+      ? "high"
+      : "normal";
+
+  if (text.trim().length > 10) {
+    notes.add(text.trim());
+  }
+
+  return {
+    callerName,
+    intent,
+    urgency,
+    importantNotes: Array.from(notes).slice(-6),
+  };
 }
 
 async function runFallbackReply(
@@ -91,7 +151,7 @@ async function runFallbackReply(
         await tools.execute(
           "create_reservation",
           {
-            customerName: "Test Müşteri",
+            customerName: "Arayan Müşteri",
             phone: callerPhone,
             date: new Date().toISOString().slice(0, 10),
             time: timeMatch[0],
@@ -128,7 +188,7 @@ async function runFallbackReply(
           callerName: "Arayan Müşteri",
           callerPhone,
           category: lower.includes("şikayet") ? "complaint" : "callback",
-          urgency: "normal",
+          urgency: lower.includes("acil") ? "high" : "normal",
           summary: text,
         },
         { callId, callerPhone, settings },
@@ -172,45 +232,80 @@ async function runFallbackReply(
   };
 }
 
-function createRuntime(): VoiceAssistantRuntime {
-  const rootDir =
+function createRuntime(brandId: string, brandName?: string): VoiceAssistantRuntime {
+  const safeBrand = brandId.replace(/[^a-zA-Z0-9_-]/g, "_") || "default";
+  const baseRoot =
     process.env.VOICE_ASSISTANT_DATA_DIR ||
     path.join(process.cwd(), ".voice-assistant-data");
+  const rootDir = path.join(baseRoot, "brands", safeBrand);
   const dataDir = path.join(rootDir, "data");
   const knowledgeDir = path.join(rootDir, "knowledge");
 
   if (!fs.existsSync(knowledgeDir)) {
     fs.mkdirSync(knowledgeDir, { recursive: true });
     fs.writeFileSync(
-      path.join(knowledgeDir, "nordvow-bilgi-bankasi.md"),
+      path.join(knowledgeDir, "genel-bilgi-bankasi.md"),
       DEFAULT_FAQ,
       "utf-8",
     );
   }
 
-  const settingsStore = new SettingsStore(dataDir);
+  const settingsStore = new SettingsStore(
+    dataDir,
+    brandName ? `${brandName} Müşteri Hizmetleri` : "NordVow Müşteri Hizmetleri",
+  );
   const knowledgeBase = new KnowledgeBase(knowledgeDir);
   const costTracker = new CostTracker(dataDir);
   const callLogStore = new CallLogStore(dataDir);
   const assistantTools = new AssistantTools(dataDir, knowledgeBase);
 
+  const syncCompanyKnowledge = (settings: AssistantSettings) => {
+    const cp = settings.companyProfile;
+    const lines = [
+      `# ${settings.businessName} Firma Bilgileri`,
+      "",
+      cp.sector ? `## Sektör\nSoru: Hangi alanda hizmet veriyorsunuz?\nCevap: ${cp.sector}` : "",
+      cp.workingHours
+        ? `## Çalışma Saatleri\nSoru: Çalışma saatleriniz nedir?\nCevap: ${cp.workingHours}`
+        : "",
+      cp.address ? `## Adres\nSoru: Adresiniz nerede?\nCevap: ${cp.address}` : "",
+      cp.servicesSummary
+        ? `## Hizmetler ve Bilgiler\nSoru: Hizmetleriniz ve fiyatlarınız nelerdir?\nCevap: ${cp.servicesSummary}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (lines.trim()) {
+      knowledgeBase.addDocument("firma-bilgileri.md", lines);
+    }
+  };
+
   const sessions = new Map<
     string,
-    { history: ChatMessage[]; callerPhone: string }
+    { history: ChatMessage[]; callerPhone: string; extracted?: CallExtractedDetails }
   >();
 
   return {
+    brandId: safeBrand,
     settingsStore,
     knowledgeBase,
     costTracker,
     callLogStore,
     assistantTools,
+    syncCompanyKnowledge,
     async simulateChat({ sessionId, message, callerPhone }) {
       const settings = settingsStore.get();
+      if (!settings.enabled) {
+        return {
+          sessionId: sessionId || "disabled",
+          reply: "Bu marka için sesli asistan şu anda pasif durumda.",
+        };
+      }
+
       const phone = callerPhone || settings.telephony.personalMobileNumber;
-      const callId = sessionId && sessions.has(sessionId)
-        ? sessionId
-        : crypto.randomUUID();
+      const callId =
+        sessionId && sessions.has(sessionId) ? sessionId : crypto.randomUUID();
 
       let state = sessions.get(callId);
       if (!state) {
@@ -224,6 +319,9 @@ function createRuntime(): VoiceAssistantRuntime {
         costTracker.startCall(callId);
         callLogStore.createCall(callId, "simulation", phone);
       }
+
+      state.extracted = extractImportantDetailsFromText(message, state.extracted);
+      callLogStore.setExtractedDetails(callId, state.extracted);
 
       state.history.push({ role: "user", content: message });
       callLogStore.appendTurn(callId, "caller", message);
@@ -321,13 +419,21 @@ function createRuntime(): VoiceAssistantRuntime {
 }
 
 const globalForVoice = globalThis as unknown as {
-  __nordvowVoiceRuntime?: VoiceAssistantRuntime;
+  __nordvowVoiceRuntimes?: Map<string, VoiceAssistantRuntime>;
 };
 
-export function getVoiceRuntime(): VoiceAssistantRuntime {
-  if (!globalForVoice.__nordvowVoiceRuntime) {
-    globalForVoice.__nordvowVoiceRuntime = createRuntime();
+export function getVoiceRuntime(
+  brandId = "default",
+  brandName?: string,
+): VoiceAssistantRuntime {
+  if (!globalForVoice.__nordvowVoiceRuntimes) {
+    globalForVoice.__nordvowVoiceRuntimes = new Map();
   }
-  return globalForVoice.__nordvowVoiceRuntime;
+  const key = brandId || "default";
+  let runtime = globalForVoice.__nordvowVoiceRuntimes.get(key);
+  if (!runtime) {
+    runtime = createRuntime(key, brandName);
+    globalForVoice.__nordvowVoiceRuntimes.set(key, runtime);
+  }
+  return runtime;
 }
-

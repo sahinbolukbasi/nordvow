@@ -5,7 +5,19 @@ import { z } from "zod";
 export const CostProfileSchema = z.enum(["eco", "balanced", "premium"]);
 export type CostProfile = z.infer<typeof CostProfileSchema>;
 
+export const OperatorSchema = z.enum([
+  "vodafone",
+  "turkcell",
+  "turk_telekom",
+  "voip_sip",
+]);
+export type TelephonyOperator = z.infer<typeof OperatorSchema>;
+
+export const VoiceToneSchema = z.enum(["warm", "formal", "energetic", "calm"]);
+export type VoiceTone = z.infer<typeof VoiceToneSchema>;
+
 export const AssistantSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
   businessName: z.string().min(1).default("NordVow Müşteri Hizmetleri"),
   costProfile: CostProfileSchema.default("balanced"),
   features: z.object({
@@ -20,18 +32,23 @@ export const AssistantSettingsSchema = z.object({
     greetingMessage: z
       .string()
       .min(1)
-      .default("Merhaba, NordVow'a hoş geldiniz. Size nasıl yardımcı olabilirim?"),
+      .default("Merhaba, hoş geldiniz. Size nasıl yardımcı olabilirim?"),
     maxResponseSentences: z.number().int().min(1).max(6).default(2),
     maxResponseTokens: z.number().int().min(40).max(500).default(120),
-    silenceTimeoutMs: z.number().int().min(300).max(2500).default(700),
+    silenceTimeoutMs: z.number().int().min(300).max(2500).default(650),
     maxCallDurationSeconds: z.number().int().min(30).max(1800).default(300),
   }),
   voice: z.object({
     provider: z.enum(["elevenlabs", "polly", "mock"]).default("elevenlabs"),
     voiceId: z.string().default("EXAVITQu4vr4xnSDxMaL"),
     modelId: z.string().default("eleven_flash_v2_5"),
+    tone: VoiceToneSchema.default("warm"),
+    latencyMode: z
+      .enum(["ultra_fast", "balanced", "high_quality"])
+      .default("ultra_fast"),
     stability: z.number().min(0).max(1).default(0.45),
     similarityBoost: z.number().min(0).max(1).default(0.8),
+    style: z.number().min(0).max(1).default(0.25),
     speed: z.number().min(0.7).max(1.3).default(1.0),
   }),
   costLimits: z.object({
@@ -45,18 +62,36 @@ export const AssistantSettingsSchema = z.object({
   }),
   telephony: z
     .object({
+      operator: OperatorSchema.default("vodafone"),
       personalMobileNumber: z.string().default("05348987073"),
       virtualForwardingNumber: z.string().default(""),
     })
     .default({
+      operator: "vodafone",
       personalMobileNumber: "05348987073",
       virtualForwardingNumber: "",
+    }),
+  companyProfile: z
+    .object({
+      sector: z.string().default(""),
+      address: z.string().default(""),
+      workingHours: z
+        .string()
+        .default("Hafta içi ve Cumartesi 09:00 - 20:00"),
+      servicesSummary: z.string().default(""),
+    })
+    .default({
+      sector: "",
+      address: "",
+      workingHours: "Hafta içi ve Cumartesi 09:00 - 20:00",
+      servicesSummary: "",
     }),
 });
 
 export type AssistantSettings = z.infer<typeof AssistantSettingsSchema>;
 
 export const PartialAssistantSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
   businessName: z.string().min(1).optional(),
   costProfile: CostProfileSchema.optional(),
   features: AssistantSettingsSchema.shape.features.partial().optional(),
@@ -68,8 +103,17 @@ export const PartialAssistantSettingsSchema = z.object({
     .optional(),
   telephony: z
     .object({
+      operator: OperatorSchema.optional(),
       personalMobileNumber: z.string().optional(),
       virtualForwardingNumber: z.string().optional(),
+    })
+    .optional(),
+  companyProfile: z
+    .object({
+      sector: z.string().optional(),
+      address: z.string().optional(),
+      workingHours: z.string().optional(),
+      servicesSummary: z.string().optional(),
     })
     .optional(),
 });
@@ -134,15 +178,15 @@ export class SettingsStore {
   private settings: AssistantSettings;
   private readonly filePath: string;
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, defaultBusinessName = "NordVow Müşteri Hizmetleri") {
     this.filePath = path.join(dataDir, "settings.json");
-    this.settings = this.loadInitialSettings();
+    this.settings = this.loadInitialSettings(defaultBusinessName);
   }
 
-  private loadInitialSettings(): AssistantSettings {
+  private loadInitialSettings(defaultBusinessName: string): AssistantSettings {
     const envProfile = CostProfileSchema.safeParse(process.env.COST_PROFILE);
     const base = AssistantSettingsSchema.parse({
-      businessName: process.env.BUSINESS_NAME || "NordVow Müşteri Hizmetleri",
+      businessName: defaultBusinessName || process.env.BUSINESS_NAME || "NordVow Müşteri Hizmetleri",
       costProfile: envProfile.success ? envProfile.data : "balanced",
       features: {},
       conversation: {
@@ -202,6 +246,10 @@ export class SettingsStore {
       telephony: {
         ...baseWithProfile.telephony,
         ...parsedPatch.telephony,
+      },
+      companyProfile: {
+        ...baseWithProfile.companyProfile,
+        ...parsedPatch.companyProfile,
       },
     });
 

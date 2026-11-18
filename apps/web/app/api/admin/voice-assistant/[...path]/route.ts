@@ -5,22 +5,39 @@ import { PartialAssistantSettingsSchema } from "@/lib/voice-assistant/settings";
 
 export const dynamic = "force-dynamic";
 
+function resolveBrandScope(
+  req: NextRequest,
+  actor: { role: string; brandId?: string | null },
+  bodyBrandId?: unknown,
+): string {
+  if (actor.role === "BRAND" && actor.brandId) {
+    return actor.brandId;
+  }
+  const fromQuery = req.nextUrl.searchParams.get("brandId");
+  if (fromQuery) return fromQuery;
+  if (typeof bodyBrandId === "string" && bodyBrandId) return bodyBrandId;
+  return actor.brandId || "default";
+}
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
-  const auth = await requireApiActor("ADMIN");
+  const auth = await requireApiActor("ADMIN", "BRAND");
   if (auth.response) return auth.response;
 
   const { path } = await context.params;
   const key = path.join("/");
-  const runtime = getVoiceRuntime();
+  const brandId = resolveBrandScope(req, auth.actor);
+  const brandName = req.nextUrl.searchParams.get("brandName") || undefined;
+  const runtime = getVoiceRuntime(brandId, brandName);
 
   switch (key) {
     case "health":
       return NextResponse.json({
         status: "ok",
         service: "nordvow-voice-assistant",
+        brandId: runtime.brandId,
         costProfile: runtime.settingsStore.get().costProfile,
       });
     case "settings":
@@ -67,13 +84,14 @@ export async function POST(
   req: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
-  const auth = await requireApiActor("ADMIN");
+  const auth = await requireApiActor("ADMIN", "BRAND");
   if (auth.response) return auth.response;
 
   const { path } = await context.params;
   const key = path.join("/");
-  const runtime = getVoiceRuntime();
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const brandId = resolveBrandScope(req, auth.actor, body.brandId);
+  const runtime = getVoiceRuntime(brandId);
 
   if (key === "knowledge") {
     const filename = typeof body.filename === "string" ? body.filename : "";
@@ -84,9 +102,10 @@ export async function POST(
         { status: 400 },
       );
     }
-    return NextResponse.json(runtime.knowledgeBase.addDocument(filename, content), {
-      status: 201,
-    });
+    return NextResponse.json(
+      runtime.knowledgeBase.addDocument(filename, content),
+      { status: 201 },
+    );
   }
 
   if (key === "simulate/chat") {
@@ -113,7 +132,7 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {
-  const auth = await requireApiActor("ADMIN");
+  const auth = await requireApiActor("ADMIN", "BRAND");
   if (auth.response) return auth.response;
 
   const { path } = await context.params;
@@ -121,7 +140,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Endpoint bulunamadı" }, { status: 404 });
   }
 
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const parsed = PartialAssistantSettingsSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -130,6 +149,11 @@ export async function PATCH(
     );
   }
 
-  const runtime = getVoiceRuntime();
-  return NextResponse.json(runtime.settingsStore.update(parsed.data));
+  const brandId = resolveBrandScope(req, auth.actor, body.brandId);
+  const runtime = getVoiceRuntime(brandId);
+  const updated = runtime.settingsStore.update(parsed.data);
+  if (parsed.data.companyProfile) {
+    runtime.syncCompanyKnowledge(updated);
+  }
+  return NextResponse.json(updated);
 }

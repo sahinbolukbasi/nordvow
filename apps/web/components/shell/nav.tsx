@@ -60,7 +60,6 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/yetkiler", label: "Rol ve yetkiler", icon: SettingsIcon, section: "Sistem ve İçerik", order: 400 },
     { href: "/admin/uyum", label: "Uyum", icon: AlertIcon, section: "Sistem ve İçerik", order: 410 },
     { href: "/admin/ai", label: "AI sağlayıcıları", icon: SparkleIcon, section: "Sistem ve İçerik", order: 420 },
-    { href: "/admin/sesli-asistan", label: "Sesli asistan (Admin)", icon: BellIcon, section: "Sistem ve İçerik", order: 425 },
     { href: "/admin/agent", label: "Agent merkezi", icon: SparkleIcon, section: "Sistem ve İçerik", order: 430 },
     { href: "/admin/kategoriler", label: "Kategoriler", icon: GridIcon, section: "Sistem ve İçerik", order: 440 },
     { href: "/admin/bildirimler", label: "Bildirimler", icon: BellIcon, section: "Sistem ve İçerik", order: 450 },
@@ -105,7 +104,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/blog", label: "Blog", icon: NewspaperIcon, section: "Hesap ve Rehber", order: 230 },
   ],
 };
-navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai", "/admin/sesli-asistan", "/admin/krediler"].includes(i.href));
+navByRole.AGENCY = navByRole.ADMIN.filter((i) => !["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/ai", "/admin/krediler"].includes(i.href));
 
 /** Rolün menü öğelerini tanımlı öncelik/sıra değerine göre sıralı döndürür. */
 export function getOrderedNavForRole(role: Role): NavItem[] {

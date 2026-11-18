@@ -2,9 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+export interface BrandOption {
+  id: string;
+  name: string;
+}
+
 type CostProfile = "eco" | "balanced" | "premium";
+type Operator = "vodafone" | "turkcell" | "turk_telekom" | "voip_sip";
+type VoiceTone = "warm" | "formal" | "energetic" | "calm";
 
 interface AssistantSettings {
+  enabled: boolean;
   businessName: string;
   costProfile: CostProfile;
   features: {
@@ -26,8 +34,11 @@ interface AssistantSettings {
     provider: "elevenlabs" | "polly" | "mock";
     voiceId: string;
     modelId: string;
+    tone: VoiceTone;
+    latencyMode: "ultra_fast" | "balanced" | "high_quality";
     stability: number;
     similarityBoost: number;
+    style: number;
     speed: number;
   };
   costLimits: {
@@ -40,8 +51,15 @@ interface AssistantSettings {
     webhookUrl: string;
   };
   telephony: {
+    operator: Operator;
     personalMobileNumber: string;
     virtualForwardingNumber: string;
+  };
+  companyProfile: {
+    sector: string;
+    address: string;
+    workingHours: string;
+    servicesSummary: string;
   };
 }
 
@@ -49,7 +67,6 @@ interface CostReport {
   totalCalls: number;
   totalCostUsd: number;
   budgetUsd: number;
-  budgetUsedPercent: number;
 }
 
 interface CallRecord {
@@ -60,6 +77,12 @@ interface CallRecord {
   durationSeconds: number;
   status: string;
   estimatedCostUsd: number;
+  extractedDetails?: {
+    callerName?: string;
+    intent?: string;
+    urgency?: "normal" | "high";
+    importantNotes: string[];
+  };
   transcript: Array<{ speaker: string; text: string; timestamp: string }>;
 }
 
@@ -78,6 +101,7 @@ interface StaffNoteRecord {
   callerName: string;
   callerPhone: string;
   category: string;
+  urgency: string;
   summary: string;
 }
 
@@ -89,14 +113,36 @@ interface KnowledgeDoc {
 type TabKey =
   | "telephony"
   | "settings"
+  | "knowledge"
   | "calls"
   | "records"
-  | "knowledge"
   | "simulator";
 
 const API_BASE = "/api/admin/voice-assistant";
 
-export function VoiceAssistantAdminPanel() {
+const OPERATOR_LABELS: Record<Operator, string> = {
+  vodafone: "Vodafone",
+  turkcell: "Turkcell",
+  turk_telekom: "Türk Telekom",
+  voip_sip: "VoIP / SIP (Netgsm, Bulutfon, Kobikom)",
+};
+
+export function VoiceAssistantAdminPanel({
+  brands,
+  initialBrandId,
+}: {
+  brands?: BrandOption[];
+  initialBrandId?: string;
+}) {
+  const brandList =
+    brands && brands.length > 0
+      ? brands
+      : [{ id: "default", name: "NordVow Genel" }];
+  const [brandId, setBrandId] = useState(
+    initialBrandId || brandList[0]?.id || "default",
+  );
+  const selectedBrand = brandList.find((b) => b.id === brandId);
+
   const [tab, setTab] = useState<TabKey>("telephony");
   const [settings, setSettings] = useState<AssistantSettings | null>(null);
   const [costs, setCosts] = useState<CostReport | null>(null);
@@ -125,17 +171,17 @@ export function VoiceAssistantAdminPanel() {
     setTimeout(() => setStatusMsg(null), 3000);
   };
 
+  const brandQuery = `brandId=${encodeURIComponent(brandId)}&brandName=${encodeURIComponent(selectedBrand?.name || "")}`;
+
   const loadAll = useCallback(async () => {
     try {
       const [sRes, cRes] = await Promise.all([
-        fetch(`${API_BASE}/settings`, { cache: "no-store" }),
-        fetch(`${API_BASE}/metrics/costs`, { cache: "no-store" }),
+        fetch(`${API_BASE}/settings?${brandQuery}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/metrics/costs?${brandQuery}`, { cache: "no-store" }),
       ]);
       if (!sRes.ok) {
         const err = await sRes.json().catch(() => ({}));
-        setErrorMsg(
-          err.error || "Sesli asistan servisine bağlanılamadı (port 4100)."
-        );
+        setErrorMsg(err.error || "Sesli asistan ayarları yüklenemedi.");
         return;
       }
       setSettings(await sRes.json());
@@ -144,31 +190,35 @@ export function VoiceAssistantAdminPanel() {
     } catch {
       setErrorMsg("Sesli asistan servisine bağlanılamadı.");
     }
-  }, []);
+  }, [brandQuery]);
 
   useEffect(() => {
+    setSimSessionId(undefined);
+    setSimMessages([]);
+    setSelectedCall(null);
     void loadAll();
   }, [loadAll]);
 
   const loadCalls = async () => {
-    const res = await fetch(`${API_BASE}/calls`, { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
-      setCalls(data.calls || []);
-    }
+    const res = await fetch(`${API_BASE}/calls?${brandQuery}`, {
+      cache: "no-store",
+    });
+    if (res.ok) setCalls((await res.json()).calls || []);
   };
 
   const loadRecords = async () => {
     const [rRes, nRes] = await Promise.all([
-      fetch(`${API_BASE}/reservations`, { cache: "no-store" }),
-      fetch(`${API_BASE}/notes`, { cache: "no-store" }),
+      fetch(`${API_BASE}/reservations?${brandQuery}`, { cache: "no-store" }),
+      fetch(`${API_BASE}/notes?${brandQuery}`, { cache: "no-store" }),
     ]);
     if (rRes.ok) setReservations((await rRes.json()).reservations || []);
     if (nRes.ok) setNotes((await nRes.json()).notes || []);
   };
 
   const loadDocs = async () => {
-    const res = await fetch(`${API_BASE}/knowledge`, { cache: "no-store" });
+    const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, {
+      cache: "no-store",
+    });
     if (res.ok) setDocs((await res.json()).documents || []);
   };
 
@@ -182,10 +232,10 @@ export function VoiceAssistantAdminPanel() {
   const patchSettings = async (patch: Record<string, unknown>, msg: string) => {
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/settings`, {
+      const res = await fetch(`${API_BASE}/settings?${brandQuery}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ ...patch, brandId }),
       });
       if (!res.ok) {
         setErrorMsg("Ayarlar kaydedilemedi.");
@@ -200,10 +250,11 @@ export function VoiceAssistantAdminPanel() {
 
   const handleUploadDoc = async () => {
     if (!docFilename.trim() || !docContent.trim()) return;
-    const res = await fetch(`${API_BASE}/knowledge`, {
+    const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        brandId,
         filename: docFilename.trim(),
         content: docContent.trim(),
       }),
@@ -222,10 +273,11 @@ export function VoiceAssistantAdminPanel() {
     setSimInput("");
     setSimMessages((prev) => [...prev, { role: "user", text }]);
 
-    const res = await fetch(`${API_BASE}/simulate/chat`, {
+    const res = await fetch(`${API_BASE}/simulate/chat?${brandQuery}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        brandId,
         sessionId: simSessionId,
         message: text,
         callerPhone: settings?.telephony.personalMobileNumber || "05348987073",
@@ -250,20 +302,7 @@ export function VoiceAssistantAdminPanel() {
   if (!settings) {
     return (
       <div className="rounded-xl border border-border bg-surface p-6 text-sm text-fg-muted">
-        {errorMsg ? (
-          <div className="flex flex-col gap-3">
-            <p className="text-red-500 font-medium">{errorMsg}</p>
-            <button
-              type="button"
-              onClick={() => void loadAll()}
-              className="w-fit rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-fg hover:bg-bg"
-            >
-              Tekrar Dene
-            </button>
-          </div>
-        ) : (
-          "Sesli asistan ayarları yükleniyor..."
-        )}
+        {errorMsg || "Sesli asistan ayarları yükleniyor..."}
       </div>
     );
   }
@@ -283,26 +322,59 @@ export function VoiceAssistantAdminPanel() {
 
   const tabs: Array<{ key: TabKey; label: string }> = [
     { key: "telephony", label: "Numara & Yönlendirme" },
-    { key: "settings", label: "Asistan & Maliyet" },
-    { key: "calls", label: "Çağrı Kayıtları" },
+    { key: "settings", label: "Ses Tonu, Hız & Maliyet" },
+    { key: "knowledge", label: "Firma Bilgisi & Belgeler" },
+    { key: "calls", label: "Çağrı Kayıtları & Detaylar" },
     { key: "records", label: "Rezervasyon & Notlar" },
-    { key: "knowledge", label: "Belgeler (SSS)" },
     { key: "simulator", label: "Canlı Test" },
   ];
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Üst Durum Çubuğu */}
+      {/* Marka Seçici & Durum Çubuğu */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-500">
-            Servis Aktif
-          </span>
-          <span className="rounded-full border border-border px-2.5 py-1 font-medium text-fg">
-            Maliyet Profili: {settings.costProfile}
+        <div className="flex flex-wrap items-center gap-3">
+          {brandList.length > 1 && (
+            <label className="flex items-center gap-2 text-xs font-medium text-fg-muted">
+              Marka:
+              <select
+                value={brandId}
+                onChange={(e) => setBrandId(e.target.value)}
+                className="rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs font-semibold text-fg"
+              >
+                {brandList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <button
+            type="button"
+            onClick={() =>
+              void patchSettings(
+                { enabled: !settings.enabled },
+                settings.enabled
+                  ? "Marka için sesli asistan pasife alındı."
+                  : "Marka için sesli asistan aktif edildi.",
+              )
+            }
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              settings.enabled
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
+                : "border-red-500/40 bg-red-500/10 text-red-500"
+            }`}
+          >
+            {settings.enabled ? "Asistan Açık" : "Asistan Kapalı"}
+          </button>
+
+          <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-fg">
+            Mod: {settings.costProfile}
           </span>
           {costs && (
-            <span className="rounded-full border border-border px-2.5 py-1 font-medium text-fg-muted">
+            <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-fg-muted">
               Aylık Maliyet: ${costs.totalCostUsd} / ${costs.budgetUsd} (
               {costs.totalCalls} çağrı)
             </span>
@@ -341,10 +413,32 @@ export function VoiceAssistantAdminPanel() {
         <div className="grid gap-5 md:grid-cols-2">
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
             <h3 className="text-base font-semibold text-fg">
-              Telefon & Yönlendirme Ayarları
+              Operatör & Numara Ayarları
             </h3>
             <label className="text-xs text-fg-muted">
-              Kendi Vodafone / Cep Numaranız
+              Hattınızın Operatörü
+              <select
+                value={settings.telephony.operator}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    telephony: {
+                      ...settings.telephony,
+                      operator: e.target.value as Operator,
+                    },
+                  })
+                }
+                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              >
+                {(Object.keys(OPERATOR_LABELS) as Operator[]).map((op) => (
+                  <option key={op} value={op}>
+                    {OPERATOR_LABELS[op]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-fg-muted">
+              İşletme / Cep Numaranız
               <input
                 type="text"
                 value={settings.telephony.personalMobileNumber}
@@ -361,7 +455,7 @@ export function VoiceAssistantAdminPanel() {
               />
             </label>
             <label className="text-xs text-fg-muted">
-              Sanal / SIP Yönlendirme Numarası (0850 / 0212)
+              Yönlendirilecek Sanal / SIP Numarası (0850 / 0212 / AWS Connect)
               <input
                 type="text"
                 placeholder="0850XXXXXXX"
@@ -415,8 +509,8 @@ export function VoiceAssistantAdminPanel() {
             </label>
             {hasLoopRisk && (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-500">
-                Uyarı: Canlı aktarım numarası ile kendi numaranız aynı. Her zaman
-                yönlendirme (*21*) açıkken çağrı döngüye girebilir.
+                Uyarı: Canlı aktarım numarası ile yönlendirilen numara aynı. Her
+                zaman yönlendirme (*21*) açıkken çağrı döngüye girebilir.
               </div>
             )}
             <button
@@ -428,7 +522,7 @@ export function VoiceAssistantAdminPanel() {
                     telephony: settings.telephony,
                     staffNotifications: settings.staffNotifications,
                   },
-                  "Numara ve yönlendirme ayarları kaydedildi."
+                  "Numara ve yönlendirme ayarları kaydedildi.",
                 )
               }
               className="mt-2 w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
@@ -439,49 +533,91 @@ export function VoiceAssistantAdminPanel() {
 
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
             <h3 className="text-base font-semibold text-fg">
-              Vodafone GSM Yönlendirme Kodları
+              {OPERATOR_LABELS[settings.telephony.operator]} — Tek Adımda Bağlantı
             </h3>
-            <p className="text-xs text-fg-muted">
-              Sanal numaranızı kaydettikten sonra telefonunuzdan aşağıdaki
-              kodları tuşlayarak çağrıları asistana yönlendirebilirsiniz:
-            </p>
-            {[
-              { label: "Tüm Aramaları Yönlendir", code: `*21*${virtualNum}#` },
-              {
-                label: "Cevapsız Kalınca Yönlendir",
-                code: `*61*${virtualNum}#`,
-              },
-              { label: "Meşgulken Yönlendir", code: `*67*${virtualNum}#` },
-              { label: "Yönlendirmeyi İptal Et", code: "##002#" },
-            ].map((item) => (
-              <div key={item.label} className="flex flex-col gap-1">
-                <span className="text-xs text-fg-muted">{item.label}</span>
-                <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 font-mono text-xs text-fg">
-                  <span>{item.code}</span>
+            {settings.telephony.operator !== "voip_sip" ? (
+              <>
+                <p className="text-xs text-fg-muted">
+                  Turkcell, Vodafone ve Türk Telekom hatlarında aynı standart GSM
+                  yönlendirme kodları çalışır. Mobilden doğrudan{" "}
+                  <strong>Ara</strong> butonuna dokunabilirsiniz:
+                </p>
+                {[
+                  {
+                    label: "Tüm Aramaları Asistana Yönlendir",
+                    code: `*21*${virtualNum}#`,
+                  },
+                  {
+                    label: "Cevap Vermeyince Asistana Yönlendir",
+                    code: `*61*${virtualNum}#`,
+                  },
+                  {
+                    label: "Meşgulken Asistana Yönlendir",
+                    code: `*67*${virtualNum}#`,
+                  },
+                  { label: "Tüm Yönlendirmeleri İptal Et", code: "##002#" },
+                ].map((item) => (
+                  <div key={item.label} className="flex flex-col gap-1">
+                    <span className="text-xs text-fg-muted">{item.label}</span>
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-bg px-3 py-2 font-mono text-xs text-fg">
+                      <span>{item.code}</span>
+                      <div className="flex gap-1.5">
+                        <a
+                          href={`tel:${encodeURIComponent(item.code)}`}
+                          className="rounded border border-emerald-500/40 px-2 py-0.5 text-[11px] text-emerald-500 hover:bg-emerald-500/10"
+                        >
+                          Ara
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(item.code)}
+                          className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-surface"
+                        >
+                          Kopyala
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <div className="flex flex-col gap-2 text-xs text-fg-muted">
+                <p>
+                  Netgsm, Bulutfon veya Kobikom panelinizde gelen çağrı webhook
+                  adresini aşağıdaki NordVow uç noktasına yönlendirin:
+                </p>
+                <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 font-mono text-fg">
+                  <span>
+                    https://nordvow.com/api/webhooks/voice-assistant/inbound
+                  </span>
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(item.code)}
-                    className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-surface"
+                    onClick={() =>
+                      copyToClipboard(
+                        "https://nordvow.com/api/webhooks/voice-assistant/inbound",
+                      )
+                    }
+                    className="rounded border border-border px-2 py-0.5 text-[11px]"
                   >
                     Kopyala
                   </button>
                 </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
 
-      {/* 2. ASİSTAN & MALİYET AYARLARI */}
+      {/* 2. SES TONU, HIZ & MALİYET */}
       {tab === "settings" && (
         <div className="flex flex-col gap-5">
           <div className="grid gap-5 md:grid-cols-2">
             <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
               <h3 className="text-base font-semibold text-fg">
-                Konuşma & Karşılama
+                Dinleme, Cevap Süresi & Karşılama
               </h3>
               <label className="text-xs text-fg-muted">
-                İşletme Adı
+                Asistan / İşletme Adı
                 <input
                   type="text"
                   value={settings.businessName}
@@ -508,51 +644,161 @@ export function VoiceAssistantAdminPanel() {
                 />
               </label>
               <label className="text-xs text-fg-muted">
-                Maksimum Cevap Cümle Sayısı
+                Dinleme Duraksama Süresi (ms — 600ms doğal ve hızlı)
                 <input
                   type="number"
-                  min={1}
-                  max={6}
-                  value={settings.conversation.maxResponseSentences}
+                  min={300}
+                  max={2500}
+                  step={50}
+                  value={settings.conversation.silenceTimeoutMs}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
                       conversation: {
                         ...settings.conversation,
-                        maxResponseSentences: Number(e.target.value),
+                        silenceTimeoutMs: Number(e.target.value),
                       },
                     })
                   }
                   className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
                 />
               </label>
-              <label className="text-xs text-fg-muted">
-                Maksimum Çağrı Süresi (Saniye)
-                <input
-                  type="number"
-                  min={30}
-                  max={1800}
-                  value={settings.conversation.maxCallDurationSeconds}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      conversation: {
-                        ...settings.conversation,
-                        maxCallDurationSeconds: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-fg-muted">
+                  Maks. Cümle (1–4)
+                  <input
+                    type="number"
+                    min={1}
+                    max={6}
+                    value={settings.conversation.maxResponseSentences}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        conversation: {
+                          ...settings.conversation,
+                          maxResponseSentences: Number(e.target.value),
+                        },
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+                <label className="text-xs text-fg-muted">
+                  Maks. Süre (sn)
+                  <input
+                    type="number"
+                    min={30}
+                    max={1800}
+                    value={settings.conversation.maxCallDurationSeconds}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        conversation: {
+                          ...settings.conversation,
+                          maxCallDurationSeconds: Number(e.target.value),
+                        },
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
               <h3 className="text-base font-semibold text-fg">
-                Maliyet Profili & Ses
+                Ses Tonu, Gerçekçilik & Maliyet
               </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-fg-muted">
+                  Konuşma Tonu
+                  <select
+                    value={settings.voice.tone}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        voice: {
+                          ...settings.voice,
+                          tone: e.target.value as VoiceTone,
+                        },
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  >
+                    <option value="warm">Sıcakkanlı & Samimi</option>
+                    <option value="formal">Kurumsal & Resmi</option>
+                    <option value="energetic">Enerjik & Hızlı</option>
+                    <option value="calm">Sakin & Güven Veren</option>
+                  </select>
+                </label>
+                <label className="text-xs text-fg-muted">
+                  Cevap Hızı Modu
+                  <select
+                    value={settings.voice.latencyMode}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        voice: {
+                          ...settings.voice,
+                          latencyMode: e.target.value as
+                            | "ultra_fast"
+                            | "balanced"
+                            | "high_quality",
+                        },
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  >
+                    <option value="ultra_fast">Ultra Hızlı (~400ms)</option>
+                    <option value="balanced">Dengeli (~700ms)</option>
+                    <option value="high_quality">Yüksek Doğallık</option>
+                  </select>
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-fg-muted">
+                  Konuşma Hızı ({settings.voice.speed}x)
+                  <input
+                    type="range"
+                    min={0.75}
+                    max={1.25}
+                    step={0.05}
+                    value={settings.voice.speed}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        voice: {
+                          ...settings.voice,
+                          speed: Number(e.target.value),
+                        },
+                      })
+                    }
+                    className="mt-2 w-full"
+                  />
+                </label>
+                <label className="text-xs text-fg-muted">
+                  Tonlama / Duygu ({settings.voice.style})
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.voice.style}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        voice: {
+                          ...settings.voice,
+                          style: Number(e.target.value),
+                        },
+                      })
+                    }
+                    className="mt-2 w-full"
+                  />
+                </label>
+              </div>
               <label className="text-xs text-fg-muted">
-                Maliyet / Kalite Modu
+                Maliyet Profili
                 <select
                   value={settings.costProfile}
                   onChange={(e) =>
@@ -590,43 +836,6 @@ export function VoiceAssistantAdminPanel() {
                   className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
                 />
               </label>
-              <label className="text-xs text-fg-muted">
-                Ses Sağlayıcısı
-                <select
-                  value={settings.voice.provider}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      voice: {
-                        ...settings.voice,
-                        provider: e.target.value as
-                          | "elevenlabs"
-                          | "polly"
-                          | "mock",
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                >
-                  <option value="elevenlabs">ElevenLabs (Gerçekçi Türkçe)</option>
-                  <option value="polly">Amazon Polly (Ekonomik)</option>
-                  <option value="mock">Mock (Test)</option>
-                </select>
-              </label>
-              <label className="text-xs text-fg-muted">
-                ElevenLabs Voice ID
-                <input
-                  type="text"
-                  value={settings.voice.voiceId}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      voice: { ...settings.voice, voiceId: e.target.value },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
             </div>
           </div>
 
@@ -637,11 +846,11 @@ export function VoiceAssistantAdminPanel() {
             <div className="grid gap-2 sm:grid-cols-2">
               {(
                 [
-                  ["knowledgeBaseEnabled", "Belge / SSS Soru-Cevap"],
-                  ["reservationsEnabled", "Rezervasyon Alma"],
-                  ["staffNotesEnabled", "Görevlilere Not Aktarma"],
+                  ["knowledgeBaseEnabled", "Belge / Firma Bilgisi Soru-Cevap"],
+                  ["reservationsEnabled", "Rezervasyon & Randevu Alma"],
+                  ["staffNotesEnabled", "Önemli Detay & Görevli Notu Çıkarma"],
                   ["callTransferEnabled", "Canlı Görevliye Aktarım"],
-                  ["bargeInEnabled", "Söz Kesme (Barge-in)"],
+                  ["bargeInEnabled", "Söz Kesme (Arayan Konuşunca Dinle)"],
                   ["costGuardEnabled", "Otomatik Maliyet Koruma"],
                 ] as const
               ).map(([key, label]) => (
@@ -679,24 +888,162 @@ export function VoiceAssistantAdminPanel() {
                     voice: settings.voice,
                     features: settings.features,
                   },
-                  "Tüm asistan ve maliyet ayarları kaydedildi."
+                  "Ses tonu, hız ve maliyet ayarları kaydedildi.",
                 )
               }
               className="mt-4 rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
             >
-              Tüm Ayarları Kaydet
+              Ayarları Kaydet
             </button>
           </div>
         </div>
       )}
 
-      {/* 3. ÇAĞRI KAYITLARI */}
+      {/* 3. FİRMA BİLGİLERİ & BELGELER */}
+      {tab === "knowledge" && (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
+            <h3 className="text-base font-semibold text-fg">
+              Firma Bilgileri (AI Otomatik İndeksler)
+            </h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-fg-muted">
+                Sektör
+                <input
+                  type="text"
+                  placeholder="Örn: Güzellik Merkezi / Klinik / Restoran"
+                  value={settings.companyProfile.sector}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      companyProfile: {
+                        ...settings.companyProfile,
+                        sector: e.target.value,
+                      },
+                    })
+                  }
+                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                />
+              </label>
+              <label className="text-xs text-fg-muted">
+                Çalışma Saatleri
+                <input
+                  type="text"
+                  value={settings.companyProfile.workingHours}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      companyProfile: {
+                        ...settings.companyProfile,
+                        workingHours: e.target.value,
+                      },
+                    })
+                  }
+                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                />
+              </label>
+            </div>
+            <label className="text-xs text-fg-muted">
+              Adres & Yol Tarifi
+              <input
+                type="text"
+                value={settings.companyProfile.address}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    companyProfile: {
+                      ...settings.companyProfile,
+                      address: e.target.value,
+                    },
+                  })
+                }
+                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              />
+            </label>
+            <label className="text-xs text-fg-muted">
+              Hizmetler, Fiyatlar ve Önemli Kurallar
+              <textarea
+                value={settings.companyProfile.servicesSummary}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    companyProfile: {
+                      ...settings.companyProfile,
+                      servicesSummary: e.target.value,
+                    },
+                  })
+                }
+                className="mt-1 min-h-24 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() =>
+                void patchSettings(
+                  { companyProfile: settings.companyProfile },
+                  "Firma bilgileri kaydedildi ve AI bilgi bankasına işlendi.",
+                ).then(() => loadDocs())
+              }
+              className="w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
+            >
+              Firma Bilgilerini Kaydet & İşle
+            </button>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
+              <h3 className="text-base font-semibold text-fg">
+                Ek Soru-Cevap / Belge Yükle
+              </h3>
+              <input
+                type="text"
+                placeholder="Dosya adı (ör. sikca-sorulanlar.md)"
+                value={docFilename}
+                onChange={(e) => setDocFilename(e.target.value)}
+                className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              />
+              <textarea
+                placeholder={"# SSS\nSoru: ...\nCevap: ..."}
+                value={docContent}
+                onChange={(e) => setDocContent(e.target.value)}
+                className="min-h-36 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              />
+              <button
+                type="button"
+                onClick={() => void handleUploadDoc()}
+                className="w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg"
+              >
+                Belgeyi Kaydet & İndeksle
+              </button>
+            </div>
+            <div className="rounded-xl border border-border bg-surface p-5">
+              <h3 className="mb-3 text-base font-semibold text-fg">
+                İşlenmiş Bilgi Bankası Belgeleri
+              </h3>
+              <ul className="flex flex-col gap-2 text-sm text-fg-muted">
+                {docs.map((d) => (
+                  <li
+                    key={d.filename}
+                    className="rounded-lg border border-border bg-bg px-3 py-2"
+                  >
+                    <strong className="text-fg">{d.filename}</strong> (
+                    {d.chunkCount} parça)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. ÇAĞRI KAYITLARI & ÖNEMLİ DETAYLAR */}
       {tab === "calls" && (
         <div className="flex flex-col gap-4">
           <div className="rounded-xl border border-border bg-surface p-5">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-semibold text-fg">
-                Çağrı Kayıtları
+                Çağrı Kayıtları ve Çıkarılan Detaylar
               </h3>
               <button
                 type="button"
@@ -711,19 +1058,18 @@ export function VoiceAssistantAdminPanel() {
                 <thead>
                   <tr className="border-b border-border text-fg-muted">
                     <th className="py-2 pr-3">Tarih</th>
-                    <th className="py-2 pr-3">Kanal</th>
                     <th className="py-2 pr-3">Arayan</th>
+                    <th className="py-2 pr-3">Niyet / Aciliyet</th>
                     <th className="py-2 pr-3">Süre</th>
-                    <th className="py-2 pr-3">Durum</th>
                     <th className="py-2 pr-3">Maliyet</th>
-                    <th className="py-2">Döküm</th>
+                    <th className="py-2">Döküm & Detay</th>
                   </tr>
                 </thead>
                 <tbody>
                   {calls.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-4 text-fg-muted">
-                        Henüz çağrı kaydı bulunmuyor.
+                      <td colSpan={6} className="py-4 text-fg-muted">
+                        Bu marka için henüz çağrı kaydı yok.
                       </td>
                     </tr>
                   ) : (
@@ -735,10 +1081,20 @@ export function VoiceAssistantAdminPanel() {
                         <td className="py-2 pr-3">
                           {new Date(c.startedAt).toLocaleString("tr-TR")}
                         </td>
-                        <td className="py-2 pr-3">{c.channel}</td>
-                        <td className="py-2 pr-3">{c.callerPhone}</td>
+                        <td className="py-2 pr-3">
+                          {c.extractedDetails?.callerName
+                            ? `${c.extractedDetails.callerName} (${c.callerPhone})`
+                            : c.callerPhone}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {c.extractedDetails?.intent || "genel"}{" "}
+                          {c.extractedDetails?.urgency === "high" && (
+                            <span className="ml-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
+                              ACİL
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 pr-3">{c.durationSeconds} sn</td>
-                        <td className="py-2 pr-3">{c.status}</td>
                         <td className="py-2 pr-3">${c.estimatedCostUsd}</td>
                         <td className="py-2">
                           <button
@@ -758,31 +1114,59 @@ export function VoiceAssistantAdminPanel() {
           </div>
 
           {selectedCall && (
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <h4 className="mb-3 text-sm font-semibold text-fg">
-                Konuşma Dökümü ({selectedCall.callerPhone})
-              </h4>
-              <div className="flex flex-col gap-2 rounded-lg border border-border bg-bg p-3 text-xs">
-                {selectedCall.transcript.map((t, i) => (
-                  <div key={i}>
-                    <span className="font-semibold text-fg">
-                      {t.speaker === "caller"
-                        ? "Arayan"
-                        : t.speaker === "assistant"
-                          ? "Asistan"
-                          : "Sistem"}
-                      :{" "}
-                    </span>
-                    <span className="text-fg-muted">{t.text}</span>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-border bg-surface p-5">
+                <h4 className="mb-3 text-sm font-semibold text-fg">
+                  Çağrıdan Çıkarılan Önemli Detaylar
+                </h4>
+                <div className="flex flex-col gap-2 text-xs text-fg-muted">
+                  <div>
+                    <strong className="text-fg">Arayan:</strong>{" "}
+                    {selectedCall.extractedDetails?.callerName || "Belirtilmedi"}{" "}
+                    ({selectedCall.callerPhone})
                   </div>
-                ))}
+                  <div>
+                    <strong className="text-fg">Niyet:</strong>{" "}
+                    {selectedCall.extractedDetails?.intent || "genel"}
+                  </div>
+                  <div>
+                    <strong className="text-fg">Önemli Notlar:</strong>
+                    <ul className="mt-1 list-disc pl-4">
+                      {(
+                        selectedCall.extractedDetails?.importantNotes || []
+                      ).map((n, idx) => (
+                        <li key={idx}>{n}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-surface p-5">
+                <h4 className="mb-3 text-sm font-semibold text-fg">
+                  Konuşma Dökümü
+                </h4>
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-bg p-3 text-xs">
+                  {selectedCall.transcript.map((t, i) => (
+                    <div key={i}>
+                      <span className="font-semibold text-fg">
+                        {t.speaker === "caller"
+                          ? "Arayan"
+                          : t.speaker === "assistant"
+                            ? "Asistan"
+                            : "Sistem"}
+                        :{" "}
+                      </span>
+                      <span className="text-fg-muted">{t.text}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* 4. REZERVASYON & NOTLAR */}
+      {/* 5. REZERVASYON & NOTLAR */}
       {tab === "records" && (
         <div className="grid gap-5 md:grid-cols-2">
           <div className="rounded-xl border border-border bg-surface p-5">
@@ -834,64 +1218,17 @@ export function VoiceAssistantAdminPanel() {
         </div>
       )}
 
-      {/* 5. BELGELER */}
-      {tab === "knowledge" && (
-        <div className="grid gap-5 md:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-base font-semibold text-fg">
-              Yeni Soru-Cevap / Belge Ekle
-            </h3>
-            <input
-              type="text"
-              placeholder="Dosya adı (ör. fiyatlar.md)"
-              value={docFilename}
-              onChange={(e) => setDocFilename(e.target.value)}
-              className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-            />
-            <textarea
-              placeholder={"# Hizmetler\nSoru: ...\nCevap: ..."}
-              value={docContent}
-              onChange={(e) => setDocContent(e.target.value)}
-              className="min-h-36 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-            />
-            <button
-              type="button"
-              onClick={() => void handleUploadDoc()}
-              className="w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg"
-            >
-              Belgeyi Kaydet
-            </button>
-          </div>
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="mb-3 text-base font-semibold text-fg">
-              Yüklü Belgeler
-            </h3>
-            <ul className="flex flex-col gap-2 text-sm text-fg-muted">
-              {docs.map((d) => (
-                <li
-                  key={d.filename}
-                  className="rounded-lg border border-border bg-bg px-3 py-2"
-                >
-                  <strong className="text-fg">{d.filename}</strong> (
-                  {d.chunkCount} bölüm)
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
       {/* 6. CANLI TEST */}
       {tab === "simulator" && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
           <h3 className="text-base font-semibold text-fg">
-            Asistan Simülatörü (Telefon Bağlamadan Test Edin)
+            Asistan Simülatörü ({selectedBrand?.name})
           </h3>
           <div className="flex h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-border bg-bg p-3 text-sm">
             {simMessages.length === 0 ? (
               <p className="text-xs text-fg-muted">
-                Örnek: &quot;Saat kaça kadar açıksınız?&quot; veya &quot;Yarın
-                19:30 için 2 kişilik rezervasyon yapmak istiyorum.&quot;
+                Örnek: &quot;Merhaba, adım Ahmet. Yarın 19:30 için 2 kişilik
+                rezervasyon yapmak istiyorum.&quot;
               </p>
             ) : (
               simMessages.map((m, idx) => (
@@ -928,4 +1265,3 @@ export function VoiceAssistantAdminPanel() {
     </div>
   );
 }
-

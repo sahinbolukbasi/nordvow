@@ -7,6 +7,13 @@ export interface CallTranscriptTurn {
   timestamp: string;
 }
 
+export interface CallExtractedDetails {
+  callerName?: string;
+  intent?: string;
+  urgency?: "normal" | "high";
+  importantNotes: string[];
+}
+
 export interface CallLogRecord {
   callId: string;
   channel: "phone" | "simulation";
@@ -16,6 +23,7 @@ export interface CallLogRecord {
   durationSeconds: number;
   status: "active" | "completed" | "transferred";
   estimatedCostUsd: number;
+  extractedDetails?: CallExtractedDetails;
   transcript: CallTranscriptTurn[];
 }
 
@@ -87,6 +95,13 @@ export class CallLogStore {
     if (typeof estimatedCostUsd === "number") {
       record.estimatedCostUsd = estimatedCostUsd;
     }
+    this.save();
+  }
+
+  setExtractedDetails(callId: string, details: CallExtractedDetails): void {
+    const record = this.logs.find((l) => l.callId === callId);
+    if (!record) return;
+    record.extractedDetails = details;
     this.save();
   }
 
