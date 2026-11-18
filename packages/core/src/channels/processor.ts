@@ -7,8 +7,9 @@ import { runAgentTurn } from "../assistant/runtime";
 import { handleChannelBotTurn } from "../assistant/channel-bot";
 import { prescreenCreator } from "../assistant/prescreen";
 import { recordRun } from "../agents/common";
+import { matchInstagramAutoReply } from "../messaging/instagram-auto-reply";
 import { purgeMessage } from "../messaging/purge";
-import { bumpDailyStat } from "../messaging/send";
+import { bumpDailyStat, sendMessage } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
 import { onInbound } from "../messaging/windows";
@@ -293,6 +294,18 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
       void showTyping({ channel: "WHATSAPP", token: waToken, phoneNumberId: waPhoneId, inboundMessageId: input.externalMessageId });
     } else if (channel === "INSTAGRAM" && igToken && igUserId) {
       void showTyping({ channel: "INSTAGRAM", token: igToken, igId: igUserId, recipientId: input.from });
+    }
+    if (channel === "INSTAGRAM") {
+      const autoReply = await matchInstagramAutoReply(tenantId, input.text).catch(() => null);
+      if (autoReply) {
+        await sendMessage({
+          tenantId,
+          conversationId: conv.id,
+          byUserId: null,
+          text: autoReply.reply,
+        }).catch(() => undefined);
+        return { conversationId: conv.id, optOut: false };
+      }
     }
     const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { enabled: true } });
     const botDisabledByFirm = agentRows.length > 0 && agentRows.every((a) => !a.enabled);

@@ -172,31 +172,55 @@ function getCachedPng(key: string, build: () => Buffer): Buffer {
   return buf;
 }
 
-function getCertMaterial(p12raw: string, wwdrRaw: string, p12pass: string): CachedCertMaterial | null {
-  const fp = sha1(Buffer.from(`${p12raw}|${wwdrRaw}|${p12pass}`));
+function decodePemOrBase64(raw: string): Buffer {
+  const trimmed = raw.trim().replace(/\\n/g, "\n");
+  if (trimmed.includes("-----BEGIN ")) {
+    return Buffer.from(trimmed, "utf8");
+  }
+  const buf = Buffer.from(cleanBase64(trimmed), "base64");
+  if (buf.toString("utf8").includes("-----BEGIN ")) {
+    return buf;
+  }
+  return buf;
+}
+
+function getCertMaterial(
+  p12raw: string,
+  wwdrRaw: string,
+  p12pass: string,
+  signerCertRaw?: string,
+  signerKeyRaw?: string,
+): CachedCertMaterial | null {
+  const fp = sha1(Buffer.from(`${p12raw}|${wwdrRaw}|${p12pass}|${signerCertRaw ?? ""}|${signerKeyRaw ?? ""}`));
   if (cachedCerts && cachedCerts.fingerprint === fp) return cachedCerts;
 
   const dir = mkdtempSync(path.join(tmpdir(), "pkpass-cert-"));
   try {
-    const p12Path = path.join(dir, "cert.p12");
     const certPath = path.join(dir, "cert.pem");
     const keyPath = path.join(dir, "key.pem");
     const wwdrPath = path.join(dir, "wwdr.pem");
-    writeFileSync(p12Path, Buffer.from(cleanBase64(p12raw), "base64"));
     const wwdrPem = decodeWwdr(wwdrRaw);
     writeFileSync(wwdrPath, wwdrPem);
 
-    const tryExtract = (extra: string[]) => {
-      const c = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, ...extra]);
-      const k = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, ...extra]);
-      return { ok: c.ok && k.ok, err: c.err || k.err };
-    };
+    if (signerCertRaw && signerKeyRaw) {
+      writeFileSync(certPath, decodePemOrBase64(signerCertRaw));
+      writeFileSync(keyPath, decodePemOrBase64(signerKeyRaw));
+    } else {
+      const p12Path = path.join(dir, "cert.p12");
+      writeFileSync(p12Path, Buffer.from(cleanBase64(p12raw), "base64"));
 
-    let extracted = tryExtract(["-legacy"]);
-    if (!extracted.ok) extracted = tryExtract([]);
-    if (!extracted.ok) {
-      console.error("[apple-wallet] .p12 ayıklama hatası:", extracted.err);
-      return null;
+      const tryExtract = (extra: string[]) => {
+        const c = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, ...extra]);
+        const k = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, ...extra]);
+        return { ok: c.ok && k.ok, err: c.err || k.err };
+      };
+
+      let extracted = tryExtract(["-legacy"]);
+      if (!extracted.ok) extracted = tryExtract([]);
+      if (!extracted.ok) {
+        console.error("[apple-wallet] .p12 ayıklama hatası:", extracted.err);
+        return null;
+      }
     }
 
     const certIds = extractCertIds(certPath);
@@ -221,7 +245,9 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
   const p12raw = envStr("APPLE_WALLET_CERT", "").trim();
   const wwdrRaw = envStr("APPLE_WALLET_WWDR", "").trim();
   const p12pass = envStr("APPLE_WALLET_CERT_PASSWORD", "");
-  if (!p12raw || !wwdrRaw) return null;
+  const signerCertRaw = envStr("APPLE_WALLET_SIGNER_CERT", "").trim() || undefined;
+  const signerKeyRaw = envStr("APPLE_WALLET_SIGNER_KEY", "").trim() || undefined;
+  if ((!p12raw && !(signerCertRaw && signerKeyRaw)) || !wwdrRaw) return null;
 
   const cacheKey = sha1(Buffer.from(JSON.stringify({ serial, data })));
   const cached = pkpassCache.get(cacheKey);
@@ -229,7 +255,7 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
     return cached.buf;
   }
 
-  const certs = getCertMaterial(p12raw, wwdrRaw, p12pass);
+  const certs = getCertMaterial(p12raw, wwdrRaw, p12pass, signerCertRaw, signerKeyRaw);
   if (!certs) return null;
 
   const dir = mkdtempSync(path.join(tmpdir(), "pkpass-"));
@@ -278,7 +304,7 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
       "smime", "-sign", "-binary",
       "-signer", certPath, "-inkey", keyPath, "-certfile", wwdrPath,
       "-in", path.join(dir, "manifest.json"), "-out", sigPath,
-      "-outform", "DER", "-noattr",
+      "-outform", "DER",
     ]);
     if (!sign.ok) {
       console.error("[apple-wallet] PKCS#7 imzalama hatası:", sign.err);

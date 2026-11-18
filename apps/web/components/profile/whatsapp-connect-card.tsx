@@ -19,9 +19,10 @@ export function WhatsAppConnectCard({
   const [copied, setCopied] = useState(false);
   const [pending, start] = useTransition();
 
-  const waHref = botPhone
-    ? `https://wa.me/${botPhone.replace(/[^\d]/g, "")}?text=${encodeURIComponent(code)}`
-    : null;
+  const cleanBotDigits = botPhone.replace(/[^\d]/g, "");
+  const waHref = cleanBotDigits
+    ? `https://wa.me/${cleanBotDigits}?text=${encodeURIComponent(code)}`
+    : `https://api.whatsapp.com/send?text=${encodeURIComponent(code)}`;
 
   return (
     <div className="flex flex-col gap-3">
@@ -65,15 +66,37 @@ export function WhatsAppConnectCard({
       </div>
 
       {!verified ? (
-        <div className="flex flex-col gap-2.5 rounded-2xl border border-line bg-bg/60 p-4">
-          <p className="text-[13px] text-fg-muted">
-            Tek seferlik eşleştirme kodunuzu WhatsApp üzerinden Nordvow Asistanına gönderin. Eşleştirme tamamlandıktan sonra
-            oturumunuz kalıcı olur ve tüm işlemlerinizi WhatsApp sohbetinden AI Asistan ile yürütebilirsiniz.
+        <div className="flex flex-col gap-3 rounded-2xl border border-line bg-bg/60 p-4">
+          <p className="text-[13px] leading-relaxed text-fg-muted">
+            Aşağıdaki butona dokunduğunuzda <strong>Nordvow WhatsApp Business</strong> sohbeti tek seferlik kodunuz
+            otomatik yazılmış olarak açılır; sadece <strong>Gönder</strong>&apos;e basmanız yeterlidir.
           </p>
+
+          {botPhone ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs">
+              <span className="text-fg-muted">WhatsApp Business Hattı:</span>
+              <span className="font-mono font-semibold text-fg">{botPhone}</span>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              WhatsApp Business numarası tanımlı değil; buton WhatsApp uygulamasını kodunuzla açar, alıcı olarak Nordvow hattını seçip gönderebilirsiniz.
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
-            <code className="rounded-xl border border-line bg-surface px-4 py-2 font-mono text-base font-bold tracking-widest text-fg">
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500"
+            >
+              WhatsApp&apos;ta Aç &amp; Kodu Gönder →
+            </a>
+
+            <code className="rounded-xl border border-line bg-surface px-3 py-1.5 font-mono text-sm font-bold tracking-widest text-fg">
               {code}
             </code>
+
             <button
               type="button"
               onClick={() => {
@@ -85,16 +108,6 @@ export function WhatsAppConnectCard({
             >
               {copied ? "Kopyalandı ✓" : "Kodu Kopyala"}
             </button>
-            {waHref ? (
-              <a
-                href={waHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-500"
-              >
-                WhatsApp ile Bağla →
-              </a>
-            ) : null}
           </div>
         </div>
       ) : (
@@ -105,4 +118,3 @@ export function WhatsAppConnectCard({
     </div>
   );
 }
-

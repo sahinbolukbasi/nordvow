@@ -4,7 +4,9 @@ import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { statusLabel } from "@infulancer/core/messaging/templates";
 import { planCampaign } from "@infulancer/core/messaging/tiers";
+import { getInstagramAutoReplies } from "@infulancer/core/messaging/instagram-auto-reply";
 import { BrandAssistants } from "@/components/channels/brand-assistants";
+import { InstagramAutoReplyPanel } from "@/components/channels/instagram-auto-reply-panel";
 import { BrandBadge } from "@/components/icons/brand-logos";
 import { ConfirmPaymentButton, InstagramConnectForm, TemplateForm, WhatsAppSignupForm } from "@/components/inbox/inbox-forms";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -24,13 +26,14 @@ export default async function BrandChannelsPage({ searchParams }: { searchParams
   const actor = await requireActor("BRAND");
   const { sekme } = await searchParams;
   const t = actor.brandId!;
-  const [num, ig, templates, configs, candidates, tenant] = await Promise.all([
+  const [num, ig, templates, configs, candidates, tenant, igAutoReplies] = await Promise.all([
     prisma.whatsAppNumber.findUnique({ where: { tenantId: t } }),
     prisma.channelConnection.findFirst({ where: { tenantId: t, provider: "INSTAGRAM" }, orderBy: { createdAt: "desc" } }),
     prisma.messageTemplate.findMany({ where: { tenantId: t }, orderBy: { name: "asc" } }),
     prisma.agentConfig.findMany({ where: { tenantId: t } }),
     prisma.influencerCandidate.findMany({ where: { tenantId: t }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.tenantSettings.findUnique({ where: { tenantId: t }, select: { mode: true } }),
+    getInstagramAutoReplies(t),
   ]);
   const paid = num?.paymentMethod === "payment_method_confirmed";
   const activeTpl = templates.filter((x) => x.status === "ACTIVE").length;
@@ -116,16 +119,19 @@ export default async function BrandChannelsPage({ searchParams }: { searchParams
             id: "instagram",
             label: "Instagram",
             content: (
-              <SetupWizard
-                title={tt("Instagram DM kurulumu")}
-                doneText="Instagram hazır. DM'ler Gelen kutusu'na düşüyor."
-                steps={[
-                  { key: "pro", title: "Hesabı Professional yapın", done: igOk, hint: "Instagram ayarlarından Business veya Creator hesaba geçin ve bir Facebook Sayfasına bağlayın." },
-                  { key: "bagla", title: "Instagram'ı bağlayın", done: igOk, hint: "Meta ile giriş yapıp mesaj izni verin.", content: igOk ? <p className="text-sm text-fg-muted">{tt("Bağlı.")}</p> : <InstagramConnectForm /> },
-                  { key: "asistan", title: "Asistanı Instagram'da açın", done: igOk && assistantOn, hint: "Aynı asistan iki kanalda da çalışır.", content: goAssistant },
-                  { key: "canli", title: "Canlıya geçin", done: live, content: goLive },
-                ]}
-              />
+              <div className="flex flex-col gap-6">
+                <InstagramAutoReplyPanel tenantId={t} initialRules={igAutoReplies} />
+                <SetupWizard
+                  title={tt("Instagram DM kurulumu")}
+                  doneText="Instagram hazır. DM'ler Gelen kutusu'na düşüyor."
+                  steps={[
+                    { key: "pro", title: "Hesabı Professional yapın", done: igOk, hint: "Instagram ayarlarından Business veya Creator hesaba geçin ve bir Facebook Sayfasına bağlayın." },
+                    { key: "bagla", title: "Instagram'ı bağlayın", done: igOk, hint: "Meta ile giriş yapıp mesaj izni verin.", content: igOk ? <p className="text-sm text-fg-muted">{tt("Bağlı.")}</p> : <InstagramConnectForm /> },
+                    { key: "asistan", title: "Asistanı Instagram'da açın", done: igOk && assistantOn, hint: "Aynı asistan iki kanalda da çalışır.", content: goAssistant },
+                    { key: "canli", title: "Canlıya geçin", done: live, content: goLive },
+                  ]}
+                />
+              </div>
             ),
           },
           { id: "asistan", label: "Asistan", content: <BrandAssistants tenantId={t} /> },

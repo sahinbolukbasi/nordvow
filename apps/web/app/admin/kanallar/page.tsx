@@ -14,6 +14,8 @@ import { UnverifiedBadge } from "@/components/ui/unverified";
 import { requireActor } from "@/lib/auth-guard";
 import { DocLink } from "@/components/docs/doc-components";
 import { PageGuide } from "@/components/ui/page-guide";
+import { getInstagramAutoReplies } from "@infulancer/core/messaging/instagram-auto-reply";
+import { InstagramAutoReplyPanel } from "@/components/channels/instagram-auto-reply-panel";
 import { RunJobButton } from "@/components/forms/operations-forms";
 import { fmtDate, fmtDateTime } from "@/lib/time";
 
@@ -54,6 +56,8 @@ export default async function AdminChannelsPage() {
     };
   });
   const ready = (k: keyof (typeof readiness)[number]) => readiness.filter((r) => r[k]).length;
+  const defaultBrandId = brands[0]?.id ?? "default";
+  const igAutoReplies = await getInstagramAutoReplies(defaultBrandId);
   const quotas = await Promise.all(numbers.map(async (n) => ({ n, q: await freeTierStatus(n.phoneNumberId) })));
 
   return (
@@ -232,6 +236,8 @@ export default async function AdminChannelsPage() {
           </tbody>
         </table>
       </Card>
+
+      <InstagramAutoReplyPanel tenantId={defaultBrandId} initialRules={igAutoReplies} />
 
       <Card interactive={false} className="flex flex-col gap-2">
         <CardTitle>{tt("Kanal kuralları")}</CardTitle>

@@ -391,6 +391,16 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       <p className="text-sm text-fg-passive">{tt("Henüz kayıtlı işlem yok.")}</p>
     ),
   });
+  const envBotPhone = envStr("WHATSAPP_BOT_PHONE", "");
+  const dbWaNum = envBotPhone
+    ? null
+    : await prisma.whatsAppNumber.findFirst({
+        where: { displayNumber: { not: null } },
+        orderBy: { createdAt: "desc" },
+        select: { displayNumber: true },
+      });
+  const botPhone = envBotPhone || dbWaNum?.displayNumber || "";
+
   tabs.unshift({
     id: "bilgiler",
     label: "Bilgilerim",
@@ -415,7 +425,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
             pairingCode={waLink.pairingCode}
             verified={waLink.verified}
             waPhone={waLink.waPhone}
-            botPhone={envStr("WHATSAPP_BOT_PHONE", "")}
+            botPhone={botPhone}
           />
         </Card>
         {brandModeSettings ? (
