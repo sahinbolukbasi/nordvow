@@ -5,7 +5,66 @@
 variable "enable_voice_assistant" {
   type        = bool
   default     = false
-  description = "Amazon Connect, KVS, Bedrock KB ve Voice Gateway altyapısını etkinleştir"
+  description = "Amazon Connect, Chime SIP Trunk (+90), KVS, Bedrock KB ve Voice Gateway altyapısını etkinleştir"
+}
+
+variable "voice_sip_origination_cidrs" {
+  type        = list(string)
+  default     = ["185.0.0.0/24"]
+  description = "Türk VoIP/SIP sağlayıcınızın (Netgsm, Bulutfon, Kobikom vb.) SIP sunucu IP blokları"
+}
+
+# Türkiye (+90) SIP Trunk bağlamak için Amazon Chime SDK Voice Connector
+resource "aws_chime_voice_connector" "tr_sip" {
+  count              = var.enable_voice_assistant ? 1 : 0
+  name               = "${local.name}-tr-sip"
+  require_encryption = true
+  aws_region         = var.region
+}
+
+resource "aws_chime_voice_connector_termination" "tr_termination" {
+  count              = var.enable_voice_assistant ? 1 : 0
+  voice_connector_id = aws_chime_voice_connector.tr_sip[0].id
+  cps_limit          = 2
+  calling_regions    = ["TR"]
+  cidr_allow_list    = var.voice_sip_origination_cidrs
+}
+
+# Canlı ses akışı (WebSocket /ws/call) için ALB hedef grubu ve kuralı
+resource "aws_lb_target_group" "voice_ws" {
+  count                = var.enable_voice_assistant ? 1 : 0
+  name                 = "${local.name}-voice-ws"
+  port                 = 4100
+  protocol             = "HTTP"
+  target_type          = "ip"
+  vpc_id               = aws_vpc.main.id
+  deregistration_delay = 15
+
+  health_check {
+    path                = "/health"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener_rule" "voice_ws" {
+  count        = var.enable_voice_assistant ? 1 : 0
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 50
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.voice_ws[0].arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/ws/call", "/ws/call/*"]
+    }
+  }
 }
 
 resource "aws_kinesis_video_stream" "voice_stream" {
@@ -127,5 +186,10 @@ output "voice_connect_instance_id" {
 
 output "voice_kvs_stream_arn" {
   value = var.enable_voice_assistant ? aws_kinesis_video_stream.voice_stream[0].arn : null
+}
+
+output "voice_sip_outbound_host" {
+  value       = var.enable_voice_assistant ? aws_chime_voice_connector.tr_sip[0].outbound_host_name : null
+  description = "Türk SIP sağlayıcınızın paneline yönlendireceğiniz AWS Chime SIP adresi"
 }
 
