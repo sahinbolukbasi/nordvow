@@ -1,6 +1,6 @@
 # Tek imaj: Next.js web uygulaması + core betikleri (migrasyon, seed, agent job'ları).
 # Fargate ARM64 üzerinde çalışır.
-FROM node:24.14.0-bookworm-slim AS build
+FROM public.ecr.aws/docker/library/node:24.14.0-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -17,7 +17,7 @@ RUN DATABASE_URL=postgresql://build:build@localhost:5432/build \
     AUTH_SECRET=build-only-placeholder S3_BUCKET=build \
     npm run build -w @infulancer/web
 
-FROM node:24.14.0-bookworm-slim
+FROM public.ecr.aws/docker/library/node:24.14.0-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000
 # openssl+zip: Apple Wallet .pkpass imzası · ffmpeg+librsvg2-bin: Creative stüdyo görsel/video/ses işleme.
