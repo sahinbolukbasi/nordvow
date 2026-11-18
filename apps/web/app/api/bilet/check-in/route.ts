@@ -105,3 +105,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "İşlem sırasında bir hata oluştu." }, { status: 500 });
   }
 }
+

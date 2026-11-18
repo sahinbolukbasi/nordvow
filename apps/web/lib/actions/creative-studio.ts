@@ -37,9 +37,22 @@ import {
   endpointToModelKey,
   FAL_ORCHESTRATOR_CATALOG,
   getComboPresetForTier,
+  routeCostAwareOperation,
   runStoryChatbotConverse,
+  type CostAwareOperationType,
   type StoryChatbotPayload,
 } from "@infulancer/core/creative/orchestrator";
+import {
+  analyzeAssetWithVision,
+  bindAssetsToSession,
+  CATEGORY_LABELS_TR,
+  loadCreativeSessionState,
+  resetCreativeSessionState,
+  saveCreativeSessionState,
+  updateSessionFromUserIntent,
+  type BoundAsset,
+} from "@infulancer/core/creative/vision-session";
+import { renderProgrammaticTimelineVideo } from "@infulancer/core/creative/sfx-timeline";
 import { converseChat, parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
 import { enqueueVideoEdit } from "@infulancer/core/creative/video-edit";
@@ -274,6 +287,12 @@ export type OrchestratorMeta = {
     tts: string;
     music: string;
   };
+  operationType?: CostAwareOperationType;
+  zeroCreditEdit?: boolean;
+  boundAsset?: { assetId: string; role: string; categoryTr: string; summaryTr: string; textures: string[] } | null;
+  sfxTrack?: { timestampMs: number; labelTr: string; sfxKey: string }[];
+  motionLayers?: { type: string; text?: string; animation: string; startMs: number; endMs: number }[];
+  preFlightSummary?: string | null;
 };
 
 export type PersistedChatTurn = {
@@ -346,7 +365,10 @@ async function persistChatExchange(tenantId: string, userText: string, res: Crea
 export async function clearCreativeChatAction(): Promise<{ ok: boolean }> {
   const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
   const tenantId = await creativeTenantFor(actor);
-  await prisma.configValue.deleteMany({ where: { key: chatHistoryKey(tenantId) } });
+  await Promise.all([
+    prisma.configValue.deleteMany({ where: { key: chatHistoryKey(tenantId) } }),
+    resetCreativeSessionState(tenantId),
+  ]);
   revalidateAll();
   return { ok: true };
 }
@@ -681,6 +703,43 @@ export async function chatCreativeDirectorAction(input: {
   const norm = msg.toLocaleLowerCase("tr");
   const words = norm.split(/\s+/).filter(Boolean);
 
+  // Vision-First & Structured Session State yüklemesi
+  let session = await loadCreativeSessionState(tenantId);
+  session = updateSessionFromUserIntent(session, msg);
+
+  const rawRefIds = [...new Set((input.referenceUploadIds ?? []).filter(Boolean))].slice(0, 4);
+  const analyzedRefs: BoundAsset[] = [];
+  for (const rid of rawRefIds) {
+    const bound = await analyzeAssetWithVision({
+      tenantId,
+      assetOrUploadId: rid,
+      contextHint: msg,
+    });
+    if (bound) analyzedRefs.push(bound);
+  }
+  if (analyzedRefs.length > 0) {
+    session = bindAssetsToSession(session, analyzedRefs);
+  } else if (session.current_canvas.asset_id && session.current_canvas.kind === "image" && !session.active_assets.length) {
+    const canvasBound = await analyzeAssetWithVision({
+      tenantId,
+      assetOrUploadId: session.current_canvas.asset_id,
+      contextHint: session.current_canvas.last_prompt ?? msg,
+    });
+    if (canvasBound) session = bindAssetsToSession(session, [canvasBound]);
+  }
+  await saveCreativeSessionState(tenantId, session);
+
+  const toBoundSummary = (b: BoundAsset | null) =>
+    b
+      ? {
+          assetId: b.asset_id,
+          role: b.vision.role,
+          categoryTr: CATEGORY_LABELS_TR[b.vision.product_category],
+          summaryTr: b.vision.subject_summary_tr,
+          textures: b.vision.materials_textures,
+        }
+      : null;
+
   // 1. Selamlaşma veya "Neler yapabilirsin?" kontrolü
   const isGreeting =
     words.length <= 4 &&
@@ -843,27 +902,123 @@ export async function chatCreativeDirectorAction(input: {
     }
   }
 
-  // 2d. Referans fotoğraf üzerinde tek adımlı AI düzenleme (arka plan kaldır / netleştir)
-  const asksBgRemove = /(arka plan|arkaplan|bg remove|transparan|şeffaf)/.test(norm);
-  const asksUpscale = /(netleştir|netlestir|kalite artır|kaliteyi artır|upscale|2x|çözünürlük)/.test(norm);
-  if (refsPre.length > 0 && (asksBgRemove || asksUpscale)) {
+  // 2d. Cost-Aware Router Ön Kontrolü: 0-Kredi Programatik SFX/Animasyon Kurgu + Kilitli BG Remove / Upscale
+  const costRoute = routeCostAwareOperation({
+    message: msg,
+    tier: input.tier,
+    session,
+    explicitRefs: analyzedRefs,
+    targetVideoId: input.targetVideoAssetId,
+  });
+
+  if (costRoute.operation === "programmatic_edit" && costRoute.sourceCanvasId) {
     try {
+      const prog = await renderProgrammaticTimelineVideo({
+        tenantId,
+        sourceAssetOrUploadId: costRoute.sourceCanvasId,
+        timeline: costRoute.timeline,
+        label: msg,
+      });
+      session.current_canvas = {
+        asset_id: prog.assetId,
+        upload_id: prog.uploadId,
+        kind: "video",
+        version: session.current_canvas.version + 1,
+        parent_asset_id: costRoute.sourceCanvasId,
+        last_prompt: msg,
+      };
+      session.timeline_plan = costRoute.timeline;
+      await saveCreativeSessionState(tenantId, session);
+      const avail = await getAvailableCredits(tenantId).catch(() => undefined);
+      revalidateAll();
+
+      const sfxListText = costRoute.timeline.sfx_track
+        .map((c) => `${(c.timestamp_ms / 1000).toFixed(1)}sn ${c.label_tr}`)
+        .join(", ");
+      const mgListText = costRoute.timeline.motion_layers.map((m) => m.text).filter(Boolean).join(", ");
+      const out: CreativeDirectorResponse = {
+        ok: true,
+        action: "generate",
+        reply: `0 AI Video Kredisiyle Programatik Kurgu Tamamlandı! Mevcut tuvaliniz yeniden üretilmeden zaman çizelgesine${sfxListText ? ` SFX (${sfxListText})` : ""}${mgListText ? ` ve özel animasyon katmanları (${mgListText})` : ""} işlendi.`,
+        kind: "video",
+        format: costRoute.timeline.aspect_ratio,
+        modelKey: "ffmpeg-programmatic",
+        assetId: prog.assetId,
+        availableCredits: avail,
+        orchestrator: {
+          status: "ready",
+          missingSlots: [],
+          endpoint: costRoute.endpoint,
+          unitCostLabel: "0 Kredi · FFmpeg Programatik",
+          falPayload: {},
+          comboPreset: getComboPresetForTier(input.tier),
+          operationType: "programmatic_edit",
+          zeroCreditEdit: true,
+          boundAsset: toBoundSummary(costRoute.boundAsset),
+          sfxTrack: costRoute.timeline.sfx_track.map((c) => ({
+            timestampMs: c.timestamp_ms,
+            labelTr: c.label_tr,
+            sfxKey: c.sfx_key,
+          })),
+          motionLayers: costRoute.timeline.motion_layers.map((m) => ({
+            type: m.type,
+            text: m.text,
+            animation: m.animation,
+            startMs: m.start_ms,
+            endMs: m.end_ms,
+          })),
+          preFlightSummary: costRoute.preFlightSummaryTr,
+        },
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: "",
+        availableCredits: await getAvailableCredits(tenantId).catch(() => undefined),
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
+  }
+
+  // Referans veya kilitli varlık üzerinde tek adımlı AI düzenleme (arka plan kaldır / netleştir)
+  const effectiveUploadForEdit = costRoute.boundAsset?.upload_id ?? refsPre[0] ?? null;
+  if (effectiveUploadForEdit && (costRoute.operation === "bg_remove" || costRoute.operation === "upscale")) {
+    try {
+      const asksBgRemove = costRoute.operation === "bg_remove";
       const action: EditAction = asksBgRemove ? "arka-plan-kaldir" : "netlestir";
       const job = await submitEditPipeline({
         tenantId,
-        uploadId: refsPre[0]!,
+        uploadId: effectiveUploadForEdit,
         steps: [{ action, prompt: msg }],
       });
       if ((process.env.FAL_MODE ?? "mock") === "mock" && job.requestId) {
         await handleFalWebhook({ request_id: job.requestId, status: "OK", payload: { image: { url: `studio://image/${job.requestId}` } } }).catch(() => undefined);
       }
       const asset = await prisma.generatedAsset.findFirst({ where: { jobId: job.id }, select: { id: true } });
+      if (asset?.id) {
+        session.current_canvas = {
+          asset_id: asset.id,
+          upload_id: effectiveUploadForEdit,
+          kind: "image",
+          version: session.current_canvas.version + 1,
+          parent_asset_id: effectiveUploadForEdit,
+          last_prompt: msg,
+        };
+        await saveCreativeSessionState(tenantId, session);
+      }
       const avail = await getAvailableCredits(tenantId).catch(() => undefined);
       const out: CreativeDirectorResponse = {
         ok: true,
         action: "generate",
         reply: asksBgRemove
-          ? "Fotoğrafınızın arka planı kaldırılıyor; tamamlandığında önizlemede ve kitaplıkta görünecek."
+          ? "Fotoğrafınızın arka planı varlık kilidiyle kaldırılıyor; tamamlandığında önizlemede ve kitaplıkta görünecek."
           : "Fotoğrafınız 2x netleştiriliyor; tamamlandığında önizlemede ve kitaplıkta görünecek.",
         kind: "image",
         format: "4:5",
@@ -871,6 +1026,18 @@ export async function chatCreativeDirectorAction(input: {
         jobId: asset ? null : job.id,
         assetId: asset?.id ?? null,
         availableCredits: avail,
+        orchestrator: {
+          status: "ready",
+          missingSlots: [],
+          endpoint: costRoute.endpoint,
+          unitCostLabel: asksBgRemove ? "$0.018/görsel" : "$0.005/görsel",
+          falPayload: {},
+          comboPreset: getComboPresetForTier(input.tier),
+          operationType: costRoute.operation,
+          zeroCreditEdit: false,
+          boundAsset: toBoundSummary(costRoute.boundAsset),
+          preFlightSummary: costRoute.preFlightSummaryTr,
+        },
         suggestions: DEFAULT_PROMPT_IDEAS,
       };
       await persistChatExchange(tenantId, msg, out);
@@ -1130,15 +1297,26 @@ export async function chatCreativeDirectorAction(input: {
     };
   }
 
-  // action === "generate" -> fal.ai / Studio Engine gönderimi + kredi hesabı
+  // action === "generate" -> fal.ai / Cost-Aware Router gönderimi + kredi hesabı + Vision Fidelity Lock
   let activeModels = await prisma.modelRegistry.findMany({
     where: { status: "active", licenseStatus: "cleared", provider: "fal" },
     select: { key: true, kind: true, creditsPerUnit: true },
   });
 
-  const preferredKey = decision.storyPayload
-    ? endpointToModelKey(decision.storyPayload.fal_payload.model_endpoint)
-    : pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
+  // Bağlı bir görsel varlık (product/character) varsa, bağlam kopmadan onun üzerinden düzenle/videoya çevir
+  const boundUploadIds = [
+    ...rawRefIds,
+    ...(rawRefIds.length === 0 && costRoute.boundAsset ? [costRoute.boundAsset.upload_id] : []),
+  ].slice(0, 4);
+  const refs = boundUploadIds.filter(Boolean);
+  const isFidelityEditOrI2v =
+    refs.length > 0 && (costRoute.operation === "edit_image_kontext" || costRoute.operation === "image_to_video");
+
+  const preferredKey = isFidelityEditOrI2v
+    ? costRoute.modelKey
+    : decision.storyPayload
+      ? endpointToModelKey(decision.storyPayload.fal_payload.model_endpoint)
+      : pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
 
   if (!activeModels.some((m) => m.key === preferredKey)) {
     await seedModelRegistry().catch(() => undefined);
@@ -1148,59 +1326,132 @@ export async function chatCreativeDirectorAction(input: {
     });
   }
 
+  const effectiveKind = costRoute.operation === "image_to_video" ? "video" : decision.kind;
   const modelKey = activeModels.some((m) => m.key === preferredKey)
     ? preferredKey
-    : pickFalModelKey(activeModels, decision.kind, input.tier, decision.enhancedPrompt);
+    : pickFalModelKey(activeModels, effectiveKind, input.tier, decision.enhancedPrompt);
 
   const catalogItem = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
-  const selectedEndpoint = decision.storyPayload?.fal_payload.model_endpoint ?? catalogItem?.endpoint ?? `fal-ai/${modelKey}`;
+  const selectedEndpoint =
+    costRoute.operation === "edit_image_kontext" || costRoute.operation === "image_to_video"
+      ? costRoute.endpoint
+      : (decision.storyPayload?.fal_payload.model_endpoint ?? catalogItem?.endpoint ?? `fal-ai/${modelKey}`);
+
+  const voiceScriptForVideo =
+    effectiveKind === "video" && (wantsVoiceWithVideo || decision.voiceoverScript)
+      ? decision.voiceoverScript || "Yeni sezon koleksiyonumuz şimdi yayında! Detaylar için hemen inceleyin."
+      : undefined;
+
+  const baseCleanPrompt =
+    effectiveKind === "video" && costRoute.fidelityPrompt
+      ? costRoute.fidelityPrompt
+      : costRoute.fidelityPrompt ??
+        (effectiveKind === "video"
+          ? `${decision.enhancedPrompt || msg}. Clean composition, strictly no text overlays, no watermarks.`
+          : decision.enhancedPrompt || msg);
+
   const orchestratorMeta: OrchestratorMeta = {
     status: "ready",
     missingSlots: [],
     endpoint: selectedEndpoint,
-    unitCostLabel: catalogItem?.unitLabel ?? "$0.003/MP",
+    unitCostLabel: catalogItem?.unitLabel ?? `$${costRoute.estimatedCostUsd.toFixed(3)}`,
     falPayload:
       decision.storyPayload?.fal_payload ??
-      (decision.kind === "video"
-        ? { model_endpoint: selectedEndpoint, prompt: decision.enhancedPrompt, aspect_ratio: decision.format, duration: "5" }
-        : decision.kind === "audio"
+      (effectiveKind === "video"
+        ? { model_endpoint: selectedEndpoint, prompt: baseCleanPrompt, aspect_ratio: decision.format, duration: "5" }
+        : effectiveKind === "audio"
           ? { model_endpoint: selectedEndpoint, text: decision.voiceoverScript || msg, language_code: "tr" }
-          : { model_endpoint: selectedEndpoint, prompt: decision.enhancedPrompt, aspect_ratio: decision.format }),
+          : { model_endpoint: selectedEndpoint, prompt: baseCleanPrompt, aspect_ratio: decision.format }),
     comboPreset: getComboPresetForTier(input.tier),
+    operationType: costRoute.operation,
+    zeroCreditEdit: false,
+    boundAsset: toBoundSummary(costRoute.boundAsset),
+    sfxTrack:
+      effectiveKind === "video"
+        ? costRoute.timeline.sfx_track.map((c) => ({ timestampMs: c.timestamp_ms, labelTr: c.label_tr, sfxKey: c.sfx_key }))
+        : undefined,
+    motionLayers:
+      effectiveKind === "video"
+        ? costRoute.timeline.motion_layers.map((m) => ({
+            type: m.type,
+            text: m.text,
+            animation: m.animation,
+            startMs: m.start_ms,
+            endMs: m.end_ms,
+          }))
+        : undefined,
+    preFlightSummary: costRoute.preFlightSummaryTr,
   };
 
-  const refs = (input.referenceUploadIds ?? []).filter(Boolean).slice(0, 4);
-  const voiceScriptForVideo =
-    decision.kind === "video" && (wantsVoiceWithVideo || decision.voiceoverScript)
-      ? decision.voiceoverScript || "Yeni sezon koleksiyonumuz şimdi yayında! Detaylar için hemen inceleyin."
-      : undefined;
-
   try {
-    const rawPrompt = (decision.kind === "audio" ? decision.voiceoverScript || msg : decision.enhancedPrompt || msg).trim();
+    const rawPrompt = (effectiveKind === "audio" ? decision.voiceoverScript || msg : baseCleanPrompt).trim();
     const safePrompt = rawPrompt.length >= 5 ? rawPrompt : `${rawPrompt || msg} — profesyonel stüdyo ışığında sosyal medya içeriği`.trim();
     const job = await submitGeneration({
       tenantId,
       modelKey,
       prompt: safePrompt,
       aspect: decision.format as Aspect,
-      referenceUploadIds: decision.kind === "audio" ? [] : refs,
+      referenceUploadIds: effectiveKind === "audio" ? [] : refs,
       voiceText: voiceScriptForVideo,
     });
 
     if ((process.env.FAL_MODE ?? "mock") === "mock" && job.requestId) {
       const payload =
-        decision.kind === "video"
+        effectiveKind === "video"
           ? { video: { url: `studio://video/${job.requestId}` } }
-          : decision.kind === "audio"
+          : effectiveKind === "audio"
             ? { audio: { url: `studio://audio/${job.requestId}` } }
             : { images: [{ url: `studio://image/${job.requestId}` }] };
       await handleFalWebhook({ request_id: job.requestId, status: "OK", payload, metrics: { inference_time: 1.0 } }).catch(() => undefined);
     }
 
-    const [asset, acc] = await Promise.all([
-      prisma.generatedAsset.findFirst({ where: { jobId: job.id }, select: { id: true } }),
-      prisma.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } }),
-    ]);
+    let finalAssetId =
+      (await prisma.generatedAsset.findFirst({ where: { jobId: job.id }, select: { id: true } }))?.id ?? null;
+
+    // Video senkron üretildiyse ve SFX / Motion Graphics katmanı planlandıysa 0 krediyle uygula
+    if (
+      finalAssetId &&
+      effectiveKind === "video" &&
+      (costRoute.timeline.sfx_track.length > 0 || costRoute.timeline.motion_layers.length > 0)
+    ) {
+      try {
+        const decorated = await renderProgrammaticTimelineVideo({
+          tenantId,
+          sourceAssetOrUploadId: finalAssetId,
+          timeline: costRoute.timeline,
+          label: `${msg} (SFX + Motion)`,
+        });
+        finalAssetId = decorated.assetId;
+      } catch {
+        // SFX post-process başarısız olursa temiz baz AI video yine de kullanıcıya ulaşır
+      }
+    }
+
+    if (finalAssetId && effectiveKind !== "audio") {
+      session.current_canvas = {
+        asset_id: finalAssetId,
+        upload_id: refs[0] ?? null,
+        kind: effectiveKind,
+        version: session.current_canvas.version + 1,
+        parent_asset_id: refs[0] ?? session.current_canvas.asset_id,
+        last_prompt: msg,
+      };
+      session.timeline_plan = costRoute.timeline;
+      if (effectiveKind === "image") {
+        const outBound = await analyzeAssetWithVision({
+          tenantId,
+          assetOrUploadId: finalAssetId,
+          contextHint: msg,
+        }).catch(() => null);
+        if (outBound && refs.length === 0) {
+          session = bindAssetsToSession(session, [outBound]);
+          orchestratorMeta.boundAsset = toBoundSummary(outBound);
+        }
+      }
+      await saveCreativeSessionState(tenantId, session);
+    }
+
+    const acc = await prisma.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } });
     const avail = acc ? Number(acc.balanceCredits) - Number(acc.heldCredits) : undefined;
 
     await audit.append({
@@ -1208,22 +1459,31 @@ export async function chatCreativeDirectorAction(input: {
       action: "CREATIVE_DIRECTOR_SUBMITTED",
       entityType: "CreativeJob",
       entityId: job.id,
-      data: { tenantId, modelKey: job.modelKey, endpoint: selectedEndpoint, tier: input.tier, format: decision.format },
+      data: {
+        tenantId,
+        modelKey: job.modelKey,
+        endpoint: selectedEndpoint,
+        tier: input.tier,
+        format: decision.format,
+        operation: costRoute.operation,
+      },
     });
     revalidateAll();
 
     const out: CreativeDirectorResponse = {
       ok: true,
       action: "generate",
-      reply: decision.reply,
+      reply: isFidelityEditOrI2v
+        ? `Varlık Kilidi (Fidelity Lock) ile düzenlendi! ${decision.reply}`
+        : decision.reply,
       postBrief: decision.postBrief || null,
-      enhancedPrompt: decision.enhancedPrompt,
-      voiceoverScript: voiceScriptForVideo ?? (decision.kind === "audio" ? decision.voiceoverScript || msg : null),
-      kind: decision.kind,
+      enhancedPrompt: baseCleanPrompt,
+      voiceoverScript: voiceScriptForVideo ?? (effectiveKind === "audio" ? decision.voiceoverScript || msg : null),
+      kind: effectiveKind,
       format: decision.format,
       modelKey: job.modelKey,
-      jobId: asset ? null : job.id,
-      assetId: asset?.id ?? null,
+      jobId: finalAssetId ? null : job.id,
+      assetId: finalAssetId,
       availableCredits: avail,
       orchestrator: orchestratorMeta,
       suggestions: DEFAULT_PROMPT_IDEAS,

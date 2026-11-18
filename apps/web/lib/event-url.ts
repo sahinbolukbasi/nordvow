@@ -45,3 +45,4 @@ export function extractEventIdFromParam(param: string): string {
   }
   return param;
 }
+

@@ -20,3 +20,4 @@ export async function resolveEventByParam(param: string) {
   });
   return recent.find((e) => slugifyTurkish(e.title) === targetSlug)?.id ?? null;
 }
+

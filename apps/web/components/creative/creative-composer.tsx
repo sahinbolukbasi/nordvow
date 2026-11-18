@@ -301,13 +301,27 @@ function ChatMediaCard({
         ) : null}
 
         {kind === "video" ? (
-          <button
-            type="button"
-            onClick={() => setVoiceBoxOpen((v) => !v)}
-            className="rounded-full border border-fg bg-surface px-3 py-1 text-[11px] font-semibold text-fg transition-standard hover:bg-fg hover:text-bg"
-          >
-            {tt("Videoya Ses Üret & Ekle")}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setVoiceBoxOpen((v) => !v)}
+              className="rounded-full border border-fg bg-surface px-3 py-1 text-[11px] font-semibold text-fg transition-standard hover:bg-fg hover:text-bg"
+            >
+              {tt("Videoya Ses Üret & Ekle")}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onInsertPrompt(
+                  null,
+                  "Bu videoya ürüne özel tıklama ve whoosh ses efektleri ekle, ardından ürün adı soldan kayarak gelsin",
+                )
+              }
+              className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-standard hover:bg-emerald-500/20 dark:text-emerald-300"
+            >
+              🔊 {tt("SFX + Kayan Başlık (0 Kredi)")}
+            </button>
+          </>
         ) : null}
 
         {kind === "image" ? (
@@ -317,19 +331,24 @@ function ChatMediaCard({
               onClick={() =>
                 onInsertPrompt(
                   effectiveRefId,
-                  `Şimdi üret: ${cleanPrompt} — bu görseli 5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür ve üzerine Türkçe seslendirme ekle`,
+                  `Şimdi üret: ${cleanPrompt} — bu görseli koruyarak akıcı kamera hareketli 9:16 Reels videosuna dönüştür ve ürüne özel SFX ekle`,
                 )
               }
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Sesli Videoya Çevir")}
+              🎬 {tt("SFX'li Videoya Çevir")}
             </button>
             <button
               type="button"
-              onClick={() => onInsertPrompt(effectiveRefId, `Şimdi üret: ${cleanPrompt} — farklı ışık ve kadrajla yeni bir varyasyon üret`)}
+              onClick={() =>
+                onInsertPrompt(
+                  effectiveRefId,
+                  `Bu görselin ürününü koruyarak arka planını lüks mermer stüdyo ortamıyla değiştir`,
+                )
+              }
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Varyasyon")}
+              {tt("Arkayı Değiştir")}
             </button>
           </>
         ) : null}
@@ -1338,21 +1357,59 @@ export function CreativeComposer({
                     .trim()}
                 </div>
 
-                {/* fal.ai Medya Orkestratörü & Bedrock Structured Output JSON Özeti */}
+                {/* fal.ai Medya Orkestratörü & Vision Kilidi + SFX Zaman Çizelgesi Özeti */}
                 {msg.orchestrator ? (
-                  <details className="max-w-xl rounded-2xl border border-line bg-surface/80 px-3.5 py-2 text-[11px]">
+                  <details className="max-w-xl rounded-2xl border border-line bg-surface/80 px-3.5 py-2.5 text-[11px]">
                     <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-medium text-fg">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
-                          {msg.orchestrator.status === "ready" ? "READY" : "NEEDS_INFO"}
-                        </span>
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {msg.orchestrator.zeroCreditEdit ? (
+                          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                            0 KREDİ · PROGRAMATİK KURGU
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
+                            {msg.orchestrator.status === "ready" ? "READY" : "NEEDS_INFO"}
+                          </span>
+                        )}
                         <code className="font-mono text-[11px] text-fg">{msg.orchestrator.endpoint}</code>
                       </span>
                       <span className="text-fg-muted">
-                        {tt("Tahmini Maliyet:")} <strong>{msg.orchestrator.unitCostLabel}</strong> · {tt("JSON Payload Gör")}
+                        <strong>{msg.orchestrator.unitCostLabel}</strong> · {tt("Detay Gör")}
                       </span>
                     </summary>
+
+                    {msg.orchestrator.boundAsset ||
+                    msg.orchestrator.sfxTrack?.length ||
+                    msg.orchestrator.motionLayers?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {msg.orchestrator.boundAsset ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-line bg-bg px-2.5 py-0.5 text-[10px] font-medium text-fg">
+                            🔒 {msg.orchestrator.boundAsset.categoryTr}: {msg.orchestrator.boundAsset.summaryTr}
+                          </span>
+                        ) : null}
+                        {msg.orchestrator.sfxTrack?.map((cue, idx) => (
+                          <span
+                            key={`${cue.sfxKey}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-700 dark:text-violet-300"
+                          >
+                            🔊 {(cue.timestampMs / 1000).toFixed(1)}s · {cue.labelTr}
+                          </span>
+                        ))}
+                        {msg.orchestrator.motionLayers?.map((mg, idx) => (
+                          <span
+                            key={`${mg.type}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
+                          >
+                            ✨ {mg.animation}: {mg.text || mg.type}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div className="mt-2.5 flex flex-col gap-2 border-t border-line pt-2 text-[11px] text-fg-muted">
+                      {msg.orchestrator.preFlightSummary ? (
+                        <p className="text-[11px] text-fg">{msg.orchestrator.preFlightSummary}</p>
+                      ) : null}
                       {msg.orchestrator.missingSlots.length > 0 ? (
                         <div>
                           <strong>{tt("Beklenen Bilgiler (missing_slots):")}</strong>{" "}
@@ -1369,6 +1426,11 @@ export function CreativeComposer({
                         {JSON.stringify(
                           {
                             status: msg.orchestrator.status,
+                            operation: msg.orchestrator.operationType ?? null,
+                            zero_credit_edit: Boolean(msg.orchestrator.zeroCreditEdit),
+                            bound_asset: msg.orchestrator.boundAsset ?? null,
+                            sfx_track: msg.orchestrator.sfxTrack ?? [],
+                            motion_layers: msg.orchestrator.motionLayers ?? [],
                             missing_slots: msg.orchestrator.missingSlots,
                             fal_payload: msg.orchestrator.falPayload,
                           },

@@ -446,13 +446,44 @@ function dimensionsForAspect(aspect?: string): { w: number; h: number } {
 }
 
 /**
- * Stüdyo Görsel Üretici: SVG sahnesini rsvg-convert veya ffmpeg ile gerçek PNG görüntüsüne dönüştürür.
+ * Stüdyo Görsel Üretici: referans görsel varsa ürünü koruyarak yeni sahneyle kompozitler;
+ * yoksa SVG sahnesini rsvg-convert veya ffmpeg ile gerçek PNG görüntüsüne dönüştürür.
  */
-export async function renderStudioImagePng(prompt: string, aspect?: string): Promise<{ bytes: Uint8Array; mime: string }> {
+export async function renderStudioImagePng(prompt: string, aspect?: string, referenceImageUrl?: string): Promise<{ bytes: Uint8Array; mime: string }> {
   const { w, h } = dimensionsForAspect(aspect);
   const svg = buildStudioSceneSvg(prompt, w, h);
   const dir = mkdtempSync(path.join(tmpdir(), "nv-img-"));
   try {
+    if (referenceImageUrl && !referenceImageUrl.includes("example.invalid")) {
+      try {
+        const res = await fetch(referenceImageUrl, { signal: AbortSignal.timeout(15_000) });
+        if (res.ok) {
+          const refPath = path.join(dir, "ref.bin");
+          const outRefPng = path.join(dir, "ref-out.png");
+          writeFileSync(refPath, Buffer.from(await res.arrayBuffer()));
+          const ffRef = await spawnAsync(
+            "ffmpeg",
+            [
+              "-y",
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-i",
+              refPath,
+              "-vf",
+              `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=#111827`,
+              outRefPng,
+            ],
+            15_000,
+          );
+          if (ffRef.status === 0) {
+            return { bytes: new Uint8Array(readFileSync(outRefPng)), mime: "image/png" };
+          }
+        }
+      } catch {
+        // referans indirilemezse standart stüdyo sahnesine devam et
+      }
+    }
     const svgPath = path.join(dir, "scene.svg");
     const pngPath = path.join(dir, "scene.png");
     writeFileSync(svgPath, svg, "utf8");
@@ -679,14 +710,19 @@ export const mockFal: FalClient = {
       const prompt = String(meta?.input?.prompt ?? meta?.input?.text ?? "Nordvow Creative AI");
       const aspect = String(meta?.input?.aspect_ratio ?? meta?.input?.image_size ?? "9:16");
       const voiceText = typeof meta?.input?.voiceText === "string" ? meta.input.voiceText : undefined;
-      const refUrl = typeof meta?.input?.image_url === "string" ? meta.input.image_url : undefined;
+      const refUrl =
+        typeof meta?.input?.image_url === "string"
+          ? meta.input.image_url
+          : Array.isArray(meta?.input?.image_urls) && typeof meta.input.image_urls[0] === "string"
+            ? (meta.input.image_urls[0] as string)
+            : undefined;
       if (url.startsWith("studio://audio/")) {
         return { bytes: await synthesizeTurkishSpeech(prompt), mime: "audio/mpeg" };
       }
       if (url.startsWith("studio://video/")) {
         return renderStudioVideoMp4({ prompt, aspect, voiceText, referenceImageUrl: refUrl });
       }
-      return renderStudioImagePng(prompt, aspect);
+      return renderStudioImagePng(prompt, aspect, refUrl);
     }
     const u = url.toLowerCase();
     if (u.endsWith(".mp4") || u.endsWith(".mov") || u.endsWith(".webm") || u.includes("/video")) {

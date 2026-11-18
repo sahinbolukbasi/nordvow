@@ -1,5 +1,12 @@
 import { converseStructured, type ChatTurn } from "../llm/bedrock";
 import { envStr } from "../env";
+import {
+  compileFidelityLockedPrompt,
+  type BoundAsset,
+  type CreativeSessionState,
+  type TimelinePlan,
+} from "./vision-session";
+import { autoPlanProductSfxAndMotion } from "./sfx-timeline";
 
 /**
  * Nordvow Creative AI — fal.ai Medya Üretim Orkestratörü & AWS Bedrock Structured Output Chatbot Servisi.
@@ -298,4 +305,257 @@ export async function runStoryChatbotConverse(opts: {
     },
   };
 }
+
+/**
+ * NordVow Creative Studio — Ana Orkestratör System Prompt
+ * Vision-First, Asset Binding, Fidelity Lock, 0-Kredi Programatik Post-Prodüksiyon ve Cost-Aware fal.ai Routing.
+ */
+export const NORDVOW_CREATIVE_ORCHESTRATOR_SYSTEM_PROMPT = `Sen NordVow Creative Studio'nun Baş AI Sistem Mimarı ve Baş Kreatif Orkestratörüsün. Görevin; UGC ve sosyal medya odaklı görsel, video, ürün odaklı ses efekti (SFX) ve programatik animasyon katmanlarını en düşük API maliyetiyle en yüksek ticari kalitede orkestre etmektir.
+
+TEMEL ÇALIŞMA İLKELERİN:
+1. VİZYON ÖNCELİĞİ VE VARLIK KİLİDİ (Vision-First & Asset Binding):
+   - Kullanıcı bilgisayardan veya Kitaplık'tan bir görsel seçtiğinde, üretim aracını çağırmadan önce bu görseli \`VisionAssetAnalysis\` JSON şemasıyla kilitle.
+   - Kilitli varlık (\`asset_id\`) varken "arkayı değiştir", "bunu videoya çevir", "üzerine damlalar ekle" gibi komutlarda görseli sıfırdan üretmek KESİNLİKLE YASAKTIR. Görsel düzenlemede \`fal-ai/nano-banana/edit\`, canlandırmada \`hailuo-02-fast/image-to-video\` (veya Pro'da \`kling-v2-5-turbo/pro/image-to-video\`) kullan ve \`STRICT FIDELITY LOCK\` prompt derlemesiyle ürün geometrisini, etiketini ve dokusunu %100 koru.
+
+2. SIFIR KREDİ PROGRAMATİK KURGU ÖNCELİĞİ (Zero-Credit First):
+   - Aktif tuvalde (\`current_canvas\`) zaten bir video veya görsel varken kullanıcı şu isteklerden birini yaparsa AI video modelini ASLA yeniden çağırma:
+     • Ürüne özel ses efekti ekleme (kapak pop, sprey, klik, whoosh, kutu açılma, kumaş hışırtısı)
+     • Soldan kayan ürün adı, fiyat/indirim rozeti, kinetik altyazı, hızlandırma (speed ramp), 9:16 kırpma veya renk filtresi
+   - Bu istekleri sadece \`timeline_plan\` nesnesini güncelleyip FFmpeg + Prosedürel SFX Render motoruna yönlendirerek 0 kredi maliyetiyle tamamla.
+
+3. ÜRÜNE VE SAHNEYE ÖZEL AKILLI SFX:
+   - Kozmetik/şişe -> \`cap_open_pop\`, \`spray_mist\`, \`water_drop\`
+   - Kutu açılımı -> \`tape_rip\`, \`box_slide_open\`, \`paper_rustle\`
+   - Teknoloji/aksesuar -> \`mech_click\`, \`magnetic_snap\`, \`startup_chime\`
+   - Giyim/tekstil -> \`fabric_swoosh\`, \`zipper_pull\`, \`soft_whoosh\`
+   - Önce ücretsiz yerleşik SFX kütüphanesini kullan; her cue'yu aksiyon milisaniyesine hizala.
+
+4. AI'A METİN VE GRAFİK ÜRETTİRME (Clean AI Base):
+   - Video üretim promptlarına her zaman "clean composition, strictly no text overlays, no garbled typography, no watermarks" ekle; tüm başlık ve grafik animasyonlarını programatik katmanda render et.
+
+5. HALÜSİNASYONSUNUZ BAĞLAM VE PRE-FLIGHT ÖZETİ:
+   - Kararlarını sadece \`CreativeSessionState\` içindeki \`active_assets\`, \`current_canvas\`, \`timeline_plan\` ve \`intent_history\` verilerine dayandır.
+   - Kredi harcayacak işlem öncesi hangi modelin seçildiğini, bağlı varlığı, planlanan SFX/animasyonları ve tahmini maliyeti şeffaf biçimde belirt. Muğlak taleplerde kredi yakmadan 2-3 netleştirici seçenek sun.`;
+
+export type CostAwareOperationType =
+  | "programmatic_edit"
+  | "bg_remove"
+  | "upscale"
+  | "edit_image_kontext"
+  | "image_to_video"
+  | "generate_image"
+  | "generate_video"
+  | "voiceover";
+
+export type CostAwareRouteDecision = {
+  operation: CostAwareOperationType;
+  modelKey: string;
+  endpoint: string;
+  estimatedCostUsd: number;
+  zeroCreditEdit: boolean;
+  boundAsset: BoundAsset | null;
+  sourceCanvasId: string | null;
+  fidelityPrompt: string | null;
+  timeline: TimelinePlan;
+  preFlightSummaryTr: string;
+};
+
+/**
+ * Cost-Aware fal.ai Router Karar Matrisi:
+ * 1) Aktif tuval/varlık + post-prodüksiyon (SFX, kayan başlık, rozet, altyazı, kırpma, hız, filtre) -> 0 Kredi programmatic_edit
+ * 2) Bağlı görsel + arka plan kaldır / 2x netleştir -> bria-bg-remove ($0.018) / esrgan-upscale ($0.005)
+ * 3) Bağlı görsel + sahne/arkaplan/ışık değişikliği -> nano-banana-edit (Fidelity Lock, $0.0398)
+ * 4) Bağlı görsel + video/animasyon -> hailuo-02-fast-i2v ($0.017/sn) / kling-v2-5-i2v ($0.07/sn) + SFX Timeline
+ * 5) Referans yok -> kademeli tier yönlendirmesi (economy / standard / pro)
+ */
+export function routeCostAwareOperation(input: {
+  message: string;
+  tier: "economy" | "standard" | "pro";
+  session: CreativeSessionState;
+  explicitRefs?: BoundAsset[];
+  targetVideoId?: string | null;
+  wantsBriefOnly?: boolean;
+}): CostAwareRouteDecision {
+  const norm = input.message.toLocaleLowerCase("tr");
+  const primaryBound = input.explicitRefs?.[0] ?? input.session.active_assets[0] ?? null;
+  const activeCanvasId = input.session.current_canvas.asset_id ?? input.targetVideoId ?? null;
+  const hasActiveVisual = Boolean(primaryBound || activeCanvasId);
+
+  const wantsNewVideoGen = /(bunu videoya çevir|videoya çevir|videoya cevir|canlandır|canlandir|reels üret|video üret|video uret|hareketlendir)/.test(norm);
+  const wantsNewImageGen = /(yeni görsel|sıfırdan|sifirdan|fotoğraf üret|fotograf uret|resim üret)/.test(norm);
+  const wantsBgRemove = /(arka plan.*kaldır|arkaplan.*kaldir|arka planı sil|bg remove|transparan|şeffaf yap)/.test(norm);
+  const wantsUpscale = /(netleştir|netlestir|2x|upscale|çözünürlük artır)/.test(norm);
+  const wantsVoiceoverOnly = !wantsNewVideoGen && /(videoma ses|videoya ses|seslendirme|dış ses|dis ses|voiceover|konuşma ekle)/.test(norm);
+
+  const wantsSfxOrMotion =
+    /(ses efekt|sfx|tıklama|tiklama|kapak.*ses|sprey.*ses|damla.*ses|whoosh|soldan kay|kayan.*başlık|kayan.*yazı|ürün adı.*gelsin|fiyat rozeti|indirim etiketi|rozet ekle|kinetik|altyazı|altyazi|9:16 yap|hızlandır|yavaşlat|renk.*filtre|siyah beyaz)/.test(
+      norm,
+    );
+  const wantsVisualSceneEdit =
+    /(arkayı|arkasını|arka planı|masaya koy|zemin|ışığı|isigi|ortamı|ortami|stüdyo|mermer|ahşap|su damla|çiçek|güneş|değiştir|degistir|yerleştir|yerlestir|ekle)/.test(
+      norm,
+    );
+
+  // Planla: ürüne özel SFX + animasyon katmanı
+  const timeline = autoPlanProductSfxAndMotion({
+    userMessage: input.message,
+    vision: primaryBound?.vision ?? null,
+    currentTimeline: input.session.timeline_plan,
+    productTitleHint: primaryBound?.name ?? undefined,
+  });
+
+  // Karar 1: 0-Kredi Programatik Post-Prodüksiyon (aktif tuval veya bağlı varlık varken SFX/animasyon/kurgu komutu)
+  const canZeroCreditEdit =
+    Boolean(activeCanvasId || primaryBound?.upload_id) &&
+    wantsSfxOrMotion &&
+    !wantsNewImageGen &&
+    !wantsNewVideoGen &&
+    !wantsBgRemove &&
+    !wantsUpscale;
+
+  if (canZeroCreditEdit) {
+    const sourceId = input.targetVideoId ?? activeCanvasId ?? primaryBound!.upload_id;
+    const sfxSummary = timeline.sfx_track.map((s) => `${(s.timestamp_ms / 1000).toFixed(1)}s ${s.label_tr}`).join(", ") || "Otomatik ses dengesi";
+    const mgSummary = timeline.motion_layers.map((m) => m.text).filter(Boolean).join(", ");
+    return {
+      operation: "programmatic_edit",
+      modelKey: "ffmpeg-programmatic",
+      endpoint: "local/ffmpeg-sfx-timeline",
+      estimatedCostUsd: 0,
+      zeroCreditEdit: true,
+      boundAsset: primaryBound,
+      sourceCanvasId: sourceId,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `0 AI Kredisi (Programatik Kurgu): Mevcut tuval yeniden AI ile üretilmeden SFX (${sfxSummary})${mgSummary ? ` ve animasyon (${mgSummary})` : ""} işleniyor.`,
+    };
+  }
+
+  // Karar 2: Tek Adımlı Referans Düzenlemeleri (BG Remove / Upscale)
+  if (primaryBound && wantsBgRemove) {
+    return {
+      operation: "bg_remove",
+      modelKey: "bria-bg-remove",
+      endpoint: "fal-ai/bria/background/remove",
+      estimatedCostUsd: 0.018,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Varlık Kilidi Aktif (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/bria/background/remove ($0.018)`,
+    };
+  }
+  if (primaryBound && wantsUpscale) {
+    return {
+      operation: "upscale",
+      modelKey: "esrgan-upscale",
+      endpoint: "fal-ai/esrgan",
+      estimatedCostUsd: 0.005,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Varlık Kilidi Aktif (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/esrgan ($0.005)`,
+    };
+  }
+
+  // Karar 3: Bağlı Görseli Videoya Çevirme (Image-to-Video + Otomatik SFX Timeline)
+  if (primaryBound && primaryBound.kind === "image" && (wantsNewVideoGen || /(video|reels|klip|animasyon)/.test(norm))) {
+    const isPro = input.tier === "pro";
+    const modelKey = isPro ? "kling-v2-5-i2v" : "hailuo-02-fast-i2v";
+    const endpoint = isPro ? "fal-ai/kling-video/v2.5-turbo/pro/image-to-video" : "fal-ai/minimax/hailuo-02-fast/image-to-video";
+    const cost = isPro ? 0.35 : 0.102;
+    const fidelityPrompt = compileFidelityLockedPrompt(primaryBound.vision, input.message, "image_to_video");
+    return {
+      operation: "image_to_video",
+      modelKey,
+      endpoint,
+      estimatedCostUsd: cost,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt,
+      timeline,
+      preFlightSummaryTr: `Fidelity Lock I2V (${primaryBound.vision.subject_summary_tr}) · Model: ${endpoint} (~$${cost.toFixed(3)}) + Akıllı Ürün SFX`,
+    };
+  }
+
+  // Karar 4: Bağlı Görsel Üzerinde Kontext/Non-Destructive Edit (arkayı değiştir vb.)
+  if (primaryBound && primaryBound.kind === "image" && !wantsVoiceoverOnly && (wantsVisualSceneEdit || !wantsNewImageGen)) {
+    const fidelityPrompt = compileFidelityLockedPrompt(primaryBound.vision, input.message, "edit_image");
+    return {
+      operation: "edit_image_kontext",
+      modelKey: "nano-banana-edit",
+      endpoint: "fal-ai/nano-banana/edit",
+      estimatedCostUsd: 0.0398,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt,
+      timeline,
+      preFlightSummaryTr: `Sadece İsteneni Değiştir Kilidi (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/nano-banana/edit ($0.0398)`,
+    };
+  }
+
+  // Karar 5: Referanssız veya genel üretim (kademeli model seçimi)
+  if (wantsNewVideoGen || /(video|reels|hareketli|klip)/.test(norm)) {
+    const modelKey =
+      input.tier === "pro" ? "kling-v3-pro" : input.tier === "standard" ? "minimax-h3-max" : "minimax-h3-max-turbo";
+    const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
+    return {
+      operation: "generate_video",
+      modelKey,
+      endpoint: spec?.endpoint ?? "minimax/h3-max-turbo/text-to-video",
+      estimatedCostUsd: (spec?.unitCostUsd ?? 0.02) * 5,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: hasActiveVisual ? activeCanvasId : null,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Clean AI Video (${spec?.endpoint ?? modelKey} · ${spec?.unitLabel ?? "$0.02/sn"}) + Programatik SFX Katmanı`,
+    };
+  }
+
+  if (wantsVoiceoverOnly) {
+    const modelKey = input.tier === "pro" ? "elevenlabs-v3" : "elevenlabs-turbo-2-5";
+    const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
+    return {
+      operation: "voiceover",
+      modelKey,
+      endpoint: spec?.endpoint ?? "fal-ai/elevenlabs/tts/turbo-v2.5",
+      estimatedCostUsd: spec?.unitCostUsd ?? 0.05,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: activeCanvasId,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Türkçe Seslendirme · Model: ${spec?.endpoint ?? modelKey} (${spec?.unitLabel ?? "$0.05/1K kr"})`,
+    };
+  }
+
+  const wantsTextInImage = /(yazı olsun|afiş|poster|tipografi|üzerinde.*yaz)/.test(norm);
+  const imgModelKey = wantsTextInImage
+    ? "nano-banana-2"
+    : input.tier === "pro"
+      ? "nano-banana-pro"
+      : input.tier === "standard"
+        ? "flux-dev"
+        : "flux-schnell";
+  const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === imgModelKey);
+  return {
+    operation: "generate_image",
+    modelKey: imgModelKey,
+    endpoint: spec?.endpoint ?? "fal-ai/flux/schnell",
+    estimatedCostUsd: spec?.unitCostUsd ?? 0.003,
+    zeroCreditEdit: false,
+    boundAsset: primaryBound,
+    sourceCanvasId: null,
+    fidelityPrompt: null,
+    timeline,
+    preFlightSummaryTr: `Kademeli Görsel Üretimi · Model: ${spec?.endpoint ?? imgModelKey} (${spec?.unitLabel ?? "$0.003/MP"})`,
+  };
+}
+
 
