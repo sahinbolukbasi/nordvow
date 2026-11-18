@@ -984,6 +984,61 @@ export function CreativeComposer({
               orchestrator: res.orchestrator,
             },
           ]);
+        } else if (res.pipelineJobId) {
+          const pJobId = res.pipelineJobId;
+          setChatLog((prev) => [
+            ...prev,
+            { id: `b-pipe-${Date.now()}`, from: "bot", text: res.reply },
+          ]);
+          void (async () => {
+            for (let i = 0; i < 120; i++) {
+              await new Promise((r) => setTimeout(r, 3000));
+              try {
+                const poll = await fetch(`/api/creative/pipeline/${pJobId}`, { cache: "no-store" });
+                if (!poll.ok) continue;
+                const data = (await poll.json()) as { job?: { status?: string; outputUploadId?: string; error?: string } };
+                const j = data.job;
+                if (!j) continue;
+                if (j.status === "done" && j.outputUploadId) {
+                  setResult({
+                    assetId: j.outputUploadId,
+                    uploadId: j.outputUploadId,
+                    kind: "video",
+                    prompt: trimmed,
+                    format: res.format ?? "9:16",
+                  });
+                  setPanelOpen(true);
+                  setChatLog((prev) => [
+                    ...prev,
+                    {
+                      id: `b-pdone-${Date.now()}`,
+                      from: "bot",
+                      text: "AI Video montajınız hazır! Sağdaki önizlemeden izleyebilir veya kitaplıktan indirebilirsiniz.",
+                      assetId: j.outputUploadId,
+                      uploadId: j.outputUploadId,
+                      kind: "video",
+                      format: res.format ?? "9:16",
+                      prompt: trimmed,
+                      savedToLibrary: true,
+                    },
+                  ]);
+                  router.refresh();
+                  break;
+                }
+                if (j.status === "failed") {
+                  const errMsg = j.error || "Video üretimi/düzenlemesi tamamlanamadı.";
+                  setError(errMsg);
+                  setChatLog((prev) => [
+                    ...prev,
+                    { id: `b-pfail-${Date.now()}`, from: "bot", text: `Video işlemi başarısız: ${errMsg}` },
+                  ]);
+                  break;
+                }
+              } catch {
+                /* polling hatasında tekrar dene */
+              }
+            }
+          })();
         } else if (res.videoEditJobId) {
           const vJobId = res.videoEditJobId;
           setChatLog((prev) => [

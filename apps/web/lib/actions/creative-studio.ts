@@ -43,6 +43,7 @@ import {
 import { converseChat, parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
 import { enqueueVideoEdit } from "@infulancer/core/creative/video-edit";
+import { startAiVideoEditJob, startPhotoToVideoJob } from "@infulancer/core/creative/studio/jobQueue";
 import { downloadToFile, getOwnedUpload, importGeneratedAsset } from "@infulancer/core/creative/uploads";
 import { redirect } from "next/navigation";
 import { deleteObject } from "@infulancer/core/storage/s3";
@@ -363,6 +364,7 @@ export type CreativeDirectorResponse = {
   modelKey?: string;
   jobId?: string | null;
   videoEditJobId?: string | null;
+  pipelineJobId?: string | null;
   assetId?: string | null;
   availableCredits?: number;
   orchestrator?: OrchestratorMeta | null;
@@ -726,7 +728,47 @@ export async function chatCreativeDirectorAction(input: {
     return out;
   }
 
-  // 2b. Mevcut bir video üzerinde AI / FFmpeg düzenleme (kırp, 9:16, hız, renk, sessiz)
+  // 2b. Mevcut bir video üzerinde AI / FFmpeg düzenleme (altyazı, müzik, kırp, 9:16, hız, renk, sessiz)
+  const asksVideoAiPipeline =
+    Boolean(input.targetVideoAssetId) &&
+    /(altyazı|alt yazı|altyazi|subtitle|müzik|muzik|fon müziği|sahne)/.test(norm);
+
+  if (asksVideoAiPipeline && input.targetVideoAssetId) {
+    try {
+      const upload = await getOwnedUpload(tenantId, input.targetVideoAssetId);
+      if (upload.kind === "video") {
+        const pJob = await startAiVideoEditJob({
+          tenantId,
+          sourceUploadId: upload.id,
+          command: msg,
+          modelChoice: input.tier === "pro" ? "kling" : "hailuo",
+        });
+        const out: CreativeDirectorResponse = {
+          ok: true,
+          action: "generate",
+          reply: "AI Video Edit planınız oluşturuldu! Altyazı, müzik ve FFmpeg montajı arka planda hazırlanıyor; bitince önizlemede açılacak.",
+          kind: "video",
+          format: "9:16",
+          modelKey: "ai-video-edit",
+          pipelineJobId: pJob.id,
+          suggestions: DEFAULT_PROMPT_IDEAS,
+        };
+        await persistChatExchange(tenantId, msg, out);
+        return out;
+      }
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: "",
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
+  }
+
   const asksVideoEdit =
     Boolean(input.targetVideoAssetId) &&
     /(videoyu|bu video|kırp|kirp|kes|kadraj|9:16|1:1|16:9|hızlandır|hizlandir|yavaşlat|yavaslat|sessiz|sesi kapat|renk|filtre|canlı|canli|siyah beyaz|soldur|düzenle|duzenle)/.test(norm);
@@ -763,8 +805,45 @@ export async function chatCreativeDirectorAction(input: {
     }
   }
 
-  // 2c. Referans fotoğraf üzerinde tek adımlı AI düzenleme (arka plan kaldır / netleştir)
-  const refsPre = (input.referenceUploadIds ?? []).filter(Boolean).slice(0, 4);
+  // 2c. Çoklu fotoğraf (2-20) seçiliyse ve video/montaj istendiyse Storyboard + FFmpeg Photo-to-Video Pipeline
+  const refsPre = (input.referenceUploadIds ?? []).filter(Boolean).slice(0, 20);
+  if (refsPre.length >= 2 && /(video|reels|hareketli|klip|slayt|montaj)/.test(norm)) {
+    try {
+      const aspect = norm.includes("1:1") ? "1:1" : norm.includes("16:9") ? "16:9" : "9:16";
+      const pJob = await startPhotoToVideoJob({
+        tenantId,
+        uploadIds: refsPre,
+        modelChoice: input.tier === "pro" ? "kling" : "hailuo",
+        aspect,
+        goal: msg,
+      });
+      const out: CreativeDirectorResponse = {
+        ok: true,
+        action: "generate",
+        reply: `${refsPre.length} fotoğrafınız için çok sahneli AI Video Pipeline başlatıldı (${aspect}). Sahneler üretilip FFmpeg ile birleştirildiğinde önizlemede açılacak.`,
+        kind: "video",
+        format: aspect,
+        modelKey: pJob.modelKey,
+        pipelineJobId: pJob.id,
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: "",
+        availableCredits: await getAvailableCredits(tenantId).catch(() => undefined),
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
+  }
+
+  // 2d. Referans fotoğraf üzerinde tek adımlı AI düzenleme (arka plan kaldır / netleştir)
   const asksBgRemove = /(arka plan|arkaplan|bg remove|transparan|şeffaf)/.test(norm);
   const asksUpscale = /(netleştir|netlestir|kalite artır|kaliteyi artır|upscale|2x|çözünürlük)/.test(norm);
   if (refsPre.length > 0 && (asksBgRemove || asksUpscale)) {
