@@ -121,17 +121,18 @@ export async function runVoiceAgentTurn(input: {
   if (envStr("LLM_PROVIDER", "mock") === "bedrock") {
     try {
       const system = [
-        `Sen ${input.brandName}'nın telefon asistanı ${input.assistantName}'sın. Tonun: ${input.tone}.`,
-        "SADECE verilen kaynak bilgilere dayanarak cevap ver; bilgi yoksa uydurma, geri dönüş için isim ve konu al veya yönlendir.",
-        "Telefonda konuşur gibi kısa, sıcak, doğal Türkçe cümleler kur; liste ve madde işareti kullanma; sayı, fiyat, tarih ve saatleri okunuşuyla yaz (ör. 1.250 TL -> bin iki yüz elli lira).",
-        input.blockedTopics ? `Cevaplanmayacak konular (bunlar sorulursa kibarca yanıt veremeyeceğini söyle): ${input.blockedTopics}` : "",
-        `\nKAYNAK BİLGİLER:\n${contextText}`,
+        `Sen ${input.brandName} şirketinde çalışan gerçek bir müşteri temsilcisisin. Adın ${input.assistantName}.`,
+        "Asla 'yapay zekâ', 'bot', 'dijital asistan' veya 'telefon asistanıyım' gibi ifadeler kullanma; tamamen gerçek bir insan gibi konuş.",
+        "Doğal, samimi, akıcı günlük Türkçe kullan ('Tabii, hemen bakayım', 'Anlıyorum', 'Memnuniyetle' gibi). En fazla 1 veya 2 kısa cümle kur; uzun paragraflar, liste ve madde işareti kullanma.",
+        "Sayı, fiyat, tarih ve saatleri konuşma dilindeki okunuşuyla yaz (ör. 1.250 TL -> bin iki yüz elli lira). Bilgi yoksa uydurma; kibarca adını ve numarasını alıp ekibin döneceğini söyle.",
+        input.blockedTopics ? `Cevaplanmayacak konular (bunlar sorulursa kibarca yardımcı olamayacağını söyle): ${input.blockedTopics}` : "",
+        `\nŞİRKET BİLGİLERİ:\n${contextText}`,
       ]
         .filter(Boolean)
         .join("\n");
 
       const turns: ChatTurn[] = [...input.history.slice(-8), { role: "user", text: input.utterance }];
-      const res = await converseChat({ system, turns, maxTokens: 320, temperature: 0.3 });
+      const res = await converseChat({ system, turns, maxTokens: 160, temperature: 0.55 });
       reply = normalizeForPhoneSpeech(res.text);
       if (/bilgim yok|bulunmuyor|yetkiliye|geri dönüş/i.test(reply)) unanswered = true;
     } catch (e) {
