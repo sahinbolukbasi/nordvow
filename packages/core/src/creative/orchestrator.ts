@@ -226,6 +226,15 @@ export async function runStoryChatbotConverse(opts: {
         typeof data.fal_payload.prompt === "string"
       ) {
         if (opts.forceReady) data.status = "ready";
+        if (data.fal_payload.prompt.trim().length < 8) {
+          const userCombined = opts.messages
+            .filter((m) => m.role === "user")
+            .map((m) => m.text.trim())
+            .filter(Boolean)
+            .join(". ");
+          const asp = data.fal_payload.aspect_ratio || "9:16";
+          data.fal_payload.prompt = `Editorial ${asp} composition, professional studio lighting, high detail, modern social media aesthetic: ${userCombined || "luxury product lifestyle shot"}`;
+        }
         data.assistant_reply = stripMarkdownStars(data.assistant_reply);
         return data;
       }

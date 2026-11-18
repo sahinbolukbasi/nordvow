@@ -754,7 +754,7 @@ export function httpFal(): FalClient {
               }
             }
             console.warn("[fal] sync rejected:", appPath, syncRes.status, errText.slice(0, 300));
-            throw new CreativeRejectedError(humanizeCreativeError(errText || `HTTP ${syncRes.status}`));
+            throw new CreativeRejectedError(humanizeCreativeError(errText, syncRes.status));
           }
         } catch (err) {
           if (err instanceof CreativeRejectedError) throw err;
@@ -774,7 +774,7 @@ export function httpFal(): FalClient {
       if (!res.ok) {
         const errBody = await res.text().catch(() => "");
         console.warn("[fal] queue error:", appPath, res.status, errBody.slice(0, 300));
-        throw new Error(humanizeCreativeError(errBody || `HTTP ${res.status}`));
+        throw new Error(humanizeCreativeError(errBody, res.status));
       }
       const j = (await res.json()) as { request_id: string };
       studioJobCache.set(j.request_id, { appPath, input });

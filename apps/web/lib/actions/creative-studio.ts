@@ -1097,10 +1097,12 @@ export async function chatCreativeDirectorAction(input: {
       : undefined;
 
   try {
+    const rawPrompt = (decision.kind === "audio" ? decision.voiceoverScript || msg : decision.enhancedPrompt || msg).trim();
+    const safePrompt = rawPrompt.length >= 5 ? rawPrompt : `${rawPrompt || msg} — profesyonel stüdyo ışığında sosyal medya içeriği`.trim();
     const job = await submitGeneration({
       tenantId,
       modelKey,
-      prompt: decision.kind === "audio" ? decision.voiceoverScript || msg : decision.enhancedPrompt,
+      prompt: safePrompt,
       aspect: decision.format as Aspect,
       referenceUploadIds: decision.kind === "audio" ? [] : refs,
       voiceText: voiceScriptForVideo,
