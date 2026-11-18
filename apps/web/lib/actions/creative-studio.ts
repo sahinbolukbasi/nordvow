@@ -4,6 +4,7 @@ import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { submitEditPipeline, type EditAction } from "@infulancer/core/creative/edit";
+import { humanizeCreativeError } from "@infulancer/core/creative/errors";
 import { submitGeneration } from "@infulancer/core/creative/generate";
 import type { Aspect } from "@infulancer/core/creative/adapters";
 import { planVideoEditFromBrief } from "@infulancer/core/creative/video-brief";
@@ -274,6 +275,81 @@ export type OrchestratorMeta = {
   };
 };
 
+export type PersistedChatTurn = {
+  id: string;
+  from: "user" | "bot";
+  text: string;
+  postBrief?: string | null;
+  enhancedPrompt?: string | null;
+  voiceoverScript?: string | null;
+  assetId?: string | null;
+  uploadId?: string | null;
+  kind?: "image" | "video" | "audio";
+  format?: string;
+  modelKey?: string;
+  prompt?: string;
+  savedToLibrary?: boolean;
+  error?: string | null;
+};
+
+function chatHistoryKey(tenantId: string): string {
+  return `creative.chatHistory.${tenantId}`;
+}
+
+export async function loadCreativeChatHistory(tenantId: string): Promise<PersistedChatTurn[]> {
+  try {
+    const row = await prisma.configValue.findUnique({ where: { key: chatHistoryKey(tenantId) }, select: { value: true } });
+    return Array.isArray(row?.value) ? (row.value as PersistedChatTurn[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function persistChatExchange(tenantId: string, userText: string, res: CreativeDirectorResponse): Promise<void> {
+  try {
+    const existing = await loadCreativeChatHistory(tenantId);
+    const now = Date.now();
+    const userTurn: PersistedChatTurn = { id: `u-${now}`, from: "user", text: userText };
+    const botTurn: PersistedChatTurn = res.ok
+      ? {
+          id: `b-${now + 1}`,
+          from: "bot",
+          text: res.reply,
+          postBrief: res.postBrief ?? null,
+          enhancedPrompt: res.enhancedPrompt ?? null,
+          voiceoverScript: res.voiceoverScript ?? null,
+          assetId: res.assetId ?? null,
+          kind: res.kind,
+          format: res.format,
+          modelKey: res.modelKey,
+          prompt: res.enhancedPrompt ?? userText,
+          savedToLibrary: Boolean(res.assetId),
+        }
+      : {
+          id: `b-err-${now + 1}`,
+          from: "bot",
+          text: `İşlem tamamlanamadı: ${res.error ?? "Beklenmeyen hata"}`,
+          error: res.error ?? null,
+        };
+    const next = [...existing, userTurn, botTurn].slice(-60);
+    await prisma.configValue.upsert({
+      where: { key: chatHistoryKey(tenantId) },
+      create: { key: chatHistoryKey(tenantId), value: next as never },
+      update: { value: next as never },
+    });
+  } catch {
+    /* sohbet geçmişi kaydı ana akışı bozmasın */
+  }
+}
+
+export async function clearCreativeChatAction(): Promise<{ ok: boolean }> {
+  const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
+  const tenantId = await creativeTenantFor(actor);
+  await prisma.configValue.deleteMany({ where: { key: chatHistoryKey(tenantId) } });
+  revalidateAll();
+  return { ok: true };
+}
+
 export type CreativeDirectorResponse = {
   ok: boolean;
   error?: string;
@@ -286,6 +362,7 @@ export type CreativeDirectorResponse = {
   format?: "9:16" | "4:5" | "1:1" | "16:9";
   modelKey?: string;
   jobId?: string | null;
+  videoEditJobId?: string | null;
   assetId?: string | null;
   availableCredits?: number;
   orchestrator?: OrchestratorMeta | null;
@@ -565,7 +642,7 @@ export async function addVoiceoverToVideoAction(input: {
       await releaseHold(holdId).catch(() => undefined);
     }
     const avail = await getAvailableCredits(tenantId).catch(() => undefined);
-    const baseMsg = e instanceof Error ? e.message : "Videoya ses eklenemedi.";
+    const baseMsg = humanizeCreativeError(e);
     const withRefund = holdId && !(e instanceof InsufficientCreditsError) ? `${baseMsg} (Ücret alınmadı, bakiyeniz iade edildi.)` : baseMsg;
     return {
       ok: false,
@@ -609,20 +686,23 @@ export async function chatCreativeDirectorAction(input: {
   const wantsCapabilities = /(neler yapabilirsin|ne yapabiliyorsun|yeteneklerin|nasıl çalışır|ne üretebilirsin|yardım|kendini tanıt|neler yapıyorsun)/.test(norm);
 
   if ((isGreeting || wantsCapabilities) && !input.forceGenerate) {
-    return {
+    const out: CreativeDirectorResponse = {
       ok: true,
       action: "ask",
       reply:
-        "Merhaba! Hoş geldiniz, ben **Nordvow Creative AI** — kişisel kreatif yönetmeniniz ve üretim stüdyonuzum.\n\n" +
-        "Neler yapabildiğimi görmek ister misiniz? Sizin için tek bir sohbet ekranında şunları yapabiliyorum:\n\n" +
-        "• **1. Profesyonel Fotoğraf Üretimi (4:5 Post, 9:16 Story, 1:1 Kare):** Ürün çekimi, kafe & gastronomi, kozmetik makro çekim, editorial moda ve kampanya tasarımları (FLUX Schnell, Recraft V3, Ideogram V3, Nano Banana Pro).\n" +
-        "• **2. Sinematik Reels & Tanıtım Videosu (9:16 Dikey / 16:9 Yatay):** Fikrinizden sıfırdan 5-10 saniyelik videolar üretir veya yüklediğiniz bir ürün fotoğrafını hareketli Reels videosuna dönüştürürüm.\n" +
-        "• **3. Videolarınıza Türkçe AI Seslendirme (Voiceover) Üretme & Ekleme:** İstediğiniz metni doğal Türkçe seslendirmeye çevirip doğrudan videonuzun üzerine gömerim veya sıfırdan sesli video üretirim.\n" +
-        "• **4. Instagram Post Brief, Caption & Hashtag Stüdyosu:** Ayrı bir sayfaya gitmenize gerek kalmadan dikkat çekici başlık (Hook), açıklama metni, brief yapılacaklar listesi ve `#reklam` uyumlu hashtag setini burada hazırlarım.\n" +
-        "• **5. Akıllı Prompt Geliştirme & Kayıtlı Promptlar:** Kısaca ne istediğinizi söyleyin; ışık, kamera açısı ve stüdyo detaylarını ben tamamlayayım.\n\n" +
-        "Aşağıdaki fikir kartlarından birine tıklayarak detayı sohbet kutusuna ekleyebilir veya aklınızdaki fikri bana yazabilirsiniz. Bugün ne üretelim?",
+        "Merhaba! Hoş geldiniz, ben **Nordvow Creative AI** — tek ekranda tüm fotoğraf, video ve kurgu işlemlerinizi yöneten yapay zekâ stüdyonuzum.\n\n" +
+        "Sizin için bu sohbette doğrudan şunları yapabilirim:\n\n" +
+        "• **1. Fotoğraf Üretimi & Komutla Düzenleme:** Sıfırdan 4:5 Post, 9:16 Story, 1:1 Kare görsel üretir veya yüklediğiniz fotoğrafı komutla yeniden düzenlerim.\n" +
+        "• **2. Fotoğraf Arka Plan Kaldırma & 2x Netleştirme:** Fotoğraf yükleyip *“arka planı kaldır”* veya *“netleştir”* yazmanız yeterli.\n" +
+        "• **3. Fotoğraftan Sinematik Video (Image-to-Video):** Yüklediğiniz ürün/model fotoğrafını 5-10 sn akıcı Reels videosuna dönüştürürüm.\n" +
+        "• **4. AI Video Düzenleme & FFmpeg Kurgu:** Video yükleyip *“videoyu 9:16 yap, hızlandır, ilk 10 saniyeyi kes, canlı renk uygula”* gibi doğal komutlarla videonuzu yeniden işlerim.\n" +
+        "• **5. Videoya Türkçe AI Seslendirme (Voiceover):** İstediğiniz metni doğal Türkçe seslendirmeye çevirip doğrudan videonuzun üzerine gömerim.\n" +
+        "• **6. Instagram Post Brief, Caption & Hashtag:** Dikkat çekici açılış cümlesi, açıklama metni ve `#reklam` uyumlu hashtag seti hazırlarım.\n\n" +
+        "Dosya yükleyip ne yapmak istediğinizi yazabilir veya aşağıdaki fikir kartlarından birine tıklayabilirsiniz.",
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
+    await persistChatExchange(tenantId, msg, out);
+    return out;
   }
 
   // 2. Mevcut bir videoya ses üretip ekleme isteği kontrolü
@@ -637,11 +717,97 @@ export async function chatCreativeDirectorAction(input: {
     if (!script || script.length < 5) {
       script = "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
     }
-    return addVoiceoverToVideoAction({
+    const out = await addVoiceoverToVideoAction({
       videoId: input.targetVideoAssetId,
       scriptText: script,
       tier: input.tier,
     });
+    await persistChatExchange(tenantId, msg, out);
+    return out;
+  }
+
+  // 2b. Mevcut bir video üzerinde AI / FFmpeg düzenleme (kırp, 9:16, hız, renk, sessiz)
+  const asksVideoEdit =
+    Boolean(input.targetVideoAssetId) &&
+    /(videoyu|bu video|kırp|kirp|kes|kadraj|9:16|1:1|16:9|hızlandır|hizlandir|yavaşlat|yavaslat|sessiz|sesi kapat|renk|filtre|canlı|canli|siyah beyaz|soldur|düzenle|duzenle)/.test(norm);
+
+  if (asksVideoEdit && input.targetVideoAssetId) {
+    try {
+      const upload = await getOwnedUpload(tenantId, input.targetVideoAssetId);
+      if (upload.kind === "video") {
+        const plan = await planVideoEditFromBrief(msg, upload.durationSec ?? null);
+        const vJob = await enqueueVideoEdit({ tenantId, uploadId: upload.id, ops: plan.ops });
+        const out: CreativeDirectorResponse = {
+          ok: true,
+          action: "generate",
+          reply: `Video düzenleme planı hazırlandı (${plan.summary.join(" · ")}). FFmpeg ile işleniyor; tamamlanınca önizlemede açılacak.`,
+          kind: "video",
+          format: plan.ops.aspect === "orijinal" ? "9:16" : plan.ops.aspect,
+          modelKey: "ffmpeg-edit",
+          videoEditJobId: vJob.id,
+          suggestions: DEFAULT_PROMPT_IDEAS,
+        };
+        await persistChatExchange(tenantId, msg, out);
+        return out;
+      }
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: "",
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
+  }
+
+  // 2c. Referans fotoğraf üzerinde tek adımlı AI düzenleme (arka plan kaldır / netleştir)
+  const refsPre = (input.referenceUploadIds ?? []).filter(Boolean).slice(0, 4);
+  const asksBgRemove = /(arka plan|arkaplan|bg remove|transparan|şeffaf)/.test(norm);
+  const asksUpscale = /(netleştir|netlestir|kalite artır|kaliteyi artır|upscale|2x|çözünürlük)/.test(norm);
+  if (refsPre.length > 0 && (asksBgRemove || asksUpscale)) {
+    try {
+      const action: EditAction = asksBgRemove ? "arka-plan-kaldir" : "netlestir";
+      const job = await submitEditPipeline({
+        tenantId,
+        uploadId: refsPre[0]!,
+        steps: [{ action, prompt: msg }],
+      });
+      if ((process.env.FAL_MODE ?? "mock") === "mock" && job.requestId) {
+        await handleFalWebhook({ request_id: job.requestId, status: "OK", payload: { image: { url: `studio://image/${job.requestId}` } } }).catch(() => undefined);
+      }
+      const asset = await prisma.generatedAsset.findFirst({ where: { jobId: job.id }, select: { id: true } });
+      const avail = await getAvailableCredits(tenantId).catch(() => undefined);
+      const out: CreativeDirectorResponse = {
+        ok: true,
+        action: "generate",
+        reply: asksBgRemove
+          ? "Fotoğrafınızın arka planı kaldırılıyor; tamamlandığında önizlemede ve kitaplıkta görünecek."
+          : "Fotoğrafınız 2x netleştiriliyor; tamamlandığında önizlemede ve kitaplıkta görünecek.",
+        kind: "image",
+        format: "4:5",
+        modelKey: job.modelKey,
+        jobId: asset ? null : job.id,
+        assetId: asset?.id ?? null,
+        availableCredits: avail,
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: "",
+        availableCredits: await getAvailableCredits(tenantId).catch(() => undefined),
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
   }
 
   // 3. Yalnızca Post Brief & Caption isteği (görsel/video üretmeden metin & brief hazırlama)
@@ -965,7 +1131,7 @@ export async function chatCreativeDirectorAction(input: {
     });
     revalidateAll();
 
-    return {
+    const out: CreativeDirectorResponse = {
       ok: true,
       action: "generate",
       reply: decision.reply,
@@ -981,11 +1147,13 @@ export async function chatCreativeDirectorAction(input: {
       orchestrator: orchestratorMeta,
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
+    await persistChatExchange(tenantId, msg, out);
+    return out;
   } catch (e) {
     const avail = await getAvailableCredits(tenantId).catch(() => undefined);
-    const msgErr = e instanceof Error ? e.message : "Üretim başlatılamadı.";
+    const msgErr = humanizeCreativeError(e);
     const note = e instanceof InsufficientCreditsError ? msgErr : `${msgErr} (Ücret alınmadı, bakiyeniz korundu.)`;
-    return {
+    const out: CreativeDirectorResponse = {
       ok: false,
       error: note,
       action: "ask",
@@ -993,5 +1161,7 @@ export async function chatCreativeDirectorAction(input: {
       availableCredits: avail,
       suggestions: DEFAULT_PROMPT_IDEAS,
     };
+    await persistChatExchange(tenantId, msg, out);
+    return out;
   }
 }

@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import {
   addVoiceoverToVideoAction,
   chatCreativeDirectorAction,
+  clearCreativeChatAction,
   deleteCreativePromptAction,
   openAssetInStudioAction,
   saveAssetToLibraryAction,
   saveCreativePromptAction,
   type CreditTier,
   type OrchestratorMeta,
+  type PersistedChatTurn,
   type PromptIdeaItem,
   type SavedPromptItem,
 } from "@/lib/actions/creative-studio";
@@ -403,6 +405,7 @@ export function CreativeComposer({
   initialPrompt = "",
   initialRefId,
   initialHistory = [],
+  initialChatTurns = [],
   initialActiveJob = null,
   initialSavedPrompts = [],
 }: {
@@ -418,6 +421,7 @@ export function CreativeComposer({
   initialKind?: CreativeKind;
   initialRefId?: string;
   initialHistory?: ChatHistoryItem[];
+  initialChatTurns?: PersistedChatTurn[];
   initialActiveJob?: ActiveJobState | null;
   initialSavedPrompts?: SavedPromptItem[];
 }) {
@@ -518,6 +522,28 @@ export function CreativeComposer({
 
   // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
+    if (initialChatTurns.length > 0) {
+      return [
+        WELCOME_TURN,
+        ...initialChatTurns.map((t) => ({
+          id: t.id,
+          from: t.from,
+          text: t.text,
+          postBrief: t.postBrief,
+          enhancedPrompt: t.enhancedPrompt,
+          voiceoverScript: t.voiceoverScript,
+          assetId: t.assetId,
+          uploadId: t.uploadId,
+          kind: t.kind,
+          format: t.format,
+          modelKey: t.modelKey,
+          prompt: t.prompt,
+          savedToLibrary: t.savedToLibrary,
+          error: t.error,
+          isHistorical: true,
+        })),
+      ];
+    }
     if (!initialHistory.length) return [WELCOME_TURN];
     const turns: ChatTurn[] = [WELCOME_TURN];
     const sorted = [...initialHistory].slice(0, 6).reverse();
@@ -634,6 +660,7 @@ export function CreativeComposer({
 
   const startNewChat = () => {
     saveCurrentIfNeeded();
+    void clearCreativeChatAction().catch(() => undefined);
     const nextSeq = sessionSeq + 1;
     setSessionSeq(nextSeq);
     setActiveSessionId(`local-${nextSeq}`);
@@ -957,6 +984,63 @@ export function CreativeComposer({
               orchestrator: res.orchestrator,
             },
           ]);
+        } else if (res.videoEditJobId) {
+          const vJobId = res.videoEditJobId;
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-vedit-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+            },
+          ]);
+          void (async () => {
+            for (let i = 0; i < 90; i++) {
+              await new Promise((r) => setTimeout(r, 2500));
+              try {
+                const poll = await fetch(`/api/creative/video-job/${vJobId}`, { cache: "no-store" });
+                if (!poll.ok) continue;
+                const data = (await poll.json()) as { status?: string; outputUploadId?: string; error?: string };
+                if (data.status === "DONE" && data.outputUploadId) {
+                  setResult({
+                    assetId: data.outputUploadId,
+                    uploadId: data.outputUploadId,
+                    kind: "video",
+                    prompt: trimmed,
+                    format: res.format ?? "9:16",
+                  });
+                  setPanelOpen(true);
+                  setChatLog((prev) => [
+                    ...prev,
+                    {
+                      id: `b-vdone-${Date.now()}`,
+                      from: "bot",
+                      text: "Video düzenlemeniz tamamlandı! Sağdaki önizlemeden izleyebilir veya kitaplıktan indirebilirsiniz.",
+                      assetId: data.outputUploadId,
+                      uploadId: data.outputUploadId,
+                      kind: "video",
+                      format: res.format ?? "9:16",
+                      prompt: trimmed,
+                      savedToLibrary: true,
+                    },
+                  ]);
+                  router.refresh();
+                  break;
+                }
+                if (data.status === "FAILED") {
+                  const errMsg = data.error || "Video düzenlenemedi.";
+                  setError(errMsg);
+                  setChatLog((prev) => [
+                    ...prev,
+                    { id: `b-vfail-${Date.now()}`, from: "bot", text: `Video düzenleme başarısız: ${errMsg}` },
+                  ]);
+                  break;
+                }
+              } catch {
+                /* polling hatasında bir sonraki turda tekrar dene */
+              }
+            }
+          })();
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Üretim başlatılırken beklenmeyen bir hata oluştu.");

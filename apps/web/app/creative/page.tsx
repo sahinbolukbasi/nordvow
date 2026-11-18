@@ -12,10 +12,13 @@ import { rateFromTry, creativePricing, unitPriceTry } from "@infulancer/core/cre
 import { reconcileStaleJobs } from "@infulancer/core/creative/fal";
 import { PricingForm } from "@/components/creative/pricing-form";
 import { CreditRequestForm } from "@/components/creative/credit-request-form";
-import { StudioEditor, type StudioUpload } from "@/components/creative/studio-editor";
-import { VideoStudioPipeline } from "@/components/creative/video-studio-pipeline";
 import { AssetThumb } from "@/components/creative/asset-thumb";
-import { listSavedPromptsForTenant, openAssetInStudioAction, saveAssetToLibraryAction, saveFalKeyAction } from "@/lib/actions/creative-studio";
+import {
+  listSavedPromptsForTenant,
+  loadCreativeChatHistory,
+  saveAssetToLibraryAction,
+  saveFalKeyAction,
+} from "@/lib/actions/creative-studio";
 import { resolveFalKey } from "@infulancer/core/creative/fal";
 import { getConfig } from "@infulancer/core/config/store";
 import { withUnverified } from "@infulancer/core/unverified";
@@ -36,7 +39,7 @@ export const dynamic = "force-dynamic";
 
 const usd = new Intl.NumberFormat("tr-TR", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
 
-type Tab = "uret" | "galeri" | "studyo" | "yonetim";
+type Tab = "uret" | "galeri" | "yonetim";
 type SP = {
   sekme?: string;
   tur?: string;
@@ -184,39 +187,19 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
     }
     : null;
 
-  const studioUploads: StudioUpload[] = library.map((u) => ({
-    id: u.id,
-    kind: u.kind === "video" ? "video" : "image",
-    name: u.name,
-    mime: u.mime,
-    sizeBytes: u.sizeBytes,
-    source: u.source,
-    durationSec: u.durationSec,
-    createdAt: u.createdAt.toISOString(),
-  }));
-
-  const studioPrices = {
-    currency,
-    minTry: minCharge,
-    promptEdit: priceOf("nano-banana-edit", 6),
-    bgRemove: priceOf("bria-bg-remove", 3),
-    upscale: priceOf("esrgan-upscale", 1),
-    i2vPerSec: priceOf("kling-v2-5-i2v", 11),
-    i2vEcoPerSec: priceOf("hailuo-02-fast-i2v", 3),
-  };
-
   const available = avail(own);
   const completed = jobs.filter((j) => j.status === "COMPLETED").length;
   const adBase = actor.role === "ADMIN" ? "/admin/reklam" : actor.role === "BRAND" ? "/marka/reklam" : null;
 
-  const [savedPrompts, currentFalKey] = await Promise.all([
+  const [savedPrompts, currentFalKey, initialChatTurns] = await Promise.all([
     listSavedPromptsForTenant(own),
     isAdmin ? resolveFalKey() : Promise.resolve(""),
+    loadCreativeChatHistory(own),
   ]);
 
   const rawTab = sp.sekme === "kitaplik" ? "galeri" : sp.sekme;
   const tab: Tab =
-    rawTab === "galeri" || rawTab === "studyo" || (rawTab === "yonetim" && isAdmin)
+    rawTab === "galeri" || (rawTab === "yonetim" && isAdmin)
       ? (rawTab as Tab)
       : "uret";
 
@@ -227,7 +210,6 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
   const tabs = [
     { id: "uret", label: "Nordvow Creative AI", href: "/creative" },
     { id: "galeri", label: "Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
-    { id: "studyo", label: "Düzenleyici", href: "/creative?sekme=studyo" },
     ...(isAdmin ? [{ id: "yonetim", label: "Yönetim", href: "/creative?sekme=yonetim" }] : []),
   ];
 
@@ -306,6 +288,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           initialKind={initialKind}
           initialRefId={sp.ref}
           initialHistory={chatHistory}
+          initialChatTurns={initialChatTurns}
           initialActiveJob={initialActiveJob}
           initialSavedPrompts={savedPrompts}
         />
@@ -328,20 +311,6 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           filter={sp.tur}
           completed={completed}
         />
-      ) : null}
-
-      {/* 3. Sekme: Düzenleyici (Video & Fotoğraf Stüdyosu) */}
-      {tab === "studyo" ? (
-        <div className="flex flex-col gap-6">
-          <VideoStudioPipeline uploads={studioUploads} />
-          <StudioEditor
-            uploads={studioUploads}
-            available={available}
-            prices={studioPrices}
-            isAdmin={isAdmin}
-            initialSelected={sp.dosya}
-          />
-        </div>
       ) : null}
 
       {/* 4. Sekme: Yönetici Bakiye, fal.ai API & Model Yönetimi */}
@@ -678,26 +647,14 @@ async function UnifiedLibrary({
                       </form>
                     ) : null}
 
-                    {/* Hem Video hem Fotoğraf için Düzenleyiciye Gönder */}
+                    {/* Hem Video hem Fotoğraf için AI Sohbette Düzenle */}
                     {item.kind !== "audio" ? (
-                      item.uploadId ? (
-                        <Link
-                          href={`/creative?sekme=studyo&dosya=${item.uploadId}`}
-                          className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
-                        >
-                          {tt("Düzenle")}
-                        </Link>
-                      ) : item.assetId ? (
-                        <form action={openAssetInStudioAction}>
-                          <input type="hidden" name="assetId" value={item.assetId} />
-                          <button
-                            type="submit"
-                            className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
-                          >
-                            {tt("Düzenle")}
-                          </button>
-                        </form>
-                      ) : null
+                      <Link
+                        href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&prompt=${encodeURIComponent(item.kind === "video" ? "Bu videoyu 9:16 dikey formata kırpıp renklerini canlandır" : "Bu fotoğrafın arka planını temizleyip stüdyo ışığında düzenle")}`}
+                        className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
+                      >
+                        {tt("AI Sohbette Düzenle")}
+                      </Link>
                     ) : null}
 
                     {/* Fotoğraf ise AI Sohbette Referans / Sesli Videoya Çevir */}

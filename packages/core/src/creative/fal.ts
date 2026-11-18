@@ -12,6 +12,7 @@ import { objectStore } from "../channels/raw-store";
 import { embedC2pa } from "./c2pa";
 import { chargeHold, placeHold, releaseHold } from "./credits";
 import { assertNoRealPersonClone } from "./md2712";
+import { humanizeCreativeError } from "./errors";
 import { resolveModel } from "./registry";
 import { withCircuitBreaker } from "../resilience/circuit-breaker";
 
@@ -731,7 +732,29 @@ export function httpFal(): FalClient {
               return { requestId };
             }
           } else if (syncRes.status === 401 || syncRes.status === 403) {
-            throw new CreativeRejectedError(`fal.ai API anahtarı geçersiz veya yetkisiz (HTTP ${syncRes.status}). Lütfen FAL_KEY değerini kontrol edin.`);
+            throw new CreativeRejectedError(humanizeCreativeError(`HTTP ${syncRes.status}`));
+          } else if (syncRes.status === 400 || syncRes.status === 402 || syncRes.status === 413 || syncRes.status === 422) {
+            const errText = await syncRes.text().catch(() => "");
+            if (appPath.includes("nano-banana/edit") && ("output_format" in cleanInput || "num_images" in cleanInput)) {
+              const fallbackInput: Record<string, unknown> = { prompt: cleanInput.prompt, image_urls: cleanInput.image_urls };
+              const retryRes = await fetch(`https://fal.run/${appPath}`, {
+                method: "POST",
+                headers: { authorization: authHeader, "content-type": "application/json" },
+                body: JSON.stringify(fallbackInput),
+                signal: AbortSignal.timeout(35_000),
+              }).catch(() => null);
+              if (retryRes?.ok) {
+                const payload = (await retryRes.json()) as FalWebhook["payload"];
+                if (payload?.images?.[0]?.url || payload?.image?.url) {
+                  const requestId = `req_sync_${Date.now()}_${++n}`;
+                  syncPayloadCache.set(requestId, payload);
+                  studioJobCache.set(requestId, { appPath, input });
+                  return { requestId };
+                }
+              }
+            }
+            console.warn("[fal] sync rejected:", appPath, syncRes.status, errText.slice(0, 300));
+            throw new CreativeRejectedError(humanizeCreativeError(errText || `HTTP ${syncRes.status}`));
           }
         } catch (err) {
           if (err instanceof CreativeRejectedError) throw err;
@@ -750,7 +773,8 @@ export function httpFal(): FalClient {
       }
       if (!res.ok) {
         const errBody = await res.text().catch(() => "");
-        throw new Error(`fal.ai üretim hatası (HTTP ${res.status}): ${errBody.slice(0, 200)}`);
+        console.warn("[fal] queue error:", appPath, res.status, errBody.slice(0, 300));
+        throw new Error(humanizeCreativeError(errBody || `HTTP ${res.status}`));
       }
       const j = (await res.json()) as { request_id: string };
       studioJobCache.set(j.request_id, { appPath, input });
@@ -855,7 +879,7 @@ export async function submitCreative(input: {
     return updated;
   } catch (e) {
     await releaseHold(hold.id);
-    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: String((e as Error).message) } });
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: humanizeCreativeError(e).slice(0, 300) } });
     throw e;
   }
 }
@@ -871,7 +895,7 @@ export async function handleFalWebhook(w: FalWebhook) {
 
   if (w.status !== "OK") {
     if (job.creditHoldId) await releaseHold(job.creditHoldId);
-    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: w.error ?? "fal ERROR", completedAt: new Date() } });
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: humanizeCreativeError(w.error ?? "fal ERROR").slice(0, 300), completedAt: new Date() } });
     return { handled: true, status: "FAILED" as const };
   }
   const url = w.payload?.images?.[0]?.url ?? w.payload?.image?.url ?? w.payload?.video?.url ?? w.payload?.audio?.url;

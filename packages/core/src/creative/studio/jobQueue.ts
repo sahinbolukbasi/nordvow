@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "../../db";
 import { objectStore } from "../../channels/raw-store";
 import { chargeHold, placeHold, releaseHold } from "../credits";
+import { humanizeCreativeError } from "../errors";
 import { fal, type FalWebhook } from "../fal";
 import { getOwnedUpload } from "../uploads";
 import { planAiVideoEdit } from "./editPlanner";
@@ -378,7 +379,7 @@ async function failPipelineJob(jobId: string, errorMsg: string) {
   }
   await prisma.videoPipelineJob.update({
     where: { id: jobId },
-    data: { status: "failed", error: `${errorMsg.slice(0, 300)} (Ücret alınmadı, bakiye korundu.)` },
+    data: { status: "failed", error: `${humanizeCreativeError(errorMsg).slice(0, 260)} (Ücret alınmadı, bakiye korundu.)` },
   });
 }
 
