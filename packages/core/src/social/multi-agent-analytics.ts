@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { cleanSocialHandle } from "./handle";
 import { envStr } from "../env";
 import { converseChat } from "../llm/bedrock";
 import { vault } from "../channels/vault";
@@ -227,7 +228,7 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
   if (!inf) return null;
 
   const igAcc = inf.socialAccounts.find((a) => a.platform === "INSTAGRAM") ?? inf.socialAccounts[0];
-  const handle = (igAcc?.handle ?? inf.name.toLowerCase().replace(/\s+/g, "")).replace(/^@/, "");
+  const handle = cleanSocialHandle(igAcc?.handle ?? inf.name, "INSTAGRAM");
 
   const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
   const token =

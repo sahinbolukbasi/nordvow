@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../db";
+import { cleanSocialHandle } from "./handle";
 import { envStr } from "../env";
 import type { Platform } from "../generated/prisma/enums";
 import { vault } from "../channels/vault";
@@ -38,14 +39,14 @@ export interface SocialProvider {
   fetch(platform: Platform, handle: string, ctx: { tokenRef: string | null }): Promise<ProfileStats>;
 }
 
-function cleanHandle(h: string) {
-  return h.trim().replace(/^@/, "").replace(/^https?:\/\/(www\.)?(instagram|tiktok|youtube)\.com\/@?/i, "").replace(/\/.*$/, "");
+function cleanHandle(h: string, platform?: Platform) {
+  return cleanSocialHandle(h, platform);
 }
 
 /** Deterministik mock: aynı handle her zaman aynı değerleri üretir; 'yok' içeren handle → bulunamadı. */
 export const mockSocial: SocialProvider = {
   async fetch(platform, rawHandle) {
-    const handle = cleanHandle(rawHandle);
+    const handle = cleanHandle(rawHandle, platform);
     if (handle.includes("yok")) throw new SyncError(`@${handle} hesabı bulunamadı.`, "NOT_FOUND");
     const h = createHash("sha256").update(`${platform}:${handle}`).digest();
     const followers = 20_000 + (h.readUInt32BE(0) % 900_000);
@@ -77,7 +78,7 @@ async function getJson(url: string, init?: RequestInit) {
 
 export const httpSocial: SocialProvider = {
   async fetch(platform, rawHandle, ctx) {
-    const handle = cleanHandle(rawHandle);
+    const handle = cleanHandle(rawHandle, platform);
     if (platform === "INSTAGRAM") {
       const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
       const token =

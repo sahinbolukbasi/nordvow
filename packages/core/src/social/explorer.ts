@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../db";
+import { cleanSocialHandle } from "./handle";
 import { envStr } from "../env";
 import { converseChat } from "../llm/bedrock";
 import { invokeAgentCore, isAgentCoreEnabled } from "../assistant/agentcore";
@@ -265,7 +266,7 @@ async function fetchMetaGraphMedia(
   detail: string;
 }> {
   const start = Date.now();
-  const clean = handle.trim().replace(/^@/, "");
+  const clean = cleanSocialHandle(handle, "INSTAGRAM");
 
   if (oauth?.tokenRef && oauth.externalId) {
     try {
@@ -448,7 +449,7 @@ export async function runInstagramExplorerForInfluencer(
   if (!inf) return null;
 
   const igAcc = inf.socialAccounts.find((a) => a.platform === "INSTAGRAM") ?? inf.socialAccounts[0];
-  const handle = (igAcc?.handle ?? inf.name.toLowerCase().replace(/\s+/g, "")).replace(/^@/, "");
+  const handle = cleanSocialHandle(igAcc?.handle ?? inf.name, "INSTAGRAM");
 
   const rawLogs: RawScanLogEntry[] = [];
 
