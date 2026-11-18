@@ -20,8 +20,17 @@ locals {
     "ads-budget-batch"          = "cron(0 * * * ? *)"
     "webhook-dedupe-ttl"        = "cron(30 3 * * ? *)"
     "social-sync"               = "rate(6 hours)"
+    "social-multi-agent"        = "cron(0 8 * * ? *)"
+    "fx-refresh"                = "rate(6 hours)"
     "trackers"                  = "rate(1 hour)"
+    "campaign-content-tracker"  = "rate(1 hour)"
+    "deliverable-auto-approve"  = "rate(15 minutes)"
     "offer-expiry"              = "rate(1 hour)"
+    "cargo-tracking-sync"       = "rate(30 minutes)"
+    "tiktok-token-refresh"      = "rate(30 minutes)"
+    "tiktok-sync"               = "rate(6 hours)"
+    "tiktok-daily-snapshot"     = "cron(0 2 * * ? *)"
+    "tiktok-publish-poll"       = "rate(5 minutes)"
   } : {}
 }
 

@@ -26,7 +26,7 @@ export type ProfileStats = {
   profileUrl: string | null;
   avatarUrl: string | null;
   verified: boolean;
-  source: "instagram_business_discovery" | "youtube_data" | "tiktok_oauth" | "mock";
+  source: "instagram_business_discovery" | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock";
 };
 
 export class SyncError extends Error {
@@ -135,8 +135,13 @@ export const httpSocial: SocialProvider = {
         source: "youtube_data",
       };
     }
-    // TikTok: yalnız influencer'ın kendi OAuth bağlantısı ile
-    if (!ctx.tokenRef) throw new SyncError("TikTok verisi için influencer'ın hesabını bağlaması gerekiyor (bağlantı linki gönderin).", "NEEDS_OAUTH");
+    // TikTok: OAuth varsa Display API, yoksa herkese açık profil meta verisi fallback'i
+    if (!ctx.tokenRef) {
+      if (!handle) throw new SyncError("Geçerli bir TikTok kullanıcı adı girin.", "NOT_FOUND");
+      const pub = await fetchPublicTikTokProfile(handle);
+      if (pub) return pub;
+      throw new SyncError("TikTok verisi için influencer'ın hesabını bağlaması gerekiyor (bağlantı linki gönderin).", "NEEDS_OAUTH");
+    }
     const token = await vault().get(ctx.tokenRef);
     const j = (await getJson("https://open.tiktokapis.com/v2/user/info/?fields=open_id,follower_count,video_count,likes_count,avatar_url,is_verified,profile_deep_link", {
       headers: { authorization: `Bearer ${token}` },
@@ -295,5 +300,52 @@ export const syncSourceLabels: Record<string, string> = {
   instagram_business_discovery: "Instagram API",
   youtube_data: "YouTube API",
   tiktok_oauth: "TikTok (influencer bağlantısı)",
+  tiktok_public: "TikTok (açık profil)",
   mock: "Demo veri (API anahtarı yok)",
 };
+
+async function fetchPublicTikTokProfile(handle: string): Promise<ProfileStats | null> {
+  try {
+    const res = await fetch(`https://www.tiktok.com/@${encodeURIComponent(handle)}`, {
+      headers: {
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "accept-language": "tr-TR,tr;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m?.[1]) return null;
+    const parsed = JSON.parse(m[1]) as {
+      __DEFAULT_SCOPE__?: {
+        "webapp.user-detail"?: {
+          userInfo?: {
+            user?: { id?: string; uniqueId?: string; avatarLarger?: string; avatarMedium?: string; verified?: boolean };
+            stats?: { followerCount?: number; videoCount?: number; heartCount?: number; heart?: number };
+          };
+        };
+      };
+    };
+    const info = parsed.__DEFAULT_SCOPE__?.["webapp.user-detail"]?.userInfo;
+    if (!info?.user || !info?.stats) return null;
+    const followers = Number(info.stats.followerCount ?? 0);
+    const videos = Number(info.stats.videoCount ?? 0);
+    const hearts = Number(info.stats.heartCount ?? info.stats.heart ?? 0);
+    return {
+      externalId: info.user.id ?? null,
+      followers,
+      postsCount: videos,
+      avgLikes: videos > 0 ? Math.round(hearts / videos) : null,
+      avgComments: null,
+      avgViews: null,
+      engagementRate: followers > 0 && videos > 0 ? hearts / videos / followers : null,
+      profileUrl: `https://www.tiktok.com/@${info.user.uniqueId ?? handle}`,
+      avatarUrl: info.user.avatarLarger ?? info.user.avatarMedium ?? null,
+      verified: !!info.user.verified,
+      source: "tiktok_public",
+    };
+  } catch {
+    return null;
+  }
+}
