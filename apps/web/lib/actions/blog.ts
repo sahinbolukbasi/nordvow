@@ -32,7 +32,7 @@ export async function saveBlogPostAction(
       content: str(fd, "content"),
       coverImageUrl: optStr(fd, "coverImageUrl"),
       category: optStr(fd, "category") ?? "Influencer Pazarlama",
-      tags: tags(str(fd, "tags")),
+      tags: tags(str(fd, "tags")).map((t) => t.replace(/^#+/, "").trim()).filter(Boolean),
       targetAudience,
       status,
       seoTitle: optStr(fd, "seoTitle"),

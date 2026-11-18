@@ -53,7 +53,7 @@ export async function generateMetadata({
   };
 }
 
-export default async function PublicBlogPostPage({
+export default async function BlogPostPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -91,7 +91,7 @@ export default async function PublicBlogPostPage({
   };
 
   return (
-    <article className="mx-auto flex max-w-3xl flex-col gap-8 py-12">
+    <article className="mx-auto flex max-w-3xl flex-col gap-7 py-6">
       <BlogReadTracker slug={post.slug} />
       <script
         type="application/ld+json"
@@ -103,8 +103,8 @@ export default async function PublicBlogPostPage({
       />
 
       <nav aria-label="İçerik yolu" className="flex items-center gap-2 text-xs text-fg-passive">
-        <Link href="/blog" className="hover:text-fg">
-          Blog
+        <Link href="/blog" className="rounded-lg border border-line px-2.5 py-1 text-fg hover:bg-surface-hover">
+          ← Tüm yazılar
         </Link>
         <span>/</span>
         <Link
@@ -115,7 +115,7 @@ export default async function PublicBlogPostPage({
         </Link>
       </nav>
 
-      <header className="flex flex-col gap-4 border-b border-line pb-8">
+      <header className="flex flex-col gap-4 border-b border-line pb-6">
         <div className="flex flex-wrap items-center gap-2 text-xs text-fg-passive">
           <span className="rounded-full bg-fg/10 px-3 py-1 font-medium text-fg">
             {post.category}
@@ -128,7 +128,6 @@ export default async function PublicBlogPostPage({
         <h1 className="text-3xl font-semibold leading-tight tracking-tight text-fg sm:text-4xl">
           {post.title}
         </h1>
-        <p className="text-lg leading-relaxed text-fg-muted">{post.excerpt}</p>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-passive">
           <span className="font-medium text-fg">{post.authorName}</span>
@@ -138,9 +137,21 @@ export default async function PublicBlogPostPage({
           <span>{post.readingTimeMin} dk okuma</span>
           <span>·</span>
           <span>{post.viewCount.toLocaleString("tr-TR")} görüntülenme</span>
-          <span>·</span>
-          <span>{post.readCount.toLocaleString("tr-TR")} tam okuma</span>
         </div>
+
+        {post.tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {post.tags.map((tag) => (
+              <Link
+                key={tag}
+                href={`/blog?etiket=${encodeURIComponent(tag.replace(/^#+/, ""))}`}
+                className="rounded-full border border-neon-pink/30 bg-neon-pink/10 px-2.5 py-0.5 text-xs font-medium text-neon-pink hover:bg-neon-pink/20"
+              >
+                #{tag.replace(/^#+/, "")}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </header>
 
       {post.coverImageUrl ? (
@@ -152,6 +163,15 @@ export default async function PublicBlogPostPage({
         />
       ) : null}
 
+      {post.excerpt ? (
+        <div className="rounded-2xl border border-line bg-surface/60 p-4 sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-passive">
+            Yazı Özeti
+          </p>
+          <p className="mt-1.5 text-[15px] leading-relaxed text-fg">{post.excerpt}</p>
+        </div>
+      ) : null}
+
       <BlogMarkdown content={post.content} />
 
       {post.tags.length > 0 ? (
@@ -159,10 +179,10 @@ export default async function PublicBlogPostPage({
           {post.tags.map((tag) => (
             <Link
               key={tag}
-              href={`/blog?q=${encodeURIComponent(tag)}`}
+              href={`/blog?etiket=${encodeURIComponent(tag.replace(/^#+/, ""))}`}
               className="rounded-full border border-line px-3 py-1 text-xs text-fg-muted hover:border-fg/40 hover:text-fg"
             >
-              #{tag}
+              #{tag.replace(/^#+/, "")}
             </Link>
           ))}
         </footer>
@@ -193,4 +213,3 @@ export default async function PublicBlogPostPage({
     </article>
   );
 }
-

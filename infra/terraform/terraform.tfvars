@@ -17,3 +17,5 @@ bedrock_text_model_id = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 domain_name      = "nordvow.com"
 domain_validated = true
 meta_api_mode    = "http"
+
+enable_voice_assistant = true

@@ -45,3 +45,4 @@ export function InviteRequestStatusButtons({ id, current }: { id: string; curren
     </div>
   );
 }
+

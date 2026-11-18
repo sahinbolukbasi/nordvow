@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { BlogAudience, BlogStatus } from "@infulancer/core/enums";
+import { mediaSrc } from "@/lib/media";
 
 const BLOG_CATEGORIES = [
   "Influencer Pazarlama",
@@ -51,9 +52,48 @@ export type AdminBlogRow = {
   updatedAt: string;
 };
 
+async function uploadBlogImage(file: File): Promise<string> {
+  const pres = await fetch("/api/media", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mime: file.type, size: file.size }),
+  });
+  const pj = (await pres.json()) as { key?: string; url?: string; error?: string };
+  if (!pres.ok || !pj.key || !pj.url) {
+    throw new Error(pj.error ?? "Görsel yükleme adresi alınamadı.");
+  }
+  const put = await fetch(pj.url, {
+    method: "PUT",
+    headers: { "content-type": file.type },
+    body: file,
+  });
+  if (!put.ok) {
+    throw new Error("Görsel depolamaya yüklenemedi.");
+  }
+  const conf = await fetch("/api/media", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key: pj.key }),
+  });
+  if (!conf.ok) {
+    const cj = (await conf.json().catch(() => ({}))) as { error?: string };
+    throw new Error(cj.error ?? "Görsel doğrulanamadı.");
+  }
+  return mediaSrc(pj.key) ?? `/media/${pj.key.replace(/^media\//, "")}`;
+}
+
 export function AdminBlogManager({ posts }: { posts: AdminBlogRow[] }) {
   const [editing, setEditing] = useState<AdminBlogRow | null>(null);
   const [showForm, setShowForm] = useState(posts.length === 0);
+  const [contentText, setContentText] = useState(posts.length === 0 ? "" : "");
+  const [coverUrl, setCoverUrl] = useState("");
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadingInline, setUploadingInline] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const inlineInputRef = useRef<HTMLInputElement>(null);
+
   const [state, formAction, pending] = useActionState(
     saveBlogPostAction,
     idleState,
@@ -84,12 +124,64 @@ export function AdminBlogManager({ posts }: { posts: AdminBlogRow[] }) {
 
   const startNew = () => {
     setEditing(null);
+    setContentText("");
+    setCoverUrl("");
+    setUploadError(null);
     setShowForm(true);
   };
 
   const startEdit = (post: AdminBlogRow) => {
     setEditing(post);
+    setContentText(post.content);
+    setCoverUrl(post.coverImageUrl ?? "");
+    setUploadError(null);
     setShowForm(true);
+  };
+
+  const insertAtCursor = (snippet: string) => {
+    const el = contentRef.current;
+    if (!el) {
+      setContentText((prev) => `${prev}${snippet}`);
+      return;
+    }
+    const start = el.selectionStart ?? contentText.length;
+    const end = el.selectionEnd ?? contentText.length;
+    const next = contentText.slice(0, start) + snippet + contentText.slice(end);
+    setContentText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + snippet.length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const handleCoverUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadError(null);
+    setUploadingCover(true);
+    try {
+      const url = await uploadBlogImage(file);
+      setCoverUrl(url);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Kapak görseli yüklenemedi.");
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  const handleInlineUpload = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadError(null);
+    setUploadingInline(true);
+    try {
+      const url = await uploadBlogImage(file);
+      const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") || "Blog görseli";
+      insertAtCursor(`\n\n![${alt}](${url})\n\n`);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Yazı içi görsel yüklenemedi.");
+    } finally {
+      setUploadingInline(false);
+    }
   };
 
   return (
@@ -233,41 +325,154 @@ export function AdminBlogManager({ posts }: { posts: AdminBlogRow[] }) {
               )}
             </Field>
 
-            <Field label="İçerik (Markdown destekler — en az 20 karakter)">
-              {(p) => (
-                <Textarea
-                  {...p}
-                  name="content"
-                  rows={10}
-                  required
-                  minLength={20}
-                  defaultValue={editing?.content ?? ""}
-                />
-              )}
-            </Field>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-label text-fg-muted">
+                  İçerik (Markdown destekler — en az 20 karakter)
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor("\n\n## Alt Başlık\n\n")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted hover:border-fg/40 hover:text-fg"
+                  >
+                    H2 Başlık
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor("\n\n### Bölüm Başlığı\n\n")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted hover:border-fg/40 hover:text-fg"
+                  >
+                    H3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor(" **vurgulu metin** ")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted hover:border-fg/40 hover:text-fg"
+                  >
+                    Kalın
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor("\n\n- Madde 1\n- Madde 2\n\n")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted hover:border-fg/40 hover:text-fg"
+                  >
+                    Liste
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor("\n\n> Önemli ipucu veya özet not buraya...\n\n")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-muted hover:border-fg/40 hover:text-fg"
+                  >
+                    Alıntı
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertAtCursor(" #influencer ")}
+                    className="rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-neon-pink hover:border-neon-pink/50"
+                  >
+                    #Hashtag
+                  </button>
+                  <input
+                    ref={inlineInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      void handleInlineUpload(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploadingInline}
+                    onClick={() => inlineInputRef.current?.click()}
+                    className="rounded-lg border border-neon-pink/40 bg-neon-pink/10 px-2.5 py-1 text-[11px] font-medium text-fg hover:bg-neon-pink/20 disabled:opacity-50"
+                  >
+                    {uploadingInline ? "Yükleniyor…" : "📷 Yazı İçine Görsel Ekle"}
+                  </button>
+                </div>
+              </div>
+              <Textarea
+                ref={contentRef}
+                name="content"
+                rows={12}
+                required
+                minLength={20}
+                value={contentText}
+                onChange={(e) => setContentText(e.target.value)}
+                placeholder="Yazı içeriğini buraya yazın. Yukarıdaki butonlarla başlık, liste, #hashtag ve yazı içi görsel ekleyebilirsiniz."
+              />
+            </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Etiketler (virgülle ayırın)">
+              <Field label="Etiketler / Hashtagler (virgülle ayırın)">
                 {(p) => (
                   <Input
                     {...p}
                     name="tags"
                     defaultValue={editing?.tags.join(", ") ?? ""}
-                    placeholder="influencer, kargo, roi"
+                    placeholder="#influencer, #kargo, #roi"
                   />
                 )}
               </Field>
-              <Field label="Kapak Görseli URL (opsiyonel)">
-                {(p) => (
+
+              <div className="flex flex-col gap-2">
+                <span className="text-label text-fg-muted">Kapak Fotoğrafı (opsiyonel)</span>
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
-                    {...p}
                     name="coverImageUrl"
-                    defaultValue={editing?.coverImageUrl ?? ""}
-                    placeholder="https://..."
+                    value={coverUrl}
+                    onChange={(e) => setCoverUrl(e.target.value)}
+                    placeholder="Görsel yükleyin veya https://... yapıştırın"
+                    className="flex-1"
                   />
-                )}
-              </Field>
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      void handleCoverUpload(f);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={uploadingCover}
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    {uploadingCover ? "Yükleniyor…" : "📷 Kapak Yükle"}
+                  </Button>
+                  {coverUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCoverUrl("")}
+                    >
+                      Kaldır
+                    </Button>
+                  ) : null}
+                </div>
+                {coverUrl ? (
+                  <div className="mt-1 flex items-center gap-3 rounded-xl border border-line bg-surface/40 p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={coverUrl}
+                      alt="Kapak önizleme"
+                      className="h-14 w-24 rounded-lg object-cover"
+                    />
+                    <span className="truncate text-[11px] text-fg-muted">{coverUrl}</span>
+                  </div>
+                ) : null}
+              </div>
             </div>
+            {uploadError ? <p className="text-xs text-rose-500">{uploadError}</p> : null}
 
             <div className="grid grid-cols-1 gap-4 rounded-xl border border-line bg-surface/40 p-4 md:grid-cols-3">
               <Field label="SEO Başlığı (opsiyonel)">

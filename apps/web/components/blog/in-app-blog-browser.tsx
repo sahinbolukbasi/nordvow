@@ -27,191 +27,530 @@ const AUDIENCE_LABEL: Record<BlogAudience, string> = {
   BRAND: "Markalar",
 };
 
+type SortKey = "newest" | "popular" | "shortest";
+
 function fmtTrDate(iso: string) {
-  return new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date(iso));
+  return new Intl.DateTimeFormat("tr-TR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(iso));
+}
+
+function cleanTag(raw: string): string {
+  return raw.replace(/^#+/, "").trim();
+}
+
+function extractPostHashtags(post: InAppBlogPost): string[] {
+  const seen = new Map<string, string>();
+  for (const t of post.tags) {
+    const clean = cleanTag(t);
+    if (clean) seen.set(clean.toLocaleLowerCase("tr"), clean);
+  }
+  const matches = post.content.match(/#[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_-]{2,32}/g) ?? [];
+  for (const m of matches) {
+    const clean = cleanTag(m);
+    if (clean && !seen.has(clean.toLocaleLowerCase("tr"))) {
+      seen.set(clean.toLocaleLowerCase("tr"), clean);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function contentPreview(post: InAppBlogPost): string {
+  if (post.excerpt.trim().length > 0) return post.excerpt.trim();
+  return post.content
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/[#>*`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
 }
 
 export function InAppBlogBrowser({
   posts,
   categories,
+  initialSlug = null,
+  initialCategory = "ALL",
+  initialAudience = "ALL",
+  initialTag = null,
+  initialQuery = "",
 }: {
   posts: InAppBlogPost[];
   categories: readonly string[];
+  initialSlug?: string | null;
+  initialCategory?: string;
+  initialAudience?: BlogAudience | "ALL";
+  initialTag?: string | null;
+  initialQuery?: string;
 }) {
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(posts[0]?.slug ?? null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [category, setCategory] = useState<string>("ALL");
-  const [query, setQuery] = useState("");
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(initialSlug);
+  const [category, setCategory] = useState<string>(initialCategory);
+  const [audience, setAudience] = useState<BlogAudience | "ALL">(initialAudience);
+  const [activeTag, setActiveTag] = useState<string | null>(initialTag);
+  const [query, setQuery] = useState(initialQuery);
+  const [sortBy, setSortBy] = useState<SortKey>("newest");
+
+  const postTagsMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const p of posts) {
+      map.set(p.id, extractPostHashtags(p));
+    }
+    return map;
+  }, [posts]);
+
+  const popularTags = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const p of posts) {
+      for (const tag of postTagsMap.get(p.id) ?? []) {
+        const key = tag.toLocaleLowerCase("tr");
+        const prev = counts.get(key);
+        counts.set(key, { label: prev?.label ?? tag, count: (prev?.count ?? 0) + 1 });
+      }
+    }
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 14);
+  }, [posts, postTagsMap]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("tr");
-    return posts.filter((p) => {
+    const tagLower = activeTag ? activeTag.toLocaleLowerCase("tr") : null;
+
+    const list = posts.filter((p) => {
       if (category !== "ALL" && p.category !== category) return false;
+      if (audience !== "ALL" && p.targetAudience !== audience && p.targetAudience !== "ALL") {
+        return false;
+      }
+      const pTags = postTagsMap.get(p.id) ?? [];
+      if (tagLower && !pTags.some((t) => t.toLocaleLowerCase("tr") === tagLower)) {
+        return false;
+      }
       if (!q) return true;
       return (
         p.title.toLocaleLowerCase("tr").includes(q) ||
         p.excerpt.toLocaleLowerCase("tr").includes(q) ||
-        p.category.toLocaleLowerCase("tr").includes(q)
+        p.content.toLocaleLowerCase("tr").includes(q) ||
+        p.category.toLocaleLowerCase("tr").includes(q) ||
+        pTags.some((t) => `#${t}`.toLocaleLowerCase("tr").includes(q))
       );
     });
-  }, [posts, category, query]);
+
+    if (sortBy === "popular") {
+      return [...list].sort((a, b) => b.viewCount - a.viewCount);
+    }
+    if (sortBy === "shortest") {
+      return [...list].sort((a, b) => a.readingTimeMin - b.readingTimeMin);
+    }
+    return list;
+  }, [posts, category, audience, activeTag, query, sortBy, postTagsMap]);
 
   const activePost = useMemo(
-    () => posts.find((p) => p.slug === selectedSlug) ?? filtered[0] ?? null,
-    [posts, filtered, selectedSlug],
+    () => (selectedSlug ? posts.find((p) => p.slug === selectedSlug) ?? null : null),
+    [posts, selectedSlug],
   );
+
+  const activePostTags = useMemo(
+    () => (activePost ? (postTagsMap.get(activePost.id) ?? []) : []),
+    [activePost, postTagsMap],
+  );
+
+  const relatedPosts = useMemo(() => {
+    if (!activePost) return [];
+    const sameCat = posts.filter((p) => p.id !== activePost.id && p.category === activePost.category);
+    const others = posts.filter((p) => p.id !== activePost.id && p.category !== activePost.category);
+    return [...sameCat, ...others].slice(0, 3);
+  }, [posts, activePost]);
+
+  const hasFilters =
+    category !== "ALL" || audience !== "ALL" || activeTag !== null || query.trim().length > 0;
+
+  const clearFilters = () => {
+    setCategory("ALL");
+    setAudience("ALL");
+    setActiveTag(null);
+    setQuery("");
+  };
 
   const openPost = (slug: string) => {
     setSelectedSlug(slug);
-    setDrawerOpen(true);
-    void fetch(`/api/blog/${encodeURIComponent(slug)}/track`, { method: "POST" }).catch(() => undefined);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    void fetch(`/api/blog/${encodeURIComponent(slug)}/track`, { method: "POST" }).catch(
+      () => undefined,
+    );
   };
 
-  return (
-    <div className="flex flex-col gap-6 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-fg-passive">Nordvow Akademi</p>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">Blog &amp; Büyüme Rehberleri</h1>
-        </div>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Yazılarda ara…"
-          aria-label="Blog yazılarında ara"
-          className="h-9 w-full rounded-full border border-line bg-surface px-4 text-sm text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none sm:w-64"
-        />
-      </div>
+  const filterByTag = (tag: string) => {
+    const clean = cleanTag(tag);
+    setActiveTag((prev) =>
+      prev?.toLocaleLowerCase("tr") === clean.toLocaleLowerCase("tr") ? null : clean,
+    );
+    setSelectedSlug(null);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={() => setCategory("ALL")}
-          className={`rounded-full border px-3 py-1 text-xs transition-standard ${
-            category === "ALL" ? "border-fg bg-fg text-bg" : "border-line text-fg-muted hover:text-fg"
-          }`}
-        >
-          Tümü
-        </button>
-        {categories.map((c) => (
+  if (activePost) {
+    return (
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface/60 px-4 py-3 backdrop-blur-sm">
           <button
-            key={c}
             type="button"
-            onClick={() => setCategory(c)}
-            className={`rounded-full border px-3 py-1 text-xs transition-standard ${
-              category === c ? "border-fg bg-fg text-bg" : "border-line text-fg-muted hover:text-fg"
-            }`}
+            onClick={() => setSelectedSlug(null)}
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-bg px-3.5 py-1.5 text-xs font-medium text-fg transition-standard hover:border-fg/40 hover:bg-surface-hover"
           >
-            {c}
+            ← Tüm yazılara dön
           </button>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        {/* Sol Liste */}
-        <div className="flex flex-col gap-3">
-          {filtered.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-line p-8 text-center text-sm text-fg-muted">
-              Eşleşen blog yazısı bulunamadı.
-            </p>
-          ) : (
-            filtered.map((post) => {
-              const isSelected = activePost?.slug === post.slug;
-              return (
-                <button
-                  key={post.id}
-                  type="button"
-                  onClick={() => openPost(post.slug)}
-                  className={`flex flex-col gap-2 rounded-2xl border p-4 text-left transition-standard ${
-                    isSelected
-                      ? "border-neon-pink/60 bg-surface shadow-xs"
-                      : "border-line bg-surface/40 hover:border-fg/30 hover:bg-surface/70"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px] text-fg-passive">
-                    <span className="rounded-full bg-fg/10 px-2.5 py-0.5 font-medium text-fg">{post.category}</span>
-                    <span>{post.readingTimeMin} dk okuma</span>
-                  </div>
-                  <h2 className="text-[15px] font-semibold leading-snug text-fg">{post.title}</h2>
-                  <p className="line-clamp-2 text-[13px] leading-relaxed text-fg-muted">{post.excerpt}</p>
-                  <div className="flex items-center justify-between pt-1 text-[11px] text-fg-passive">
-                    <span>{post.authorName} · {AUDIENCE_LABEL[post.targetAudience]}</span>
-                    <span>{fmtTrDate(post.publishedAt)}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
+          <div className="flex items-center gap-3 text-xs text-fg-muted">
+            <span>{activePost.category}</span>
+            <span>·</span>
+            <span>{activePost.readingTimeMin} dk okuma</span>
+            <Link
+              href={`/blog/${activePost.slug}`}
+              target="_blank"
+              className="rounded-lg border border-line px-2.5 py-1 text-[11px] font-medium text-fg hover:bg-surface-hover"
+            >
+              Tam sayfa ↗
+            </Link>
+          </div>
         </div>
 
-        {/* Sağ Masaüstü Sabit Okuma Paneli */}
-        {activePost ? (
-          <aside className="hidden lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100dvh-7rem)] lg:flex-col lg:overflow-y-auto lg:rounded-3xl lg:border lg:border-line lg:bg-surface/70 lg:p-6">
-            <div className="flex items-center justify-between gap-2 border-b border-line pb-3 text-xs text-fg-passive">
-              <span>{activePost.category} · {activePost.readingTimeMin} dk okuma</span>
-              <Link href={`/blog/${activePost.slug}`} target="_blank" className="underline hover:text-fg">
-                Yeni sekmede aç ↗
-              </Link>
+        <article className="flex flex-col gap-7 rounded-3xl border border-line bg-surface/50 p-5 sm:p-8">
+          <header className="flex flex-col gap-4 border-b border-line pb-6">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-fg/10 px-3 py-1 font-medium text-fg">
+                {activePost.category}
+              </span>
+              <span className="rounded-full border border-line px-3 py-1 text-fg-muted">
+                {AUDIENCE_LABEL[activePost.targetAudience]}
+              </span>
+              <span className="text-fg-passive">
+                {activePost.viewCount.toLocaleString("tr-TR")} görüntülenme
+              </span>
             </div>
-            <h2 className="mt-4 text-2xl font-semibold leading-tight tracking-tight text-fg">{activePost.title}</h2>
-            <p className="mt-2 text-xs text-fg-muted">
-              {activePost.authorName} · {fmtTrDate(activePost.publishedAt)}
-            </p>
-            {activePost.coverImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={activePost.coverImageUrl}
-                alt={activePost.title}
-                className="mt-4 max-h-64 w-full rounded-2xl object-cover"
-              />
+
+            <h1 className="text-2xl font-semibold leading-tight tracking-tight text-fg sm:text-4xl">
+              {activePost.title}
+            </h1>
+
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
+              <span className="font-medium text-fg">{activePost.authorName}</span>
+              <span>·</span>
+              <time dateTime={activePost.publishedAt}>{fmtTrDate(activePost.publishedAt)}</time>
+              <span>·</span>
+              <span>{activePost.readingTimeMin} dakika okuma süresi</span>
+            </div>
+
+            {activePostTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {activePostTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => filterByTag(tag)}
+                    className="rounded-full border border-neon-pink/30 bg-neon-pink/10 px-2.5 py-0.5 text-xs font-medium text-neon-pink transition-standard hover:bg-neon-pink/20"
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
             ) : null}
-            <div className="mt-5">
-              <BlogMarkdown content={activePost.content} />
+          </header>
+
+          {activePost.coverImageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={activePost.coverImageUrl}
+              alt={activePost.title}
+              className="max-h-[420px] w-full rounded-2xl border border-line object-cover"
+            />
+          ) : null}
+
+          {activePost.excerpt ? (
+            <div className="rounded-2xl border border-line bg-bg/60 p-4 sm:p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-passive">
+                Yazı Özeti
+              </p>
+              <p className="mt-1.5 text-[15px] leading-relaxed text-fg">{activePost.excerpt}</p>
             </div>
-          </aside>
+          ) : null}
+
+          <BlogMarkdown content={activePost.content} onTagClick={filterByTag} />
+
+          {activePostTags.length > 0 ? (
+            <footer className="flex flex-wrap items-center gap-2 border-t border-line pt-5">
+              <span className="text-xs font-medium text-fg-passive">Etiketler:</span>
+              {activePostTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => filterByTag(tag)}
+                  className="rounded-full border border-line px-3 py-1 text-xs text-fg-muted transition-standard hover:border-neon-pink/50 hover:text-fg"
+                >
+                  #{tag}
+                </button>
+              ))}
+            </footer>
+          ) : null}
+        </article>
+
+        {relatedPosts.length > 0 ? (
+          <section className="flex flex-col gap-3 pt-2">
+            <h2 className="text-base font-semibold text-fg">Diğer Yazılar</h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {relatedPosts.map((rel) => (
+                <button
+                  key={rel.id}
+                  type="button"
+                  onClick={() => openPost(rel.slug)}
+                  className="flex flex-col justify-between gap-2 rounded-2xl border border-line bg-surface/50 p-4 text-left transition-standard hover:border-fg/40 hover:bg-surface"
+                >
+                  <div>
+                    <p className="text-[11px] font-medium text-fg-passive">{rel.category}</p>
+                    <p className="mt-1 line-clamp-2 text-sm font-semibold text-fg">{rel.title}</p>
+                  </div>
+                  <p className="text-[11px] text-fg-passive">
+                    {rel.readingTimeMin} dk okuma · {fmtTrDate(rel.publishedAt)}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </section>
         ) : null}
       </div>
+    );
+  }
 
-      {/* Mobil Sağ Çekmece (Drawer) */}
-      {drawerOpen && activePost ? (
-        <div className="fixed inset-0 z-50 flex justify-end lg:hidden" role="dialog" aria-modal="true" aria-label={activePost.title}>
-          <button
-            type="button"
-            aria-label="Kapat"
-            onClick={() => setDrawerOpen(false)}
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs"
-          />
-          <article className="relative z-10 flex h-dvh w-full max-w-lg flex-col overflow-y-auto bg-bg p-5 shadow-2xl">
-            <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 flex items-center justify-between gap-2 border-b border-line bg-bg/95 px-5 py-3.5 backdrop-blur-md">
-              <span className="truncate text-xs font-medium text-fg-muted">{activePost.category}</span>
-              <button
-                type="button"
-                onClick={() => setDrawerOpen(false)}
-                className="rounded-full border border-line px-3 py-1 text-xs font-medium text-fg hover:bg-surface-hover"
-              >
-                Kapat ✕
-              </button>
-            </div>
-            <h2 className="text-xl font-semibold leading-snug text-fg">{activePost.title}</h2>
-            <p className="mt-1.5 text-xs text-fg-muted">
-              {activePost.authorName} · {activePost.readingTimeMin} dk okuma · {fmtTrDate(activePost.publishedAt)}
+  return (
+    <div className="flex flex-col gap-6 py-4">
+      {/* Üst Detay & Filtreleme Alanı */}
+      <section className="flex flex-col gap-5 rounded-3xl border border-line bg-surface/60 p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
+          <div className="max-w-2xl">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-neon-pink">
+              Nordvow Akademi &amp; Blog
             </p>
-            {activePost.coverImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={activePost.coverImageUrl}
-                alt={activePost.title}
-                className="mt-4 max-h-52 w-full rounded-2xl object-cover"
-              />
-            ) : null}
-            <div className="mt-4 pb-8">
-              <BlogMarkdown content={activePost.content} />
-            </div>
-          </article>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
+              Büyüme Rehberleri &amp; Strateji Yazıları
+            </h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
+              Markalar ve içerik üreticileri için kampanya kurgusu, içerik üretimi, lojistik ve
+              performans ipuçları. Okumak istediğiniz yazıya tıklayın, içerik bu alanda açılsın.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-xl border border-line bg-bg/70 px-3 py-1.5 text-fg-muted">
+              <strong className="font-semibold text-fg">{filtered.length}</strong> / {posts.length}{" "}
+              yazı
+            </span>
+            <span className="rounded-xl border border-line bg-bg/70 px-3 py-1.5 text-fg-muted">
+              <strong className="font-semibold text-fg">{popularTags.length}</strong> etiket
+            </span>
+          </div>
         </div>
-      ) : null}
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Başlık, konu veya #etiket ile ara (ör. Reels, kargo, ROI)…"
+            aria-label="Blog yazılarında ara"
+            className="h-10 w-full rounded-xl border border-line bg-bg px-3.5 text-sm text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            aria-label="Sıralama"
+            className="h-10 rounded-xl border border-line bg-bg px-3 text-xs font-medium text-fg focus:border-fg focus:outline-none"
+          >
+            <option value="newest">En Yeni</option>
+            <option value="popular">En Çok Okunan</option>
+            <option value="shortest">En Kısa Okuma</option>
+          </select>
+          {hasFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="h-10 rounded-xl border border-line px-3.5 text-xs font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
+            >
+              Filtreleri temizle ✕
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {/* Hedef Kitle & Kategori Filtresi */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
+              Kitle:
+            </span>
+            {(
+              [
+                ["ALL", "Tümü"],
+                ["BRAND", "Markalar İçin"],
+                ["INFLUENCER", "Influencerlar İçin"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setAudience(key)}
+                className={`rounded-full border px-3 py-1 text-xs transition-standard ${
+                  audience === key
+                    ? "border-fg bg-fg font-medium text-bg"
+                    : "border-line bg-bg/50 text-fg-muted hover:text-fg"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+
+            <span className="mx-1.5 text-fg-passive">|</span>
+            <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
+              Kategori:
+            </span>
+            <button
+              type="button"
+              onClick={() => setCategory("ALL")}
+              className={`rounded-full border px-3 py-1 text-xs transition-standard ${
+                category === "ALL"
+                  ? "border-fg bg-fg font-medium text-bg"
+                  : "border-line bg-bg/50 text-fg-muted hover:text-fg"
+              }`}
+            >
+              Tümü
+            </button>
+            {categories.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={`rounded-full border px-3 py-1 text-xs transition-standard ${
+                  category === c
+                    ? "border-fg bg-fg font-medium text-bg"
+                    : "border-line bg-bg/50 text-fg-muted hover:text-fg"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
+          {/* Hashtag Filtresi */}
+          {popularTags.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
+                Etiketler:
+              </span>
+              {popularTags.map(({ label, count }) => {
+                const isSelected = activeTag?.toLocaleLowerCase("tr") === label.toLocaleLowerCase("tr");
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => filterByTag(label)}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-standard ${
+                      isSelected
+                        ? "border-neon-pink bg-neon-pink/15 font-medium text-neon-pink"
+                        : "border-line bg-bg/40 text-fg-muted hover:border-neon-pink/40 hover:text-fg"
+                    }`}
+                  >
+                    #{label} <span className="opacity-60">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Yazı Listesi — Solda Küçük Görsel, Sağda Başlık & Kısa Başlangıç */}
+      {filtered.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-line bg-surface/30 p-10 text-center">
+          <p className="text-sm font-medium text-fg">Seçtiğiniz filtrelere uygun blog yazısı bulunamadı.</p>
+          {hasFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-3 rounded-xl border border-line px-4 py-1.5 text-xs font-medium text-fg hover:bg-surface-hover"
+            >
+              Tüm yazıları göster
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {filtered.map((post) => {
+            const pTags = postTagsMap.get(post.id) ?? [];
+            return (
+              <button
+                key={post.id}
+                type="button"
+                onClick={() => openPost(post.slug)}
+                className="group flex items-start gap-4 rounded-2xl border border-line bg-surface/50 p-3.5 text-left transition-standard hover:border-neon-pink/50 hover:bg-surface sm:gap-5 sm:p-4"
+              >
+                {/* Solda Küçük Resim */}
+                <div className="h-20 w-24 shrink-0 overflow-hidden rounded-xl border border-line bg-surface sm:h-24 sm:w-36">
+                  {post.coverImageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={post.coverImageUrl}
+                      alt={post.title}
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-neon-pink/15 via-surface to-neon-cyan/15 px-2 text-center text-[11px] font-semibold text-fg-muted">
+                      {post.category}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sağda Başlık + Küçük Yazıyla Başlangıç */}
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
+                    <span className="rounded-full bg-fg/10 px-2.5 py-0.5 font-medium text-fg">
+                      {post.category}
+                    </span>
+                    <span>{AUDIENCE_LABEL[post.targetAudience]}</span>
+                    <span>·</span>
+                    <span>{post.readingTimeMin} dk okuma</span>
+                    <span className="hidden sm:inline">·</span>
+                    <span className="hidden sm:inline">{fmtTrDate(post.publishedAt)}</span>
+                  </div>
+
+                  <h2 className="text-[15px] font-semibold leading-snug text-fg transition-colors group-hover:text-neon-pink sm:text-lg">
+                    {post.title}
+                  </h2>
+
+                  <p className="line-clamp-2 text-xs leading-relaxed text-fg-muted">
+                    {contentPreview(post)}
+                  </p>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      {pTags.slice(0, 4).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-bg/70 px-2 py-0.5 text-[11px] text-fg-muted"
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-[11px] font-medium text-fg-muted group-hover:text-fg">
+                      Yazıyı oku →
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
-
