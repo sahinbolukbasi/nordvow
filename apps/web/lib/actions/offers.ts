@@ -8,7 +8,7 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { acceptCounterByBrand, counterOffer, offerItemsSchema, respondOffer, saveRateCard, sendOffers, withdrawOffer, type OfferItem } from "@infulancer/core/domain/offers";
 import { envStr } from "@infulancer/core/env";
-import { dispatchNotification } from "@infulancer/core/notify/dispatch";
+import { dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import { ensureShipmentForOffer } from "@infulancer/core/shipping/service";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import type { ActionState } from "@/lib/action-state";
@@ -178,6 +178,26 @@ export async function respondOfferAction(_p: ActionState, fd: FormData): Promise
       if (users.length) await tx.notification.createMany({ data: users.map((u) => ({ userId: u.id, title: `${inf.name} teklifinizi ${label}`, body: input.note ?? o.title, href: "/marka/teklifler" })) });
       await notifyAdmins(tx, { title: `Teklif ${label}: ${inf.name}`, body: input.decision === "KABUL" ? "Kampanyaya eklemek için Teklifler sayfasına gidin." : (input.note ?? ""), href: "/admin/teklifler" });
     });
+    try {
+      const brandUsers = await prisma.user.findMany({
+        where: { brandId: o.brandId, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (brandUsers.length) {
+        const recipients = await recipientsFromUserIds(brandUsers.map((u) => u.id));
+        const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+        if (recipients.length) {
+          await dispatchNotification("OFFER_RESPONDED", recipients, {
+            ad: inf.name,
+            baslik: o.title,
+            durum: label,
+            link: `${base}/marka/teklifler`,
+          });
+        }
+      }
+    } catch {
+      /* e-posta/bildirim hatası teklif yanıtını bozmasın */
+    }
     let targetDeliverableId: string | null = null;
     if (input.decision === "KABUL" && o.campaignId) {
       const existingAssign = await prisma.assignment.findFirst({

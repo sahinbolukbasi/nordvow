@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 
 export interface BrandOption {
   id: string;
@@ -110,13 +110,8 @@ interface KnowledgeDoc {
   chunkCount: number;
 }
 
-type TabKey =
-  | "telephony"
-  | "settings"
-  | "knowledge"
-  | "calls"
-  | "records"
-  | "simulator";
+type MainView = "setup" | "activity" | "simulator";
+type SetupStep = 1 | 2 | 3 | 4;
 
 const API_BASE = "/api/admin/voice-assistant";
 
@@ -127,6 +122,13 @@ const OPERATOR_LABELS: Record<Operator, string> = {
   voip_sip: "VoIP / SIP (Netgsm, Bulutfon, Kobikom)",
 };
 
+const TONE_LABELS: Record<VoiceTone, string> = {
+  warm: "Sıcak & Samimi",
+  formal: "Kurumsal & Resmi",
+  energetic: "Enerjik & Dinamik",
+  calm: "Sakin & Güven Verici",
+};
+
 export function VoiceAssistantAdminPanel({
   brands,
   initialBrandId,
@@ -135,15 +137,13 @@ export function VoiceAssistantAdminPanel({
   initialBrandId?: string;
 }) {
   const brandList =
-    brands && brands.length > 0
-      ? brands
-      : [{ id: "default", name: "NordVow Genel" }];
-  const [brandId, setBrandId] = useState(
-    initialBrandId || brandList[0]?.id || "default",
-  );
+    brands && brands.length > 0 ? brands : [{ id: "default", name: "NordVow Genel" }];
+  const [brandId, setBrandId] = useState(initialBrandId || brandList[0]?.id || "default");
   const selectedBrand = brandList.find((b) => b.id === brandId);
 
-  const [tab, setTab] = useState<TabKey>("telephony");
+  const [mainView, setMainView] = useState<MainView>("setup");
+  const [step, setStep] = useState<SetupStep>(1);
+
   const [settings, setSettings] = useState<AssistantSettings | null>(null);
   const [costs, setCosts] = useState<CostReport | null>(null);
   const [calls, setCalls] = useState<CallRecord[]>([]);
@@ -157,9 +157,7 @@ export function VoiceAssistantAdminPanel({
 
   const [simSessionId, setSimSessionId] = useState<string | undefined>();
   const [simInput, setSimInput] = useState("");
-  const [simMessages, setSimMessages] = useState<
-    Array<{ role: "user" | "assistant"; text: string }>
-  >([]);
+  const [simMessages, setSimMessages] = useState<Array<{ role: "user" | "assistant"; text: string }>>([]);
 
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -168,10 +166,15 @@ export function VoiceAssistantAdminPanel({
   const notify = (msg: string) => {
     setErrorMsg(null);
     setStatusMsg(msg);
-    setTimeout(() => setStatusMsg(null), 3000);
+    setTimeout(() => setStatusMsg(null), 3500);
   };
 
   const brandQuery = `brandId=${encodeURIComponent(brandId)}&brandName=${encodeURIComponent(selectedBrand?.name || "")}`;
+
+  const loadDocs = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, { cache: "no-store" });
+    if (res.ok) setDocs((await res.json()).documents || []);
+  }, [brandQuery]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -187,10 +190,11 @@ export function VoiceAssistantAdminPanel({
       setSettings(await sRes.json());
       if (cRes.ok) setCosts(await cRes.json());
       setErrorMsg(null);
+      void loadDocs();
     } catch {
       setErrorMsg("Sesli asistan servisine bağlanılamadı.");
     }
-  }, [brandQuery]);
+  }, [brandQuery, loadDocs]);
 
   useEffect(() => {
     setSimSessionId(undefined);
@@ -199,37 +203,23 @@ export function VoiceAssistantAdminPanel({
     void loadAll();
   }, [loadAll]);
 
-  const loadCalls = async () => {
-    const res = await fetch(`${API_BASE}/calls?${brandQuery}`, {
-      cache: "no-store",
-    });
-    if (res.ok) setCalls((await res.json()).calls || []);
-  };
-
-  const loadRecords = async () => {
-    const [rRes, nRes] = await Promise.all([
+  const loadActivity = async () => {
+    const [callsRes, rRes, nRes] = await Promise.all([
+      fetch(`${API_BASE}/calls?${brandQuery}`, { cache: "no-store" }),
       fetch(`${API_BASE}/reservations?${brandQuery}`, { cache: "no-store" }),
       fetch(`${API_BASE}/notes?${brandQuery}`, { cache: "no-store" }),
     ]);
+    if (callsRes.ok) setCalls((await callsRes.json()).calls || []);
     if (rRes.ok) setReservations((await rRes.json()).reservations || []);
     if (nRes.ok) setNotes((await nRes.json()).notes || []);
   };
 
-  const loadDocs = async () => {
-    const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, {
-      cache: "no-store",
-    });
-    if (res.ok) setDocs((await res.json()).documents || []);
+  const handleViewChange = (next: MainView) => {
+    setMainView(next);
+    if (next === "activity") void loadActivity();
   };
 
-  const handleTabChange = (next: TabKey) => {
-    setTab(next);
-    if (next === "calls") void loadCalls();
-    if (next === "records") void loadRecords();
-    if (next === "knowledge") void loadDocs();
-  };
-
-  const patchSettings = async (patch: Record<string, unknown>, msg: string) => {
+  const patchSettings = async (patch: Record<string, unknown>, msg: string): Promise<boolean> => {
     setSaving(true);
     try {
       const res = await fetch(`${API_BASE}/settings?${brandQuery}`, {
@@ -239,31 +229,47 @@ export function VoiceAssistantAdminPanel({
       });
       if (!res.ok) {
         setErrorMsg("Ayarlar kaydedilemedi.");
-        return;
+        return false;
       }
       setSettings(await res.json());
       notify(msg);
+      return true;
     } finally {
       setSaving(false);
     }
   };
 
+  const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setDocFilename(file.name);
+    setDocContent(text);
+  };
+
   const handleUploadDoc = async () => {
     if (!docFilename.trim() || !docContent.trim()) return;
-    const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        brandId,
-        filename: docFilename.trim(),
-        content: docContent.trim(),
-      }),
-    });
-    if (res.ok) {
-      setDocFilename("");
-      setDocContent("");
-      await loadDocs();
-      notify("Belge bilgi bankasına eklendi.");
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/knowledge?${brandQuery}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          filename: docFilename.trim(),
+          content: docContent.trim(),
+        }),
+      });
+      if (res.ok) {
+        setDocFilename("");
+        setDocContent("");
+        await loadDocs();
+        notify("Belge bilgi bankasına eklendi.");
+      } else {
+        setErrorMsg("Belge yüklenemedi.");
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -286,10 +292,7 @@ export function VoiceAssistantAdminPanel({
     if (res.ok) {
       const data = await res.json();
       setSimSessionId(data.sessionId);
-      setSimMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: data.reply },
-      ]);
+      setSimMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
       void loadAll();
     }
   };
@@ -301,40 +304,49 @@ export function VoiceAssistantAdminPanel({
 
   if (!settings) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-6 text-sm text-fg-muted">
+      <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-fg-muted">
         {errorMsg || "Sesli asistan ayarları yükleniyor..."}
       </div>
     );
   }
 
-  const virtualNum = (
-    settings.telephony.virtualForwardingNumber || "0850XXXXXXX"
-  ).replace(/\s+/g, "");
-  const personalClean = settings.telephony.personalMobileNumber
-    .replace(/\s+/g, "")
-    .replace(/^0/, "");
-  const transferClean =
-    settings.staffNotifications.transferPhoneNumber.replace(/\s+/g, "");
-  const hasLoopRisk =
-    Boolean(personalClean) &&
-    Boolean(transferClean) &&
-    transferClean.endsWith(personalClean);
+  // Kurulum adımlarının tamamlanma kontrolü
+  const hasDocsOrProfile =
+    docs.length > 0 ||
+    settings.companyProfile.servicesSummary.trim().length > 10 ||
+    settings.companyProfile.sector.trim().length > 1;
 
-  const tabs: Array<{ key: TabKey; label: string }> = [
-    { key: "telephony", label: "Numara & Yönlendirme" },
-    { key: "settings", label: "Ses Tonu, Hız & Maliyet" },
-    { key: "knowledge", label: "Firma Bilgisi & Belgeler" },
-    { key: "calls", label: "Çağrı Kayıtları & Detaylar" },
-    { key: "records", label: "Rezervasyon & Notlar" },
-    { key: "simulator", label: "Canlı Test" },
+  const rawVirtual = (settings.telephony.virtualForwardingNumber || "").replace(/\s+/g, "");
+  const virtualNum = rawVirtual || "0850XXXXXXX";
+  const hasNumbers =
+    settings.telephony.personalMobileNumber.trim().length >= 7 &&
+    (settings.telephony.operator === "voip_sip" || rawVirtual.length >= 7);
+
+  const hasVoiceConfigured =
+    settings.businessName.trim().length > 0 &&
+    settings.conversation.greetingMessage.trim().length > 0;
+
+  const allReady = hasDocsOrProfile && hasNumbers && hasVoiceConfigured;
+
+  const personalClean = settings.telephony.personalMobileNumber.replace(/\s+/g, "").replace(/^0/, "");
+  const transferClean = settings.staffNotifications.transferPhoneNumber.replace(/\s+/g, "");
+  const hasLoopRisk = Boolean(personalClean) && Boolean(transferClean) && transferClean.endsWith(personalClean);
+
+  const forwardAllCode = `*21*${virtualNum}#`;
+
+  const stepsMeta: Array<{ id: SetupStep; title: string; subtitle: string; done: boolean }> = [
+    { id: 1, title: "1. Belgeler", subtitle: "Firma bilgisi ve SSS", done: hasDocsOrProfile },
+    { id: 2, title: "2. Numara", subtitle: "Hat ve yönlendirme", done: hasNumbers },
+    { id: 3, title: "3. Ses", subtitle: "Karşılama ve ton", done: hasVoiceConfigured },
+    { id: 4, title: "4. Bağla", subtitle: "Tek tık yönlendirme", done: allReady && settings.enabled },
   ];
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Marka Seçici & Durum Çubuğu */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+      {/* Üst Durum & Hızlı Bağlantı Şeridi */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3">
         <div className="flex flex-wrap items-center gap-3">
-          {brandList.length > 1 && (
+          {brandList.length > 1 ? (
             <label className="flex items-center gap-2 text-xs font-medium text-fg-muted">
               Marka:
               <select
@@ -349,415 +361,421 @@ export function VoiceAssistantAdminPanel({
                 ))}
               </select>
             </label>
-          )}
+          ) : null}
 
           <button
             type="button"
             onClick={() =>
               void patchSettings(
                 { enabled: !settings.enabled },
-                settings.enabled
-                  ? "Marka için sesli asistan pasife alındı."
-                  : "Marka için sesli asistan aktif edildi.",
+                settings.enabled ? "Sesli asistan duraklatıldı." : "Sesli asistan aktif edildi.",
               )
             }
-            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
               settings.enabled
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
-                : "border-red-500/40 bg-red-500/10 text-red-500"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                : "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
             }`}
           >
-            {settings.enabled ? "Asistan Açık" : "Asistan Kapalı"}
+            {settings.enabled ? "● Asistan Açık" : "○ Asistan Kapalı"}
           </button>
 
-          <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-fg">
-            Mod: {settings.costProfile}
-          </span>
-          {costs && (
-            <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-fg-muted">
-              Aylık Maliyet: ${costs.totalCostUsd} / ${costs.budgetUsd} (
-              {costs.totalCalls} çağrı)
+          {allReady && settings.enabled ? (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              Numara arandığında asistana yönlendirmeye hazır
+            </span>
+          ) : (
+            <span className="text-xs text-fg-muted">
+              Hızlı kurulum için 3 adımı tamamlayın
             </span>
           )}
         </div>
-        {statusMsg && (
-          <span className="text-xs font-medium text-emerald-500">
-            {statusMsg}
-          </span>
-        )}
-        {errorMsg && (
-          <span className="text-xs font-medium text-red-500">{errorMsg}</span>
-        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {costs ? (
+            <span className="rounded-full border border-border px-2.5 py-1 text-xs text-fg-muted tabular-nums">
+              {costs.totalCalls} çağrı · ${costs.totalCostUsd} / ${costs.budgetUsd}
+            </span>
+          ) : null}
+          {statusMsg ? <span className="text-xs font-medium text-emerald-500">{statusMsg}</span> : null}
+          {errorMsg ? <span className="text-xs font-medium text-rose-500">{errorMsg}</span> : null}
+        </div>
       </div>
 
-      {/* Sekmeler */}
+      {/* Sadeleştirilmiş Ana Sekmeler (3 Görünüm) */}
       <div className="flex flex-wrap gap-2 border-b border-border pb-2">
-        {tabs.map((t) => (
+        {[
+          { id: "setup" as const, label: "Hızlı Kurulum & Yönlendirme" },
+          { id: "activity" as const, label: "Çağrı Kayıtları & Rezervasyonlar" },
+          { id: "simulator" as const, label: "Canlı Test" },
+        ].map((v) => (
           <button
-            key={t.key}
+            key={v.id}
             type="button"
-            onClick={() => handleTabChange(t.key)}
-            className={`rounded-lg px-3.5 py-2 text-sm font-medium transition ${
-              tab === t.key
-                ? "bg-fg text-bg"
-                : "text-fg-muted hover:bg-surface hover:text-fg"
+            onClick={() => handleViewChange(v.id)}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+              mainView === v.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface hover:text-fg"
             }`}
           >
-            {t.label}
+            {v.label}
           </button>
         ))}
       </div>
 
-      {/* 1. NUMARA & YÖNLENDİRME */}
-      {tab === "telephony" && (
-        <div className="grid gap-5 md:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-base font-semibold text-fg">
-              Operatör & Numara Ayarları
-            </h3>
-            <label className="text-xs text-fg-muted">
-              Hattınızın Operatörü
-              <select
-                value={settings.telephony.operator}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    telephony: {
-                      ...settings.telephony,
-                      operator: e.target.value as Operator,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              >
-                {(Object.keys(OPERATOR_LABELS) as Operator[]).map((op) => (
-                  <option key={op} value={op}>
-                    {OPERATOR_LABELS[op]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-fg-muted">
-              İşletme / Cep Numaranız
-              <input
-                type="text"
-                value={settings.telephony.personalMobileNumber}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    telephony: {
-                      ...settings.telephony,
-                      personalMobileNumber: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            <label className="text-xs text-fg-muted">
-              Yönlendirilecek Sanal / SIP Numarası (0850 / 0212 / AWS Connect)
-              <input
-                type="text"
-                placeholder="0850XXXXXXX"
-                value={settings.telephony.virtualForwardingNumber}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    telephony: {
-                      ...settings.telephony,
-                      virtualForwardingNumber: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            <label className="text-xs text-fg-muted">
-              Canlı Görevli Aktarım Numarası
-              <input
-                type="text"
-                value={settings.staffNotifications.transferPhoneNumber}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    staffNotifications: {
-                      ...settings.staffNotifications,
-                      transferPhoneNumber: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            <label className="text-xs text-fg-muted">
-              Görevli Bildirim Webhook URL (Slack / CRM / n8n)
-              <input
-                type="text"
-                placeholder="https://..."
-                value={settings.staffNotifications.webhookUrl}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    staffNotifications: {
-                      ...settings.staffNotifications,
-                      webhookUrl: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            {hasLoopRisk && (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-500">
-                Uyarı: Canlı aktarım numarası ile yönlendirilen numara aynı. Her
-                zaman yönlendirme (*21*) açıkken çağrı döngüye girebilir.
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() =>
-                void patchSettings(
-                  {
-                    telephony: settings.telephony,
-                    staffNotifications: settings.staffNotifications,
-                  },
-                  "Numara ve yönlendirme ayarları kaydedildi.",
-                )
-              }
-              className="mt-2 w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
-            >
-              Numara Ayarlarını Kaydet
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-base font-semibold text-fg">
-              {OPERATOR_LABELS[settings.telephony.operator]} — Tek Adımda Bağlantı
-            </h3>
-            {settings.telephony.operator !== "voip_sip" ? (
-              <>
-                <p className="text-xs text-fg-muted">
-                  Turkcell, Vodafone ve Türk Telekom hatlarında aynı standart GSM
-                  yönlendirme kodları çalışır. Mobilden doğrudan{" "}
-                  <strong>Ara</strong> butonuna dokunabilirsiniz:
-                </p>
-                {[
-                  {
-                    label: "Tüm Aramaları Asistana Yönlendir",
-                    code: `*21*${virtualNum}#`,
-                  },
-                  {
-                    label: "Cevap Vermeyince Asistana Yönlendir",
-                    code: `*61*${virtualNum}#`,
-                  },
-                  {
-                    label: "Meşgulken Asistana Yönlendir",
-                    code: `*67*${virtualNum}#`,
-                  },
-                  { label: "Tüm Yönlendirmeleri İptal Et", code: "##002#" },
-                ].map((item) => (
-                  <div key={item.label} className="flex flex-col gap-1">
-                    <span className="text-xs text-fg-muted">{item.label}</span>
-                    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-bg px-3 py-2 font-mono text-xs text-fg">
-                      <span>{item.code}</span>
-                      <div className="flex gap-1.5">
-                        <a
-                          href={`tel:${encodeURIComponent(item.code)}`}
-                          className="rounded border border-emerald-500/40 px-2 py-0.5 text-[11px] text-emerald-500 hover:bg-emerald-500/10"
-                        >
-                          Ara
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(item.code)}
-                          className="rounded border border-border px-2 py-0.5 text-[11px] hover:bg-surface"
-                        >
-                          Kopyala
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <div className="flex flex-col gap-2 text-xs text-fg-muted">
-                <p>
-                  Netgsm, Bulutfon veya Kobikom panelinizde gelen çağrı webhook
-                  adresini aşağıdaki NordVow uç noktasına yönlendirin:
-                </p>
-                <div className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2 font-mono text-fg">
-                  <span>
-                    https://nordvow.com/api/webhooks/voice-assistant/inbound
-                  </span>
+      {/* GÖRÜNÜM 1: 4 ADIMLI HIZLI KURULUM */}
+      {mainView === "setup" ? (
+        <div className="flex flex-col gap-5">
+          {/* Adım Çubuğu */}
+          <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {stepsMeta.map((s) => {
+              const active = step === s.id;
+              return (
+                <li key={s.id}>
                   <button
                     type="button"
-                    onClick={() =>
-                      copyToClipboard(
-                        "https://nordvow.com/api/webhooks/voice-assistant/inbound",
-                      )
-                    }
-                    className="rounded border border-border px-2 py-0.5 text-[11px]"
+                    onClick={() => setStep(s.id)}
+                    className={`flex w-full flex-col gap-0.5 rounded-2xl border p-3.5 text-left transition ${
+                      active
+                        ? "border-fg bg-fg text-bg"
+                        : s.done
+                          ? "border-emerald-500/40 bg-emerald-500/5 text-fg hover:border-emerald-500"
+                          : "border-border bg-surface text-fg-muted hover:border-border-strong"
+                    }`}
                   >
-                    Kopyala
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold">{s.title}</span>
+                      <span className="text-xs">{s.done ? "✓" : "○"}</span>
+                    </div>
+                    <span className={`text-[11px] ${active ? "opacity-80" : "text-fg-passive"}`}>
+                      {s.subtitle}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          {/* ADIM 1: BELGELER & FİRMA BİLGİSİ */}
+          {step === 1 ? (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+                <div>
+                  <h3 className="text-base font-semibold text-fg">1. Firma Bilgileri</h3>
+                  <p className="text-xs text-fg-muted">
+                    Asistan arayan müşterilere bu bilgilerle cevap verir.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs text-fg-muted">
+                    Sektör
+                    <input
+                      type="text"
+                      placeholder="Örn: Klinik / Güzellik / Restoran"
+                      value={settings.companyProfile.sector}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          companyProfile: { ...settings.companyProfile, sector: e.target.value },
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                    />
+                  </label>
+                  <label className="text-xs text-fg-muted">
+                    Çalışma Saatleri
+                    <input
+                      type="text"
+                      placeholder="Örn: Hafta içi 09:00 - 19:00"
+                      value={settings.companyProfile.workingHours}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          companyProfile: { ...settings.companyProfile, workingHours: e.target.value },
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                    />
+                  </label>
+                </div>
+                <label className="text-xs text-fg-muted">
+                  Adres & Yol Tarifi
+                  <input
+                    type="text"
+                    value={settings.companyProfile.address}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        companyProfile: { ...settings.companyProfile, address: e.target.value },
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+                <label className="text-xs text-fg-muted">
+                  Hizmetler, Fiyatlar ve Kurallar (Detaylı)
+                  <textarea
+                    rows={4}
+                    placeholder="Örn: Randevu saatleri, fiyat aralıkları, iptal kuralları..."
+                    value={settings.companyProfile.servicesSummary}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        companyProfile: { ...settings.companyProfile, servicesSummary: e.target.value },
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={async () => {
+                      const ok = await patchSettings(
+                        { companyProfile: settings.companyProfile },
+                        "Firma bilgileri kaydedildi ve indekslendi.",
+                      );
+                      if (ok) {
+                        await loadDocs();
+                        setStep(2);
+                      }
+                    }}
+                    className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
+                  >
+                    Kaydet ve Numaraya Geç →
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* 2. SES TONU, HIZ & MALİYET */}
-      {tab === "settings" && (
-        <div className="flex flex-col gap-5">
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-              <h3 className="text-base font-semibold text-fg">
-                Dinleme, Cevap Süresi & Karşılama
-              </h3>
-              <label className="text-xs text-fg-muted">
-                Asistan / İşletme Adı
-                <input
-                  type="text"
-                  value={settings.businessName}
-                  onChange={(e) =>
-                    setSettings({ ...settings, businessName: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-              <label className="text-xs text-fg-muted">
-                Karşılama Mesajı
-                <textarea
-                  value={settings.conversation.greetingMessage}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      conversation: {
-                        ...settings.conversation,
-                        greetingMessage: e.target.value,
-                      },
-                    })
-                  }
-                  className="mt-1 min-h-20 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-              <label className="text-xs text-fg-muted">
-                Dinleme Duraksama Süresi (ms — 600ms doğal ve hızlı)
-                <input
-                  type="number"
-                  min={300}
-                  max={2500}
-                  step={50}
-                  value={settings.conversation.silenceTimeoutMs}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      conversation: {
-                        ...settings.conversation,
-                        silenceTimeoutMs: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-xs text-fg-muted">
-                  Maks. Cümle (1–4)
+              <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+                <div>
+                  <h3 className="text-base font-semibold text-fg">Detaylı Belge / SSS Yükle</h3>
+                  <p className="text-xs text-fg-muted">
+                    `.txt`, `.md`, `.csv` veya `.json` dosyası seçebilir ya da metin yapıştırabilirsiniz.
+                  </p>
+                </div>
+                <label className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-border bg-bg/50 px-4 py-3 text-xs font-medium text-fg-muted hover:border-fg hover:text-fg">
+                  <span>Dosya Seç (.txt, .md, .csv, .json)</span>
                   <input
-                    type="number"
-                    min={1}
-                    max={6}
-                    value={settings.conversation.maxResponseSentences}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        conversation: {
-                          ...settings.conversation,
-                          maxResponseSentences: Number(e.target.value),
-                        },
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                    type="file"
+                    accept=".txt,.md,.csv,.json,text/*"
+                    onChange={(e) => void handleFileSelect(e)}
+                    className="hidden"
                   />
                 </label>
+                <input
+                  type="text"
+                  placeholder="Belge adı (ör. fiyat-listesi.md)"
+                  value={docFilename}
+                  onChange={(e) => setDocFilename(e.target.value)}
+                  className="rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                />
+                <textarea
+                  rows={4}
+                  placeholder={"# Sıkça Sorulan Sorular\nSoru: ...\nCevap: ..."}
+                  value={docContent}
+                  onChange={(e) => setDocContent(e.target.value)}
+                  className="rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                />
+                <button
+                  type="button"
+                  disabled={saving || !docFilename.trim() || !docContent.trim()}
+                  onClick={() => void handleUploadDoc()}
+                  className="w-fit rounded-xl border border-border bg-bg px-4 py-2 text-sm font-medium text-fg hover:bg-surface-hover disabled:opacity-50"
+                >
+                  Belgeyi Ekle
+                </button>
+
+                {docs.length > 0 ? (
+                  <div className="mt-2 border-t border-border pt-3">
+                    <span className="text-xs font-medium text-fg-muted">Yüklü Belgeler ({docs.length})</span>
+                    <ul className="mt-2 flex flex-wrap gap-2">
+                      {docs.map((d) => (
+                        <li
+                          key={d.filename}
+                          className="rounded-full border border-border bg-bg px-3 py-1 text-xs text-fg"
+                        >
+                          {d.filename} <span className="text-fg-passive">({d.chunkCount} parça)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {/* ADIM 2: NUMARA & YÖNLENDİRME */}
+          {step === 2 ? (
+            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-5">
+              <div>
+                <h3 className="text-base font-semibold text-fg">2. Telefon Numarası & Yönlendirme</h3>
+                <p className="text-xs text-fg-muted">
+                  Arayanların ulaşacağı işletme numaranızı ve çağrıların aktarılacağı asistan hattını girin.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-xs text-fg-muted">
-                  Maks. Süre (sn)
-                  <input
-                    type="number"
-                    min={30}
-                    max={1800}
-                    value={settings.conversation.maxCallDurationSeconds}
+                  Hat Operatörü
+                  <select
+                    value={settings.telephony.operator}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        conversation: {
-                          ...settings.conversation,
-                          maxCallDurationSeconds: Number(e.target.value),
-                        },
+                        telephony: { ...settings.telephony, operator: e.target.value as Operator },
                       })
                     }
-                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  >
+                    {(Object.keys(OPERATOR_LABELS) as Operator[]).map((op) => (
+                      <option key={op} value={op}>
+                        {OPERATOR_LABELS[op]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-xs text-fg-muted">
+                  İşletme / Cep Numaranız (Müşterinin Aradığı Numara)
+                  <input
+                    type="text"
+                    placeholder="05XX XXX XX XX"
+                    value={settings.telephony.personalMobileNumber}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        telephony: { ...settings.telephony, personalMobileNumber: e.target.value },
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+
+                <label className="text-xs text-fg-muted">
+                  Asistan Yönlendirme Numarası (0850 / 0212 / Santral)
+                  <input
+                    type="text"
+                    placeholder="0850XXXXXXX"
+                    value={settings.telephony.virtualForwardingNumber}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        telephony: { ...settings.telephony, virtualForwardingNumber: e.target.value },
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+
+                <label className="text-xs text-fg-muted">
+                  Canlı Görevliye Aktarım Numarası (İsteğe Bağlı)
+                  <input
+                    type="text"
+                    placeholder="Asistan çözemezse aktarılacak numara"
+                    value={settings.staffNotifications.transferPhoneNumber}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        staffNotifications: { ...settings.staffNotifications, transferPhoneNumber: e.target.value },
+                      })
+                    }
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
                   />
                 </label>
               </div>
-            </div>
 
-            <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-              <h3 className="text-base font-semibold text-fg">
-                Ses Tonu, Gerçekçilik & Maliyet
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
+              {hasLoopRisk ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-300">
+                  Uyarı: Canlı aktarım numarası işletme numaranızla aynı. `*21*` yönlendirmesi açıkken çağrı döngüye girebilir.
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="rounded-xl border border-border px-4 py-2 text-sm text-fg-muted hover:text-fg"
+                >
+                  ← Belgeler
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    const ok = await patchSettings(
+                      { telephony: settings.telephony, staffNotifications: settings.staffNotifications },
+                      "Numara ayarları kaydedildi.",
+                    );
+                    if (ok) setStep(3);
+                  }}
+                  className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
+                >
+                  Kaydet ve Ses Ayarlarına Geç →
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ADIM 3: SES & KARŞILAMA AYARLARI */}
+          {step === 3 ? (
+            <div className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-5">
+              <div>
+                <h3 className="text-base font-semibold text-fg">3. Ses & Karşılama Ayarları</h3>
+                <p className="text-xs text-fg-muted">
+                  Arayan kişi asistanı duyduğunda ilk duyacağı karşılama ve ses tonunu belirleyin.
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-xs text-fg-muted">
-                  Konuşma Tonu
+                  Asistan / İşletme Adı
+                  <input
+                    type="text"
+                    value={settings.businessName}
+                    onChange={(e) => setSettings({ ...settings, businessName: e.target.value })}
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  />
+                </label>
+
+                <label className="text-xs text-fg-muted">
+                  Ses Tonu
                   <select
                     value={settings.voice.tone}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        voice: {
-                          ...settings.voice,
-                          tone: e.target.value as VoiceTone,
-                        },
+                        voice: { ...settings.voice, tone: e.target.value as VoiceTone },
                       })
                     }
-                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
                   >
-                    <option value="warm">Sıcakkanlı & Samimi</option>
-                    <option value="formal">Kurumsal & Resmi</option>
-                    <option value="energetic">Enerjik & Hızlı</option>
-                    <option value="calm">Sakin & Güven Veren</option>
-                  </select>
-                </label>
-                <label className="text-xs text-fg-muted">
-                  Cevap Hızı Modu
-                  <select
-                    value={settings.voice.latencyMode}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        voice: {
-                          ...settings.voice,
-                          latencyMode: e.target.value as
-                            | "ultra_fast"
-                            | "balanced"
-                            | "high_quality",
-                        },
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                  >
-                    <option value="ultra_fast">Ultra Hızlı (~400ms)</option>
-                    <option value="balanced">Dengeli (~700ms)</option>
-                    <option value="high_quality">Yüksek Doğallık</option>
+                    {(Object.keys(TONE_LABELS) as VoiceTone[]).map((t) => (
+                      <option key={t} value={t}>
+                        {TONE_LABELS[t]}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <label className="text-xs text-fg-muted">
+                İlk Karşılama Cümlesi
+                <textarea
+                  rows={2}
+                  value={settings.conversation.greetingMessage}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      conversation: { ...settings.conversation, greetingMessage: e.target.value },
+                    })
+                  }
+                  className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                />
+              </label>
+
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-xs text-fg-muted">
-                  Konuşma Hızı ({settings.voice.speed}x)
+                  Konuşma Hızı ({settings.voice.speed.toFixed(2)}x)
                   <input
                     type="range"
                     min={0.75}
@@ -767,476 +785,342 @@ export function VoiceAssistantAdminPanel({
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        voice: {
-                          ...settings.voice,
-                          speed: Number(e.target.value),
-                        },
+                        voice: { ...settings.voice, speed: Number(e.target.value) },
                       })
                     }
                     className="mt-2 w-full"
                   />
                 </label>
                 <label className="text-xs text-fg-muted">
-                  Tonlama / Duygu ({settings.voice.style})
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={settings.voice.style}
+                  Gecikme / Kalite Modu
+                  <select
+                    value={settings.voice.latencyMode}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
                         voice: {
                           ...settings.voice,
-                          style: Number(e.target.value),
+                          latencyMode: e.target.value as AssistantSettings["voice"]["latencyMode"],
                         },
                       })
                     }
-                    className="mt-2 w-full"
-                  />
+                    className="mt-1 w-full rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
+                  >
+                    <option value="ultra_fast">Ultra Hızlı (Önerilen)</option>
+                    <option value="balanced">Dengeli</option>
+                    <option value="high_quality">Yüksek Kalite</option>
+                  </select>
                 </label>
               </div>
-              <label className="text-xs text-fg-muted">
-                Maliyet Profili
-                <select
-                  value={settings.costProfile}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      costProfile: e.target.value as CostProfile,
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                >
-                  <option value="balanced">
-                    Balanced (ElevenLabs Flash v2.5 + Düşük Maliyet)
-                  </option>
-                  <option value="eco">Eco (En Düşük Maliyet / Polly)</option>
-                  <option value="premium">
-                    Premium (Multilingual v2 Yüksek Kalite)
-                  </option>
-                </select>
-              </label>
-              <label className="text-xs text-fg-muted">
-                Aylık Bütçe Limiti (USD)
-                <input
-                  type="number"
-                  min={1}
-                  value={settings.costLimits.maxMonthlyBudgetUsd}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      costLimits: {
-                        ...settings.costLimits,
-                        maxMonthlyBudgetUsd: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="mb-3 text-base font-semibold text-fg">
-              Özellik Anahtarları
-            </h3>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(
-                [
-                  ["knowledgeBaseEnabled", "Belge / Firma Bilgisi Soru-Cevap"],
-                  ["reservationsEnabled", "Rezervasyon & Randevu Alma"],
-                  ["staffNotesEnabled", "Önemli Detay & Görevli Notu Çıkarma"],
-                  ["callTransferEnabled", "Canlı Görevliye Aktarım"],
-                  ["bargeInEnabled", "Söz Kesme (Arayan Konuşunca Dinle)"],
-                  ["costGuardEnabled", "Otomatik Maliyet Koruma"],
-                ] as const
-              ).map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex items-center justify-between rounded-lg border border-border bg-bg px-3 py-2.5 text-sm text-fg"
+              {/* Gelişmiş Teknik Ayarlar (Gizli Akordeon) */}
+              <details className="rounded-xl border border-border bg-bg/40 p-3">
+                <summary className="cursor-pointer text-xs font-medium text-fg-muted">
+                  Gelişmiş Teknik Ayarlar (Maliyet profili, dinleme süresi, webhook)
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <label className="text-xs text-fg-muted">
+                    Maliyet Profili
+                    <select
+                      value={settings.costProfile}
+                      onChange={(e) => setSettings({ ...settings, costProfile: e.target.value as CostProfile })}
+                      className="mt-1 w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-fg"
+                    >
+                      <option value="eco">Eco (En Düşük Maliyet)</option>
+                      <option value="balanced">Dengeli</option>
+                      <option value="premium">Premium</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-fg-muted">
+                    Dinleme Duraksama (ms)
+                    <input
+                      type="number"
+                      min={300}
+                      max={2500}
+                      step={50}
+                      value={settings.conversation.silenceTimeoutMs}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          conversation: { ...settings.conversation, silenceTimeoutMs: Number(e.target.value) },
+                        })
+                      }
+                      className="mt-1 w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-fg"
+                    />
+                  </label>
+                  <label className="text-xs text-fg-muted">
+                    Webhook URL
+                    <input
+                      type="text"
+                      placeholder="https://..."
+                      value={settings.staffNotifications.webhookUrl}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          staffNotifications: { ...settings.staffNotifications, webhookUrl: e.target.value },
+                        })
+                      }
+                      className="mt-1 w-full rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-fg"
+                    />
+                  </label>
+                </div>
+              </details>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="rounded-xl border border-border px-4 py-2 text-sm text-fg-muted hover:text-fg"
                 >
-                  <span>{label}</span>
+                  ← Numara
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    const ok = await patchSettings(
+                      {
+                        enabled: true,
+                        businessName: settings.businessName,
+                        costProfile: settings.costProfile,
+                        conversation: settings.conversation,
+                        voice: settings.voice,
+                        staffNotifications: settings.staffNotifications,
+                      },
+                      "Ses ayarları kaydedildi ve asistan aktifleştirildi.",
+                    );
+                    if (ok) setStep(4);
+                  }}
+                  className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
+                >
+                  Kaydet ve Hızlı Bağlantıya Geç →
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ADIM 4: TEK TIK HIZLI BAĞLANTI */}
+          {step === 4 ? (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="flex flex-col gap-4 rounded-2xl border border-emerald-500/30 bg-surface p-5">
+                <div>
+                  <span className="inline-flex rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    Hızlı Bağlantı
+                  </span>
+                  <h3 className="mt-2 text-lg font-semibold text-fg">
+                    Numara Arandığı An Sesli Asistana Yönlendir
+                  </h3>
+                  <p className="mt-1 text-xs text-fg-muted">
+                    Hiç teknik ayarla uğraşmadan aşağıdaki butona dokunarak ({OPERATOR_LABELS[settings.telephony.operator]}) hattınızı doğrudan asistana bağlayın.
+                  </p>
+                </div>
+
+                {settings.telephony.operator !== "voip_sip" ? (
+                  <div className="flex flex-col gap-3">
+                    <a
+                      href={`tel:${encodeURIComponent(forwardAllCode)}`}
+                      className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3.5 text-center text-sm font-semibold text-white transition hover:bg-emerald-500"
+                    >
+                      Tek Tıkla Aramaları Asistana Bağla ({forwardAllCode})
+                    </a>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        { label: "Sadece Cevap Vermeyince", code: `*61*${virtualNum}#` },
+                        { label: "Sadece Meşgulken", code: `*67*${virtualNum}#` },
+                      ].map((item) => (
+                        <div key={item.code} className="flex items-center justify-between rounded-xl border border-border bg-bg px-3 py-2 text-xs">
+                          <span className="text-fg-muted">{item.label}</span>
+                          <div className="flex gap-1.5">
+                            <a
+                              href={`tel:${encodeURIComponent(item.code)}`}
+                              className="rounded-lg border border-emerald-500/40 px-2 py-0.5 font-medium text-emerald-600 dark:text-emerald-400"
+                            >
+                              Ara
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(item.code)}
+                              className="rounded-lg border border-border px-2 py-0.5 text-fg-muted hover:text-fg"
+                            >
+                              Kopyala
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border border-border bg-bg/50 px-3 py-2 text-xs">
+                      <span className="text-fg-muted">Yönlendirmeyi kapatmak için:</span>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span>##002#</span>
+                        <a href="tel:%23%23002%23" className="underline">
+                          İptal Et
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2 rounded-xl border border-border bg-bg p-3 text-xs">
+                    <span className="text-fg-muted">VoIP / SIP Gelen Çağrı Webhook Adresi:</span>
+                    <div className="flex items-center justify-between gap-2 font-mono text-fg">
+                      <span className="truncate">https://nordvow.com/api/webhooks/voice-assistant/inbound</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard("https://nordvow.com/api/webhooks/voice-assistant/inbound")}
+                        className="shrink-0 rounded-lg border border-border px-2.5 py-1"
+                      >
+                        Kopyala
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Hızlı Canlı Test */}
+              <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+                <h3 className="text-base font-semibold text-fg">Hemen Test Et</h3>
+                <p className="text-xs text-fg-muted">
+                  Yüklediğiniz belgeler ve ses ayarlarıyla asistanın nasıl cevap verdiğini deneyin.
+                </p>
+                <div className="flex min-h-40 max-h-60 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-bg p-3 text-xs">
+                  {simMessages.length === 0 ? (
+                    <span className="text-fg-passive">Örn: &ldquo;Merhaba, yarın saat 14:00 için bilgi alabilir miyim?&rdquo;</span>
+                  ) : (
+                    simMessages.map((m, i) => (
+                      <div
+                        key={i}
+                        className={`max-w-[85%] rounded-xl px-3 py-2 ${
+                          m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
+                        }`}
+                      >
+                        {m.text}
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex gap-2">
                   <input
-                    type="checkbox"
-                    checked={settings.features[key]}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        features: {
-                          ...settings.features,
-                          [key]: e.target.checked,
-                        },
-                      })
-                    }
+                    type="text"
+                    value={simInput}
+                    onChange={(e) => setSimInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleSendSim();
+                    }}
+                    placeholder="Müşteri gibi bir soru yazın..."
+                    className="flex-1 rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
                   />
-                </label>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() =>
-                void patchSettings(
-                  {
-                    businessName: settings.businessName,
-                    costProfile: settings.costProfile,
-                    conversation: settings.conversation,
-                    costLimits: settings.costLimits,
-                    voice: settings.voice,
-                    features: settings.features,
-                  },
-                  "Ses tonu, hız ve maliyet ayarları kaydedildi.",
-                )
-              }
-              className="mt-4 rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
-            >
-              Ayarları Kaydet
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 3. FİRMA BİLGİLERİ & BELGELER */}
-      {tab === "knowledge" && (
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-            <h3 className="text-base font-semibold text-fg">
-              Firma Bilgileri (AI Otomatik İndeksler)
-            </h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-xs text-fg-muted">
-                Sektör
-                <input
-                  type="text"
-                  placeholder="Örn: Güzellik Merkezi / Klinik / Restoran"
-                  value={settings.companyProfile.sector}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      companyProfile: {
-                        ...settings.companyProfile,
-                        sector: e.target.value,
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-              <label className="text-xs text-fg-muted">
-                Çalışma Saatleri
-                <input
-                  type="text"
-                  value={settings.companyProfile.workingHours}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      companyProfile: {
-                        ...settings.companyProfile,
-                        workingHours: e.target.value,
-                      },
-                    })
-                  }
-                  className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-                />
-              </label>
-            </div>
-            <label className="text-xs text-fg-muted">
-              Adres & Yol Tarifi
-              <input
-                type="text"
-                value={settings.companyProfile.address}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    companyProfile: {
-                      ...settings.companyProfile,
-                      address: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            <label className="text-xs text-fg-muted">
-              Hizmetler, Fiyatlar ve Önemli Kurallar
-              <textarea
-                value={settings.companyProfile.servicesSummary}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    companyProfile: {
-                      ...settings.companyProfile,
-                      servicesSummary: e.target.value,
-                    },
-                  })
-                }
-                className="mt-1 min-h-24 w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() =>
-                void patchSettings(
-                  { companyProfile: settings.companyProfile },
-                  "Firma bilgileri kaydedildi ve AI bilgi bankasına işlendi.",
-                ).then(() => loadDocs())
-              }
-              className="w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
-            >
-              Firma Bilgilerini Kaydet & İşle
-            </button>
-          </div>
-
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-              <h3 className="text-base font-semibold text-fg">
-                Ek Soru-Cevap / Belge Yükle
-              </h3>
-              <input
-                type="text"
-                placeholder="Dosya adı (ör. sikca-sorulanlar.md)"
-                value={docFilename}
-                onChange={(e) => setDocFilename(e.target.value)}
-                className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-              <textarea
-                placeholder={"# SSS\nSoru: ...\nCevap: ..."}
-                value={docContent}
-                onChange={(e) => setDocContent(e.target.value)}
-                className="min-h-36 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
-              />
-              <button
-                type="button"
-                onClick={() => void handleUploadDoc()}
-                className="w-fit rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg"
-              >
-                Belgeyi Kaydet & İndeksle
-              </button>
-            </div>
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <h3 className="mb-3 text-base font-semibold text-fg">
-                İşlenmiş Bilgi Bankası Belgeleri
-              </h3>
-              <ul className="flex flex-col gap-2 text-sm text-fg-muted">
-                {docs.map((d) => (
-                  <li
-                    key={d.filename}
-                    className="rounded-lg border border-border bg-bg px-3 py-2"
+                  <button
+                    type="button"
+                    onClick={() => void handleSendSim()}
+                    className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg"
                   >
-                    <strong className="text-fg">{d.filename}</strong> (
-                    {d.chunkCount} parça)
+                    Gönder
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* GÖRÜNÜM 2: ÇAĞRI KAYITLARI & REZERVASYONLAR */}
+      {mainView === "activity" ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+            <h3 className="text-base font-semibold text-fg">Son Çağrılar ({calls.length})</h3>
+            {calls.length === 0 ? (
+              <p className="text-sm text-fg-passive">Henüz çağrı kaydı yok.</p>
+            ) : (
+              <ul className="flex flex-col divide-y divide-border">
+                {calls.map((c) => (
+                  <li key={c.callId}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCall(c)}
+                      className="flex w-full items-center justify-between gap-2 py-2.5 text-left text-sm hover:opacity-80"
+                    >
+                      <div>
+                        <span className="font-medium text-fg">{c.extractedDetails?.callerName || c.callerPhone}</span>
+                        <span className="block text-xs text-fg-muted">
+                          {c.extractedDetails?.intent || c.status} · {c.durationSeconds} sn
+                        </span>
+                      </div>
+                      <span className="text-xs text-fg-passive">{new Date(c.startedAt).toLocaleString("tr-TR")}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. ÇAĞRI KAYITLARI & ÖNEMLİ DETAYLAR */}
-      {tab === "calls" && (
-        <div className="flex flex-col gap-4">
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-fg">
-                Çağrı Kayıtları ve Çıkarılan Detaylar
-              </h3>
-              <button
-                type="button"
-                onClick={() => void loadCalls()}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-fg hover:bg-bg"
-              >
-                Yenile
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-border text-fg-muted">
-                    <th className="py-2 pr-3">Tarih</th>
-                    <th className="py-2 pr-3">Arayan</th>
-                    <th className="py-2 pr-3">Niyet / Aciliyet</th>
-                    <th className="py-2 pr-3">Süre</th>
-                    <th className="py-2 pr-3">Maliyet</th>
-                    <th className="py-2">Döküm & Detay</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {calls.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-4 text-fg-muted">
-                        Bu marka için henüz çağrı kaydı yok.
-                      </td>
-                    </tr>
-                  ) : (
-                    calls.map((c) => (
-                      <tr
-                        key={c.callId}
-                        className="border-b border-border/60 text-fg"
-                      >
-                        <td className="py-2 pr-3">
-                          {new Date(c.startedAt).toLocaleString("tr-TR")}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {c.extractedDetails?.callerName
-                            ? `${c.extractedDetails.callerName} (${c.callerPhone})`
-                            : c.callerPhone}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {c.extractedDetails?.intent || "genel"}{" "}
-                          {c.extractedDetails?.urgency === "high" && (
-                            <span className="ml-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
-                              ACİL
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3">{c.durationSeconds} sn</td>
-                        <td className="py-2 pr-3">${c.estimatedCostUsd}</td>
-                        <td className="py-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCall(c)}
-                            className="rounded border border-border px-2 py-1 hover:bg-bg"
-                          >
-                            Gör ({c.transcript.length})
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {selectedCall && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <h4 className="mb-3 text-sm font-semibold text-fg">
-                  Çağrıdan Çıkarılan Önemli Detaylar
-                </h4>
-                <div className="flex flex-col gap-2 text-xs text-fg-muted">
-                  <div>
-                    <strong className="text-fg">Arayan:</strong>{" "}
-                    {selectedCall.extractedDetails?.callerName || "Belirtilmedi"}{" "}
-                    ({selectedCall.callerPhone})
-                  </div>
-                  <div>
-                    <strong className="text-fg">Niyet:</strong>{" "}
-                    {selectedCall.extractedDetails?.intent || "genel"}
-                  </div>
-                  <div>
-                    <strong className="text-fg">Önemli Notlar:</strong>
-                    <ul className="mt-1 list-disc pl-4">
-                      {(
-                        selectedCall.extractedDetails?.importantNotes || []
-                      ).map((n, idx) => (
-                        <li key={idx}>{n}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-xl border border-border bg-surface p-5">
-                <h4 className="mb-3 text-sm font-semibold text-fg">
-                  Konuşma Dökümü
-                </h4>
-                <div className="flex flex-col gap-2 rounded-lg border border-border bg-bg p-3 text-xs">
-                  {selectedCall.transcript.map((t, i) => (
-                    <div key={i}>
-                      <span className="font-semibold text-fg">
-                        {t.speaker === "caller"
-                          ? "Arayan"
-                          : t.speaker === "assistant"
-                            ? "Asistan"
-                            : "Sistem"}
-                        :{" "}
-                      </span>
-                      <span className="text-fg-muted">{t.text}</span>
-                    </div>
+            )}
+            {selectedCall ? (
+              <div className="mt-2 rounded-xl border border-border bg-bg p-3 text-xs">
+                <span className="font-semibold text-fg">Konuşma Dökümü</span>
+                <div className="mt-2 flex max-h-48 flex-col gap-1.5 overflow-y-auto">
+                  {selectedCall.transcript.map((t, idx) => (
+                    <p key={idx} className="text-fg-muted">
+                      <strong className="text-fg">{t.speaker}:</strong> {t.text}
+                    </p>
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            ) : null}
+          </div>
 
-      {/* 5. REZERVASYON & NOTLAR */}
-      {tab === "records" && (
-        <div className="grid gap-5 md:grid-cols-2">
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="mb-3 text-base font-semibold text-fg">
-              Alınan Rezervasyonlar
-            </h3>
-            <div className="flex flex-col gap-2 text-xs">
+          <div className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-5">
+            <div>
+              <h3 className="text-base font-semibold text-fg">Rezervasyonlar ({reservations.length})</h3>
               {reservations.length === 0 ? (
-                <p className="text-fg-muted">Kayıt yok.</p>
+                <p className="mt-1 text-sm text-fg-passive">Henüz rezervasyon yok.</p>
               ) : (
-                reservations.map((r) => (
-                  <div
-                    key={r.id}
-                    className="rounded-lg border border-border bg-bg p-3"
-                  >
-                    <div className="font-semibold text-fg">
-                      {r.confirmationCode} — {r.customerName} ({r.phone})
-                    </div>
-                    <div className="text-fg-muted">
-                      {r.date} {r.time} · {r.partySize} kişi
-                    </div>
-                  </div>
-                ))
+                <ul className="mt-2 divide-y divide-border text-sm">
+                  {reservations.map((r) => (
+                    <li key={r.id} className="flex justify-between py-2">
+                      <span>
+                        <strong>{r.customerName}</strong> ({r.partySize} kişi)
+                      </span>
+                      <span className="text-xs text-fg-muted">
+                        {r.date} {r.time} · #{r.confirmationCode}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
-          </div>
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h3 className="mb-3 text-base font-semibold text-fg">
-              Görevlilere Aktarılan Notlar
-            </h3>
-            <div className="flex flex-col gap-2 text-xs">
+            <div className="border-t border-border pt-4">
+              <h3 className="text-base font-semibold text-fg">Görevli Notları ({notes.length})</h3>
               {notes.length === 0 ? (
-                <p className="text-fg-muted">Not yok.</p>
+                <p className="mt-1 text-sm text-fg-passive">Henüz not yok.</p>
               ) : (
-                notes.map((n) => (
-                  <div
-                    key={n.id}
-                    className="rounded-lg border border-border bg-bg p-3"
-                  >
-                    <div className="font-semibold text-fg">
-                      {n.callerName} ({n.callerPhone}) · {n.category}
-                    </div>
-                    <div className="text-fg-muted">{n.summary}</div>
-                  </div>
-                ))
+                <ul className="mt-2 divide-y divide-border text-sm">
+                  {notes.map((n) => (
+                    <li key={n.id} className="py-2">
+                      <span className="font-medium">{n.callerName || n.callerPhone}</span>
+                      <p className="text-xs text-fg-muted">{n.summary}</p>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* 6. CANLI TEST */}
-      {tab === "simulator" && (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5">
-          <h3 className="text-base font-semibold text-fg">
-            Asistan Simülatörü ({selectedBrand?.name})
-          </h3>
-          <div className="flex h-64 flex-col gap-2 overflow-y-auto rounded-lg border border-border bg-bg p-3 text-sm">
+      {/* GÖRÜNÜM 3: CANLI TEST */}
+      {mainView === "simulator" ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-5">
+          <h3 className="text-base font-semibold text-fg">Sesli Asistan Canlı Test</h3>
+          <div className="flex min-h-64 max-h-96 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-bg p-4 text-sm">
             {simMessages.length === 0 ? (
-              <p className="text-xs text-fg-muted">
-                Örnek: &quot;Merhaba, adım Ahmet. Yarın 19:30 için 2 kişilik
-                rezervasyon yapmak istiyorum.&quot;
-              </p>
+              <span className="text-fg-passive">Asistanı test etmek için aşağıya bir mesaj yazın...</span>
             ) : (
-              simMessages.map((m, idx) => (
-                <div key={idx}>
-                  <strong className="text-fg">
-                    {m.role === "user" ? "Siz" : "Asistan"}:{" "}
-                  </strong>
-                  <span className="text-fg-muted">{m.text}</span>
+              simMessages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
+                    m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
+                  }`}
+                >
+                  {m.text}
                 </div>
               ))
             )}
@@ -1249,19 +1133,19 @@ export function VoiceAssistantAdminPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleSendSim();
               }}
-              placeholder="Mesajınızı yazın..."
-              className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg"
+              placeholder="Arayan müşteri gibi yazın..."
+              className="flex-1 rounded-xl border border-border bg-bg px-3 py-2 text-sm text-fg"
             />
             <button
               type="button"
               onClick={() => void handleSendSim()}
-              className="rounded-lg bg-fg px-4 py-2 text-sm font-semibold text-bg"
+              className="rounded-xl bg-fg px-5 py-2 text-sm font-semibold text-bg"
             >
               Gönder
             </button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

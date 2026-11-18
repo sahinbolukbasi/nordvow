@@ -157,9 +157,9 @@ export function CampaignHub({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-section">{tt("Tek Merkezli Kampanya & Teklif Yönetim Tablosu")}</h2>
+              <h2 className="text-section">{tt("Kampanya ekibi ve teklifler")}</h2>
               <span className="rounded-full border border-line bg-surface-muted px-2.5 py-0.5 text-[11px] font-medium text-fg-muted">
-                {executionMode === "SELF" ? tt("Marka Yönetimi (Self-Managed)") : tt("Ajans Yönetimi")}
+                {executionMode === "SELF" ? tt("Marka Yönetimi") : tt("Ajans Yönetimi")}
               </span>
             </div>
             <p className="text-[13px] text-fg-muted">
@@ -477,20 +477,20 @@ export function CampaignHub({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-section">{tt("Otonom Agent & Instagram Story / İçerik Takibi")}</h2>
+              <h2 className="text-section">{tt("Instagram Story ve İçerik Takibi")}</h2>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                {tt("Canlı Veritabanı Telemetrisi")}
+                {tt("Otomatik Takip")}
               </span>
             </div>
             <p className="text-[13px] text-fg-muted">
-              {tt("Kampanyaya katılan influencer'ların Instagram hesapları ve paylaştıkları Story/Reels içerikleri otonom agent tarafından takip edilir: Story görüntülenme, link tıklaması, paylaşım durumu ve yayında kalma süresi.")}
+              {tt("Kampanyaya katılan influencer'ların paylaştıkları Story ve Reels içerikleri otomatik olarak izlenir: görüntülenme, bağlantı tıklaması, paylaşım durumu ve yayında kalma süresi.")}
             </p>
           </div>
           {canManage ? (
             <ActionForm
               action={runCampaignStoryAgentAction}
-              submitLabel={tt("Story & Gönderi Agent Taramasını Şimdi Çalıştır")}
+              submitLabel={tt("Story ve Gönderileri Şimdi Tara")}
               submitSize="sm"
               submitVariant="secondary"
             >
@@ -706,37 +706,49 @@ export function InfluencerTaskSyncCard({
 }
 
 /**
- * Kampanyayı silme butonu (2 adımlı onay ile kazara silmeyi önler).
+ * Kampanyayı silme butonu (onay modalı ile kazara silmeyi önler).
  */
 export function CampaignDeleteButton({ campaignId, campaignName }: { campaignId: string; campaignName: string }) {
   const tt = useTT();
-  const [confirming, setConfirming] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  if (!confirming) {
-    return (
+  return (
+    <>
       <Button
         type="button"
-        variant="secondary"
+        variant="ghost"
         size="sm"
-        onClick={() => setConfirming(true)}
-        className="border-critical/40 text-critical hover:border-critical hover:bg-critical/10"
+        onClick={() => setOpen(true)}
+        className="w-full justify-start text-critical hover:bg-critical/10"
       >
         {tt("Kampanyayı Sil")}
       </Button>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-critical/40 bg-critical/5 px-3 py-1.5">
-      <span className="text-[12px] font-medium text-critical">
-        {campaignName} {tt("silinsin mi?")}
-      </span>
-      <ActionForm action={deleteCampaignAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary">
-        <input type="hidden" name="campaignId" value={campaignId} />
-      </ActionForm>
-      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-        {tt("Vazgeç")}
-      </Button>
-    </div>
+      {open ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-campaign-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        >
+          <div className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-xl">
+            <h3 id="delete-campaign-title" className="text-base font-semibold text-fg">
+              {tt("Kampanyayı silmek istediğinize emin misiniz?")}
+            </h3>
+            <p className="text-sm text-fg-muted">
+              <strong className="text-fg">{campaignName}</strong>{" "}
+              {tt("kampanyası ve bağlı tüm teklif/teslimat kayıtları kalıcı olarak kaldırılacaktır. Bu işlem geri alınamaz.")}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>
+                {tt("Vazgeç")}
+              </Button>
+              <ActionForm action={deleteCampaignAction} submitLabel={tt("Evet, Kalıcı Olarak Sil")} submitSize="sm" submitVariant="primary">
+                <input type="hidden" name="campaignId" value={campaignId} />
+              </ActionForm>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -5,7 +5,7 @@ import { MetricCard } from "./metric-card";
 import { cn } from "@/lib/cn";
 import { useTT } from "@/lib/i18n/tt-client";
 
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+import { compact } from "@/lib/format";
 
 export function NordvowScorePanel({
   report,

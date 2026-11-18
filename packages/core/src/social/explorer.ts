@@ -509,10 +509,16 @@ export async function runInstagramExplorerForInfluencer(
 
   const botStart = Date.now();
 
-  // 2. Gerçek Veritabanı Snapshot'larından Zaman Serisi (sentetik veri yok)
+  // 2. Gerçek Veritabanı Snapshot'larından Gün Bazlı Tekilleştirilmiş Zaman Serisi (sentetik veri yok)
   const dbSnaps = igAcc?.snapshots ?? [];
-  const dailySeries: DailyGrowthPoint[] = dbSnaps.map((snap, idx) => {
-    const prevFollowers = idx > 0 ? dbSnaps[idx - 1]!.followers : snap.followers;
+  const snapsByDay = new Map<string, (typeof dbSnaps)[number]>();
+  for (const snap of dbSnaps) {
+    const dayKey = snap.takenAt.toISOString().slice(0, 10);
+    snapsByDay.set(dayKey, snap);
+  }
+  const uniqueDaySnaps = [...snapsByDay.values()];
+  const dailySeries: DailyGrowthPoint[] = uniqueDaySnaps.map((snap, idx) => {
+    const prevFollowers = idx > 0 ? uniqueDaySnaps[idx - 1]!.followers : snap.followers;
     const delta = snap.followers - prevFollowers;
     return {
       date: snap.takenAt.toISOString().slice(0, 10),
@@ -775,7 +781,7 @@ export async function runInstagramExplorerForInfluencer(
   const reliabilityScore = hasRealData ? authScore : 0;
   const consistencyScore = recentMedia.length > 0 ? Math.min(100, Math.round((recentMedia.length / 50) * 60 + Math.min(40, (formatBreakdown.reduce((s, f) => s + f.weeklyFrequency, 0) / 5) * 40))) : 0;
   const conversionPotentialScore = hasRealData ? Math.min(100, Math.round(erPct * 18 + purchaseIntentPct * 0.6)) : 0;
-  const sponsoredRetentionScore = retentionRatio > 0 ? Math.min(100, retentionRatio) : brandCollaborations.length > 0 ? 75 : hasRealData ? 65 : 0;
+  const sponsoredRetentionScore = retentionRatio > 0 ? Math.min(100, retentionRatio) : 0;
   const overallScore = hasRealData
     ? Math.round(reliabilityScore * 0.35 + consistencyScore * 0.25 + conversionPotentialScore * 0.25 + sponsoredRetentionScore * 0.15)
     : 0;

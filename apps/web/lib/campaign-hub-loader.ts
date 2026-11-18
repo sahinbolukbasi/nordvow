@@ -51,12 +51,7 @@ export async function loadCampaignHubData(campaignId: string) {
   const offers = await prisma.offer.findMany({
     where: {
       brandId: campaign.brandId,
-      OR: [
-        { campaignId },
-        ...(campaign.shortlistInfluencerIds.length
-          ? [{ influencerId: { in: campaign.shortlistInfluencerIds } }]
-          : []),
-      ],
+      campaignId,
     },
     orderBy: { createdAt: "desc" },
     take: 100,

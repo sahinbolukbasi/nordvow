@@ -38,7 +38,7 @@ export type DiscoverCreator = {
 export type ContentOption = { platform: Platform; contentType: string; label: string };
 type Item = { platform: Platform; contentType: string; qty: number; priceTl: string };
 
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+import { compact } from "@/lib/format";
 const pct = new Intl.NumberFormat("tr-TR", { style: "percent", maximumFractionDigits: 1 });
 const num = (v: string) => Number(v.replace(/\./g, "").replace(",", ".")) || 0;
 

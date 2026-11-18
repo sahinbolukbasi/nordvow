@@ -98,7 +98,7 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
         <span className="flex items-center gap-2 text-[13px] font-medium">
           {video.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element -- dinamik avatar
-            <img src={video.avatar} alt={video.handle} className="h-6 w-6 shrink-0 rounded-full border border-white/50 object-cover" />
+            <img src={video.avatar} alt={video.handle} loading="lazy" decoding="async" className="h-6 w-6 shrink-0 rounded-full border border-white/50 object-cover" />
           ) : (
             <span aria-hidden className="h-6 w-6 shrink-0 rounded-full border border-white/50 bg-white/20" />
           )}

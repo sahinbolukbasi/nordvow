@@ -27,8 +27,8 @@ export default async function VoiceAssistantPage() {
     <AppShell role={actor.role}>
       <div className="flex flex-col gap-6">
         <PageHeader
-          title="Sesli Asistan & Çağrı Yönetimi"
-          description="Tüm markalar için ayrı ayrı açılıp yönetilebilen gerçekçi Türkçe sesli asistan, operatör yönlendirme, firma bilgi bankası, rezervasyon ve çağrı kayıtları."
+          title="Sesli Asistan"
+          description="1. Belgeleri yükleyin, 2. Numarayı girin, 3. Ses ayarlarını yapın ve tek tıkla aramaları asistana bağlayın."
         />
         <VoiceAssistantAdminPanel brands={brands} initialBrandId={initialBrandId} />
       </div>

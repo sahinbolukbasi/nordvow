@@ -64,7 +64,7 @@ export function EventListItem({ e }: { e: EventListItemData }) {
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-line sm:h-24 sm:w-24">
             {e.coverSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={e.coverSrc} alt="" className="h-full w-full object-cover" />
+              <img src={e.coverSrc} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
             ) : (
               <div className="h-full w-full bg-[linear-gradient(135deg,var(--color-neon-violet),var(--color-neon-pink))] opacity-80" />
             )}
@@ -107,7 +107,7 @@ export function CouponTile({ c }: { c: CouponTileData }) {
         <div className="relative flex items-center gap-3 px-4 py-4 text-white" style={{ background: `linear-gradient(140deg, ${c.accent} 0%, #111827 140%)` }}>
           {c.logoSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={c.logoSrc} alt="" className="h-9 w-9 rounded-lg bg-white object-cover" />
+            <img src={c.logoSrc} alt="" loading="lazy" decoding="async" className="h-9 w-9 rounded-lg bg-white object-cover" />
           ) : (
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/90 text-[13px] font-bold text-[#0b0b14]" aria-hidden>
               {c.brandName.slice(0, 1).toLocaleUpperCase("tr")}

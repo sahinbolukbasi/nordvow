@@ -17,8 +17,20 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: { "/api/raporlar/kampanya/[id]/pdf": ["./assets/fonts/**"] },
   transpilePackages: ["@infulancer/core"],
   serverExternalPackages: ["pg", "@prisma/client", "@prisma/adapter-pg"],
+  compress: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
     return [
+      {
+        source: "/_next/static/(.*)",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      {
+        source: "/media/(.*)",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
       {
         source: "/(.*)",
         headers: [

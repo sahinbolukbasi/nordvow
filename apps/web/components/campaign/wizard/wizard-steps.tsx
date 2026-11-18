@@ -483,7 +483,7 @@ export type WizardCampaignSummary = {
   countriesLabel: string;
   planSummary: string[];
 };
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+import { compact } from "@/lib/format";
 export function InfluencerStep({
   id,
   backHref,

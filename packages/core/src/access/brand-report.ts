@@ -1,5 +1,6 @@
 import { prisma, type MetricSource, type Platform, type ReviewDecision, type Tx, type UsageChannel } from "../db";
 import { computeCampaignScore, type CampaignScore } from "../domain/campaign-score";
+import { evaluate23ACompliance, type Compliance23AResult, type Compliance23AStatus } from "../domain/compliance-23a";
 import { interactionsOf, isOnTime, latestReachSnapshot } from "../domain/influencer-stats";
 import { metricSourceTrust, type TrustLevel } from "../domain/labels";
 import { requireRole, type Actor } from "./actor";
@@ -30,9 +31,12 @@ export type BrandInfluencerRow = {
   onTimeCount: number;
   onTimeRate: number | null;
   reach: number;
+  views: number | null;
+  interactions: number;
   er: number | null;
   clicks: number;
   sales: number;
+  complianceStatus: Compliance23AStatus;
 };
 
 export type UsageRights = {
@@ -46,6 +50,9 @@ export type BrandGalleryItem = {
   deliverable: BrandDeliverableView;
   thumbAssetId: string | null;
   reach: number | null;
+  views: number | null;
+  interactions: number;
+  compliance23A: Compliance23AResult;
   usage: UsageRights | null;
 };
 
@@ -56,13 +63,27 @@ export type BrandPendingDraft = {
 };
 
 export type BrandCampaignReport = {
-  campaign: BrandCampaignView & { brandName: string };
+  campaign: BrandCampaignView & {
+    brandName: string;
+    budgetKurus: number;
+    paidKurus: number;
+    brandPaymentReceivedAt: Date | null;
+  };
   score: CampaignScore;
   deliverables: BrandDeliverableView[];
   influencers: BrandInfluencerRow[];
   gallery: BrandGalleryItem[];
   pendingDrafts: BrandPendingDraft[];
-  totals: { reach: number; impressions: number; clicks: number; sales: number; revenueKurus: number };
+  totals: {
+    reach: number;
+    views: number;
+    hasViewsData: boolean;
+    interactions: number;
+    impressions: number;
+    clicks: number;
+    sales: number;
+    revenueKurus: number;
+  };
   /** Ciro / marka toplam bedeli; marka cirosu yoksa null. */
   roas: number | null;
   trust: { source: MetricSource; level: TrustLevel; count: number }[];
@@ -91,6 +112,19 @@ function latestValue(snaps: SnapRow[], field: "impressions" | "clicks" | "sales"
     if (!best || s.measuredAt > best.measuredAt) best = s;
   }
   return best?.[field] ?? 0;
+}
+
+function latestViews(snaps: SnapRow[]): number | null {
+  const sorted = [...snaps].sort((a, b) => b.measuredAt.getTime() - a.measuredAt.getTime());
+  for (const s of sorted) {
+    const pm = s.platformMetrics && typeof s.platformMetrics === "object" ? (s.platformMetrics as Record<string, unknown>) : null;
+    if (!pm) continue;
+    for (const key of ["views", "video_views", "plays", "videoViews"]) {
+      const v = Number(pm[key]);
+      if (Number.isFinite(v) && v >= 0) return v;
+    }
+  }
+  return null;
 }
 
 export async function loadBrandCampaignReport(
@@ -175,24 +209,44 @@ export async function loadBrandCampaignReport(
     now,
   );
 
-  const totals = { reach: 0, impressions: 0, clicks: 0, sales: 0, revenueKurus: 0 };
+  const totals = {
+    reach: 0,
+    views: 0,
+    hasViewsData: false,
+    interactions: 0,
+    impressions: 0,
+    clicks: 0,
+    sales: 0,
+    revenueKurus: 0,
+  };
   const trustCounts = new Map<MetricSource, number>();
 
   const influencers: BrandInfluencerRow[] = liveAssignments.map((a) => {
     const ds = a.deliverables.filter((d) => d.status !== "IPTAL");
     let reach = 0;
+    let viewsSum = 0;
+    let hasInfViews = false;
     let interactions = 0;
-    let erReach = 0;
+    let erDenom = 0;
     let clicks = 0;
     let sales = 0;
     let publishedCount = 0;
     let onTimeCount = 0;
+    const compStatuses: Compliance23AStatus[] = [];
+
     for (const d of ds) {
       const latest = latestReachSnapshot(d.metricSnapshots);
-      if (latest?.reach) {
-        reach += latest.reach;
-        erReach += latest.reach;
-        interactions += interactionsOf(latest);
+      const dViews = latestViews(d.metricSnapshots);
+      if (dViews != null) {
+        viewsSum += dViews;
+        hasInfViews = true;
+      }
+      if (latest) {
+        const dInter = interactionsOf(latest);
+        interactions += dInter;
+        if (latest.reach) reach += latest.reach;
+        const denom = dViews ?? latest.impressions ?? latest.reach ?? 0;
+        if (denom > 0) erDenom += denom;
       }
       const dClicks = latestValue(d.metricSnapshots, "clicks");
       const dSales = latestValue(d.metricSnapshots, "sales");
@@ -205,11 +259,31 @@ export async function loadBrandCampaignReport(
         publishedCount += 1;
         if (isOnTime(d)) onTimeCount += 1;
       }
+      compStatuses.push(
+        evaluate23ACompliance({
+          caption: d.caption,
+          brandName: campaign.brand.name,
+          isPublished: Boolean(d.publishedAt),
+        }).status,
+      );
     }
     totals.reach += reach;
+    if (hasInfViews) {
+      totals.views += viewsSum;
+      totals.hasViewsData = true;
+    }
+    totals.interactions += interactions;
     totals.clicks += clicks;
     totals.sales += sales;
     const used = new Set(ds.map((d) => d.platform));
+    const complianceStatus: Compliance23AStatus = compStatuses.includes("EKSIK")
+      ? "EKSIK"
+      : compStatuses.includes("SUPHELI")
+        ? "SUPHELI"
+        : compStatuses.some((s) => s === "UYUMLU")
+          ? "UYUMLU"
+          : "BEKLIYOR";
+
     return {
       influencerId: a.influencer.id,
       name: a.influencer.name,
@@ -222,9 +296,12 @@ export async function loadBrandCampaignReport(
       onTimeCount,
       onTimeRate: publishedCount > 0 ? onTimeCount / publishedCount : null,
       reach,
-      er: erReach > 0 ? interactions / erReach : null,
+      views: hasInfViews ? viewsSum : null,
+      interactions,
+      er: erDenom > 0 ? interactions / erDenom : null,
       clicks,
       sales,
+      complianceStatus,
     };
   });
 
@@ -233,10 +310,18 @@ export async function loadBrandCampaignReport(
     .map(({ raw, view: dv }) => {
       const thumb = raw.assets.find((as) => as.mime.startsWith("image/"));
       const rights = raw.assets.find((as) => as.usageChannel || as.usageDurationDays || as.usageEndsAt);
+      const latest = latestReachSnapshot(raw.metricSnapshots);
       return {
         deliverable: dv,
         thumbAssetId: thumb?.id ?? null,
-        reach: latestReachSnapshot(raw.metricSnapshots)?.reach ?? null,
+        reach: latest?.reach ?? null,
+        views: latestViews(raw.metricSnapshots),
+        interactions: latest ? interactionsOf(latest) : 0,
+        compliance23A: evaluate23ACompliance({
+          caption: raw.caption,
+          brandName: campaign.brand.name,
+          isPublished: Boolean(raw.publishedAt),
+        }),
         usage: rights
           ? {
               channel: rights.usageChannel,
@@ -256,11 +341,18 @@ export async function loadBrandCampaignReport(
       reviews: raw.reviews.map((r) => ({ decision: r.decision, note: r.note, createdAt: r.createdAt, byName: r.brandUser.name })),
     }));
 
-  const roas = totals.revenueKurus > 0 && view.brandTotalFeeKurus > 0 ? totals.revenueKurus / view.brandTotalFeeKurus : null;
+  const paidKurus = campaign.brandPaymentReceivedAt ? view.brandTotalFeeKurus : 0;
+  const roas = totals.revenueKurus > 0 && paidKurus > 0 ? totals.revenueKurus / paidKurus : null;
 
   const order: MetricSource[] = ["API", "MARKA", "EKRAN_GORUNTUSU", "MANUEL"];
   return {
-    campaign: { ...view, brandName: campaign.brand.name },
+    campaign: {
+      ...view,
+      brandName: campaign.brand.name,
+      budgetKurus: Number(campaign.budgetKurus),
+      paidKurus,
+      brandPaymentReceivedAt: campaign.brandPaymentReceivedAt,
+    },
     score,
     deliverables: liveDeliverables.map((d) => d.view),
     influencers,

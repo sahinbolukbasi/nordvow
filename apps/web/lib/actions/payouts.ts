@@ -1,9 +1,12 @@
 "use server";
 
 import { z } from "zod";
+import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { addToPaymentList, approvePayout, markSent, rejectPayout, requestPayout } from "@infulancer/core/domain/payouts";
+import { envStr } from "@infulancer/core/env";
+import { dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
 import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
@@ -15,6 +18,41 @@ function ids(fd: FormData): string[] {
   return fd.getAll("ids").filter((v): v is string => typeof v === "string" && v !== "");
 }
 
+function appBaseUrl(): string {
+  return (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+}
+
+async function notifyPayoutInfluencers(
+  eventKey: "PAYOUT_REQUESTED" | "PAYOUT_APPROVED" | "PAYOUT_REJECTED" | "PAYOUT_SENT",
+  payoutIds: string[],
+  extraVars: Record<string, string> = {},
+) {
+  try {
+    const rows = await prisma.payoutRequest.findMany({
+      where: { id: { in: payoutIds } },
+      select: {
+        amountKurus: true,
+        influencer: { select: { name: true, user: { select: { id: true } } } },
+      },
+    });
+    const link = `${appBaseUrl()}/influencer/odemeler`;
+    for (const r of rows) {
+      const uid = r.influencer?.user?.id;
+      if (!uid) continue;
+      const recipients = await recipientsFromUserIds([uid]);
+      if (!recipients.length) continue;
+      await dispatchNotification(eventKey, recipients, {
+        ad: r.influencer.name,
+        tutar: formatKurus(r.amountKurus),
+        link,
+        ...extraVars,
+      });
+    }
+  } catch {
+    /* e-posta/bildirim hatası ödeme akışını bozmasın */
+  }
+}
+
 /** Influencer çekim talebi (tutar TL). Sınırlar core'da doğrulanır. */
 export async function createPayoutRequest(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("INFLUENCER");
@@ -24,6 +62,7 @@ export async function createPayoutRequest(_prev: ActionState, fd: FormData): Pro
       throw new DomainError("DOGRULAMA", "Geçerli bir tutar girin (ör. 1.250,00).");
     }
     const payout = await requestPayout(actor, amount);
+    await notifyPayoutInfluencers("PAYOUT_REQUESTED", [payout.id]);
     revalidateAll();
     return { ok: true, message: `${formatKurus(payout.amountKurus)} için çekim talebiniz oluşturuldu.` };
   });
@@ -39,8 +78,15 @@ export async function decidePayout(_prev: ActionState, fd: FormData): Promise<Ac
       { id: str(fd, "id"), decision: str(fd, "decision"), note: optStr(fd, "note") },
       { note: "Not" },
     );
-    if (input.decision === "ONAYLA") await approvePayout(actor, input.id, input.note);
-    else await rejectPayout(actor, input.id, input.note ?? "");
+    if (input.decision === "ONAYLA") {
+      await approvePayout(actor, input.id, input.note);
+      await notifyPayoutInfluencers("PAYOUT_APPROVED", [input.id]);
+    } else {
+      await rejectPayout(actor, input.id, input.note ?? "");
+      await notifyPayoutInfluencers("PAYOUT_REJECTED", [input.id], {
+        neden: input.note?.trim() || "Belirtilmedi",
+      });
+    }
     revalidateAll();
     return { ok: true, message: input.decision === "ONAYLA" ? "Talep onaylandı." : "Talep reddedildi." };
   });
@@ -69,6 +115,7 @@ export async function markPayoutsSent(_prev: ActionState, fd: FormData): Promise
   return attempt(async () => {
     const list = parseInput(idsSchema, ids(fd));
     const res = await markSent(actor, list);
+    await notifyPayoutInfluencers("PAYOUT_SENT", list);
     revalidateAll();
     return { ok: true, message: `${res.count} ödeme gönderildi olarak işaretlendi (${formatKurus(res.totalKurus)}).` };
   });

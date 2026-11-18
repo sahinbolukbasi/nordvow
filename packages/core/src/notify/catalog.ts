@@ -100,15 +100,47 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     },
   },
   {
+    key: "PAYOUT_REQUESTED",
+    label: "Para çekim talebi oluşturuldu",
+    vars: ["ad", "tutar", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Çekim talebiniz alındı", body: "{{tutar}} tutarındaki çekim talebiniz incelemeye alındı." },
+      EMAIL: { subject: "Çekim talebiniz alındı", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki para çekim talebiniz alınmıştır. İnceleme sonrası bilgilendirileceksiniz.\n\nÖdemelerim: {{link}}" },
+    },
+  },
+  {
     key: "PAYOUT_APPROVED",
     label: "Para çekim onayı",
     vars: ["ad", "tutar", "link"],
     defaultChannels: ["INAPP", "EMAIL", "WHATSAPP", "INSTAGRAM"],
     templates: {
       INAPP: { subject: "Ödeme onaylandı", body: "{{tutar}} tutarındaki çekim talebiniz onaylandı." },
-      EMAIL: { subject: "Ödemeniz onaylandı", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki çekim talebiniz onaylandı ve ödeme sürecine alındı." },
+      EMAIL: { subject: "Ödemeniz onaylandı", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki çekim talebiniz onaylandı ve ödeme sürecine alındı.\n\nDetay: {{link}}" },
       WHATSAPP: { body: "Merhaba {{ad}} ✅ {{tutar}} tutarındaki ödemeniz onaylandı." },
       INSTAGRAM: { body: "Merhaba {{ad}} ✅ {{tutar}} tutarındaki çekim talebin onaylandı! Panel: {{link}}" },
+    },
+  },
+  {
+    key: "PAYOUT_REJECTED",
+    label: "Para çekim talebi reddedildi",
+    vars: ["ad", "tutar", "neden", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Çekim talebi reddedildi", body: "{{tutar}} tutarındaki talebiniz reddedildi: {{neden}}" },
+      EMAIL: { subject: "Çekim talebiniz hakkında", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki çekim talebiniz şu nedenle reddedildi: {{neden}}\n\nDetay: {{link}}" },
+    },
+  },
+  {
+    key: "PAYOUT_SENT",
+    label: "Ödeme yatırıldı",
+    vars: ["ad", "tutar", "link"],
+    defaultChannels: ["INAPP", "EMAIL", "WHATSAPP", "INSTAGRAM"],
+    templates: {
+      INAPP: { subject: "Ödemeniz yatırıldı", body: "{{tutar}} tutarındaki ödemeniz banka hesabınıza gönderildi." },
+      EMAIL: { subject: "Ödemeniz yatırıldı: {{tutar}}", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki ödemeniz kayıtlı banka hesabınıza yatırılmıştır.\n\nÖdeme geçmişiniz: {{link}}" },
+      WHATSAPP: { body: "Merhaba {{ad}} 💸 {{tutar}} tutarındaki ödemeniz hesabınıza yatırıldı! {{link}}" },
+      INSTAGRAM: { body: "Merhaba {{ad}} 💸 {{tutar}} tutarındaki ödemen hesabına yatırıldı! Detay: {{link}}" },
     },
   },
   {

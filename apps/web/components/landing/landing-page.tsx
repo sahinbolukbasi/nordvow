@@ -308,7 +308,7 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
                 <div key={`${c.handle}-${k}`} className="flex items-center gap-3 rounded-full border border-line bg-glass py-2 pr-5 pl-2" aria-hidden={k >= data.creators.length || undefined}>
                   {c.avatar ? (
                     // eslint-disable-next-line @next/next/no-img-element -- dinamik üretici avatarı
-                    <img src={c.avatar} alt={c.handle} className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
+                    <img src={c.avatar} alt={c.handle} loading="lazy" decoding="async" className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
                   ) : (
                     <span className={cn("h-9 w-9 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
                   )}
@@ -365,7 +365,7 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
                       <span className="relative">
                         {c.avatar ? (
                           // eslint-disable-next-line @next/next/no-img-element -- dinamik üretici profil resmi
-                          <img src={c.avatar} alt={c.handle} className="block h-12 w-12 rounded-full object-cover ring-2 ring-line-strong" />
+                          <img src={c.avatar} alt={c.handle} loading="lazy" decoding="async" className="block h-12 w-12 rounded-full object-cover ring-2 ring-line-strong" />
                         ) : (
                           <span aria-hidden className={cn("block h-12 w-12 rounded-full bg-gradient-to-br ring-2 ring-line-strong", c.tone)} />
                         )}

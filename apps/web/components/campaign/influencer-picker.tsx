@@ -28,7 +28,7 @@ export type PickerInfluencer = {
   avatarUrl?: string | null;
 };
 
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+import { compact } from "@/lib/format";
 const pct = new Intl.NumberFormat("tr-TR", { style: "percent", maximumFractionDigits: 1 });
 const FOLLOWER_STEPS = [0, 10_000, 50_000, 100_000, 500_000, 1_000_000];
 

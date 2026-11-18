@@ -48,3 +48,4 @@ export default async function BlogLayout({ children }: { children: ReactNode }) 
     </div>
   );
 }
+
