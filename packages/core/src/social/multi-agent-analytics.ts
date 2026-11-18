@@ -203,7 +203,15 @@ function reportConfigKey(influencerId: string): string {
 
 function classifyMetaError(status: number, message: string, code?: number): TelemetryErrorCode {
   const m = message.toLowerCase();
-  if (code === 190 || m.includes("token") || m.includes("oauth") || m.includes("expired")) return "META_API_190";
+  if (
+    code === 190 ||
+    m.includes("access token") ||
+    m.includes("session has expired") ||
+    m.includes("invalid oauth") ||
+    m.includes("token expired")
+  ) {
+    return "META_API_190";
+  }
   if (status === 429 || code === 4 || code === 17 || m.includes("rate limit")) return "RATE_LIMIT_429";
   if (status === 403 || code === 10 || code === 200 || m.includes("permission")) return "PERMISSION_DENIED";
   if (m.includes("timeout") || m.includes("abort")) return "AGENT_TIMEOUT";
@@ -501,6 +509,12 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
           avgLikes: ttAvgLikes,
         }
       : null;
+
+  if (!apiConnected && tiktok?.connected) {
+    apiConnected = true;
+    apiErrorCode = null;
+    apiMessage = `TikTok OAuth verisi aktif (@${tiktok.handle}); Instagram: ${apiMessage}`;
+  }
 
   return {
     influencerId: inf.id,

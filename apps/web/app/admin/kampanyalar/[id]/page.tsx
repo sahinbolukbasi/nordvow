@@ -20,6 +20,8 @@ import { getCampaignShipmentsDashboard } from "@infulancer/core/shipping/service
 import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
 import { ApproveSummaryButton, RecommendButton } from "@/components/forms/agent-job-forms";
 import { BriefPanel } from "@/components/brief-panel";
+import { WeekCalendar } from "@/components/calendar/week-calendar";
+import { CampaignAiReviewPanel, CampaignSummaryCharts, type CampaignChartMetricRow } from "@/components/campaign/campaign-analytics-charts";
 import { KpiBreakdown } from "@/components/campaign/kpi-breakdown";
 import { AssetList } from "@/components/files/asset-list";
 import { AssetThumb } from "@/components/files/asset-thumb";
@@ -41,11 +43,11 @@ import { Tabs } from "@/components/ui/tabs";
 import { requireActor } from "@/lib/auth-guard";
 import { TrackerGallery, TrackerList } from "@/components/agent/tracker-ui";
 import { loadTrackerViews, templateViews } from "@/lib/trackers";
-import { isOverdue } from "@/lib/calendar";
+import { buildCalendarRows, isOverdue, resolveWeek } from "@/lib/calendar";
 import { num } from "@/lib/format";
 import { scoreDeliverableSelect, toScoreDeliverables } from "@/lib/queries";
 import { campaignTone, contractTone, contractUiLabels, deliverableTone } from "@/lib/status-tone";
-import { AGENCY_TZ, fmtDate, fmtDateTime, tzShort } from "@/lib/time";
+import { AGENCY_TZ, fmtDate, fmtDateTime, fmtDayLabel, tzShort } from "@/lib/time";
 
 export const metadata: Metadata = { title: "Kampanya" };
 
@@ -65,12 +67,12 @@ export default async function CampaignDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ sekme?: string; kaydedildi?: string }>;
+  searchParams: Promise<{ sekme?: string; kaydedildi?: string; hafta?: string | string[] }>;
 }) {
   const tt = await getTT();
   await requireActor("ADMIN");
   const { id } = await params;
-  const { sekme, kaydedildi } = await searchParams;
+  const { sekme, kaydedildi, hafta } = await searchParams;
   const campaign = await prisma.campaign.findUnique({
     where: { id },
     include: {
@@ -168,6 +170,52 @@ export default async function CampaignDetailPage({
           </div>
         </Card>
       </div>
+      <CampaignSummaryCharts
+        views={published.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0)}
+        reach={published.reduce((s, d) => s + (d.metricSnapshots[0]?.reach ?? 0), 0)}
+        likes={published.reduce((s, d) => s + (d.metricSnapshots[0]?.likes ?? 0), 0)}
+        comments={published.reduce((s, d) => s + (d.metricSnapshots[0]?.comments ?? 0), 0)}
+        savesShares={published.reduce((s, d) => s + (d.metricSnapshots[0]?.shares ?? 0) + (d.metricSnapshots[0]?.saves ?? 0), 0)}
+        publishedCount={published.length}
+        plannedCount={deliverables.length}
+        er={(() => {
+          const v = published.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0);
+          const rc = published.reduce((s, d) => s + (d.metricSnapshots[0]?.reach ?? 0), 0);
+          const inter = published.reduce(
+            (s, d) =>
+              s +
+              (d.metricSnapshots[0]?.likes ?? 0) +
+              (d.metricSnapshots[0]?.comments ?? 0) +
+              (d.metricSnapshots[0]?.shares ?? 0) +
+              (d.metricSnapshots[0]?.saves ?? 0),
+            0,
+          );
+          const denom = v > 0 ? v : rc;
+          return denom > 0 && inter > 0 ? inter / denom : null;
+        })()}
+        influencerPerf={live.map((a) => {
+          const pub = a.deliverables.filter((d) => d.status === "YAYINLANDI");
+          const v = pub.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0);
+          const rc = pub.reduce((s, d) => s + (d.metricSnapshots[0]?.reach ?? 0), 0);
+          const inter = pub.reduce(
+            (s, d) =>
+              s +
+              (d.metricSnapshots[0]?.likes ?? 0) +
+              (d.metricSnapshots[0]?.comments ?? 0) +
+              (d.metricSnapshots[0]?.shares ?? 0) +
+              (d.metricSnapshots[0]?.saves ?? 0),
+            0,
+          );
+          const denom = v > 0 ? v : rc;
+          return {
+            name: a.influencer.name,
+            viewsOrReach: v > 0 ? v : rc,
+            interactions: inter,
+            publishedCount: pub.length,
+            er: denom > 0 && inter > 0 ? inter / denom : null,
+          };
+        })}
+      />
       <Card interactive={false} className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle>{tt("Influencerlar")}</CardTitle>
@@ -411,7 +459,76 @@ export default async function CampaignDetailPage({
       runs={runs.map((r) => ({ ...r, resolvedByName: r.resolvedBy?.name }))}
       emptyText={tt("Bu kampanya için agent bulgusu yok.")}
     />
+    <CampaignAiReviewPanel
+      items={published.map((d): CampaignChartMetricRow => {
+        const snap = d.metricSnapshots[0];
+        const v = snap?.impressions ?? 0;
+        const rc = snap?.reach ?? 0;
+        const lk = snap?.likes ?? 0;
+        const cm = snap?.comments ?? 0;
+        const ss = (snap?.shares ?? 0) + (snap?.saves ?? 0);
+        const denom = v > 0 ? v : rc;
+        return {
+          id: d.id,
+          influencerName: d.influencer.name,
+          platform: d.platform,
+          contentLabel: `${platformLabels[d.platform]} ${contentTypeLabels[d.contentType]}`,
+          views: v,
+          reach: rc,
+          likes: lk,
+          comments: cm,
+          savesShares: ss,
+          er: denom > 0 && lk + cm + ss > 0 ? (lk + cm + ss) / denom : null,
+          postUrl: d.postUrl ?? null,
+          complianceStatus: d.contractViolation ? "EKSIK" : "UYUMLU",
+        };
+      })}
+      findings={runs.map((r) => ({
+        id: r.id,
+        title: r.checkType,
+        severity: r.severity,
+        status: r.status,
+        summary: r.summary,
+      }))}
+      totalViews={published.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0)}
+      totalLikes={published.reduce((s, d) => s + (d.metricSnapshots[0]?.likes ?? 0), 0)}
+      totalComments={published.reduce((s, d) => s + (d.metricSnapshots[0]?.comments ?? 0), 0)}
+      avgEr={null}
+      detailHrefPrefix="/admin/teslimler"
+    />
     </div>
+  );
+
+  const inRange = now >= campaign.startsAt && now <= campaign.endsAt;
+  const week = { ...resolveWeek(hafta, inRange ? now : campaign.startsAt), today: resolveWeek(undefined, now).today };
+  const calRows = buildCalendarRows(
+    week.days,
+    deliverables.map((d) => ({
+      ...d,
+      campaignName: campaign.name,
+      influencer: { id: d.influencer.id, name: d.influencer.name, audienceTimezone: d.influencer.audienceTimezone },
+    })),
+    (did) => `/admin/teslimler/${did}`,
+  );
+  const takvimTab = (
+    <Card interactive={false} className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <CardTitle>{tt("Yayın takvimi")}</CardTitle>
+        <nav aria-label={tt("Hafta")} className="flex items-center gap-2 text-[13px] text-fg-muted">
+          <Link href={`/admin/kampanyalar/${campaign.id}?sekme=takvim&hafta=${week.prev}`} className="rounded-lg px-2 py-1 hover:bg-surface-hover">
+            ←
+          </Link>
+          <span className="tabular-nums">
+            {fmtDayLabel(week.days[0]!)} – {fmtDayLabel(week.days[6]!)}
+          </span>
+          <Link href={`/admin/kampanyalar/${campaign.id}?sekme=takvim&hafta=${week.next}`} className="rounded-lg px-2 py-1 hover:bg-surface-hover">
+            →
+          </Link>
+        </nav>
+      </div>
+      <WeekCalendar days={week.days} rows={calRows} today={week.today} emptyText={tt("Bu hafta planlanmış paylaşım yok.")} />
+      <p className="text-[12px] text-fg-passive">{tt("Saatler İstanbul saatine göredir.")}</p>
+    </Card>
   );
 
   const [hubData, shippingDash] = await Promise.all([
@@ -510,9 +627,10 @@ export default async function CampaignDetailPage({
           { id: "genel", label: "Genel", content: general },
           { id: "influencerlar", label: `Influencerlar (${live.length})`, content: people },
           { id: "teslimler", label: `Teslimler (${deliverables.length})`, content: delivery },
+          { id: "takvim", label: "Takvim", content: takvimTab },
           { id: "dosyalar", label: "Dosyalar", content: files },
           { id: "brief", label: "Brief", content: briefTab },
-          { id: "agent", label: `Agent (${runs.filter((r) => r.status === "ACIK").length + trackers.reduce((n, t) => n + t.findings.length, 0)})`, content: agent },
+          { id: "agent", label: `AI İnceleme & Raporlama (${runs.filter((r) => r.status === "ACIK").length + trackers.reduce((n, t) => n + t.findings.length, 0)})`, content: agent },
         ]}
       />
     </div>

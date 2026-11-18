@@ -21,6 +21,7 @@ import { DeliverableReview } from "@/components/brand/draft-review-form";
 import { WeekCalendar } from "@/components/calendar/week-calendar";
 import { KpiBreakdown } from "@/components/campaign/kpi-breakdown";
 import { BrandCampaignActions, BrandCampaignTabs } from "@/components/campaign/brand-campaign-shell";
+import { CampaignAiReviewPanel, CampaignSummaryCharts, type CampaignChartMetricRow } from "@/components/campaign/campaign-analytics-charts";
 import { AssetThumb } from "@/components/files/asset-thumb";
 import { ChevronLeftIcon, ChevronRightIcon, ExternalIcon, FileIcon } from "@/components/icons";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -82,7 +83,7 @@ export default async function BrandCampaignPage({
     include: { uploadedBy: { select: { name: true } } },
   });
   const draft = campaign.status === "TASLAK";
-  const [meta, hubData, shippingDash, brandCoupons] = await Promise.all([
+  const [meta, hubData, shippingDash, brandCoupons, agentRuns, latestSnapshots] = await Promise.all([
     prisma.campaign.findUniqueOrThrow({
       where: { id: campaign.id },
       select: { currency: true, executionMode: true, objective: true, brand: { select: { defaultExecutionMode: true } } },
@@ -97,7 +98,65 @@ export default async function BrandCampaignPage({
           include: { grants: { select: { id: true, status: true, influencerId: true } } },
         })
       : Promise.resolve([]),
+    prisma.agentRun.findMany({
+      where: {
+        OR: [
+          { targetType: "Campaign", targetId: campaign.id },
+          { targetType: "Deliverable", targetId: { in: report.deliverables.map((d) => d.id) } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+    }),
+    prisma.deliverable.findMany({
+      where: { id: { in: report.deliverables.map((d) => d.id) } },
+      select: {
+        id: true,
+        metricSnapshots: {
+          orderBy: { measuredAt: "desc" },
+          take: 1,
+          select: { impressions: true, reach: true, likes: true, comments: true, shares: true, saves: true },
+        },
+      },
+    }),
   ]);
+  const snapByDeliv = new Map(latestSnapshots.map((d) => [d.id, d.metricSnapshots[0] ?? null]));
+  let sumLikes = 0;
+  let sumComments = 0;
+  let sumSavesShares = 0;
+  const chartMetricRows: CampaignChartMetricRow[] = report.gallery.map(({ deliverable: d, views, reach, compliance23A }) => {
+    const snap = snapByDeliv.get(d.id);
+    const v = views ?? snap?.impressions ?? 0;
+    const rc = reach ?? snap?.reach ?? 0;
+    const lk = snap?.likes ?? 0;
+    const cm = snap?.comments ?? 0;
+    const ss = (snap?.shares ?? 0) + (snap?.saves ?? 0);
+    sumLikes += lk;
+    sumComments += cm;
+    sumSavesShares += ss;
+    const denom = v > 0 ? v : rc;
+    return {
+      id: d.id,
+      influencerName: d.influencer.name,
+      platform: d.platform,
+      contentLabel: `${platformLabels[d.platform]} ${contentTypeLabels[d.contentType]}`,
+      views: v,
+      reach: rc,
+      likes: lk,
+      comments: cm,
+      savesShares: ss,
+      er: denom > 0 && lk + cm + ss > 0 ? (lk + cm + ss) / denom : null,
+      postUrl: d.postUrl ?? null,
+      complianceStatus: compliance23A.status === "UYUMLU" ? "UYUMLU" : compliance23A.status === "EKSIK" ? "EKSIK" : "BEKLIYOR",
+    };
+  });
+  const infPerfList = report.influencers.map((inf) => ({
+    name: inf.name,
+    viewsOrReach: inf.views || inf.reach,
+    interactions: inf.interactions,
+    publishedCount: report.gallery.filter((g) => g.deliverable.influencer.id === inf.influencerId).length,
+    er: inf.er,
+  }));
   const currency = meta.currency;
   const effectiveMode = meta.brand.defaultExecutionMode ?? meta.executionMode;
   const isSelfManaged = effectiveMode === "SELF";
@@ -266,6 +325,19 @@ export default async function BrandCampaignPage({
           ))}
         </ol>
       </Card>
+
+      {/* Performans & Dağılım Grafikleri */}
+      <CampaignSummaryCharts
+        views={totalViews ?? 0}
+        reach={report.totals.reach}
+        likes={sumLikes}
+        comments={sumComments}
+        savesShares={sumSavesShares}
+        publishedCount={publishedCount}
+        plannedCount={report.deliverables.length}
+        er={campaignEr}
+        influencerPerf={infPerfList}
+      />
 
       {/* Hedefler (varsa) */}
       <Card interactive={false} className="flex flex-col gap-4">
@@ -624,8 +696,14 @@ export default async function BrandCampaignPage({
             integrations={shippingDash.integrations}
           />
         </section>
-      ) : null}
+      ) : (
+        <EmptyState message={tt("Bu kampanya için ürün kargosu bulunmuyor.")} />
+      )}
+    </div>
+  );
 
+  const takvimTab = (
+    <div className="flex flex-col gap-6">
       {report.deliverables.length === 0 ? (
         <EmptyState message={tt("Bu kampanyada henüz planlanmış içerik yok.")} />
       ) : (
@@ -649,6 +727,24 @@ export default async function BrandCampaignPage({
         </Card>
       )}
     </div>
+  );
+
+  const aiRaporTab = (
+    <CampaignAiReviewPanel
+      items={chartMetricRows}
+      findings={agentRuns.map((r) => ({
+        id: r.id,
+        title: r.checkType,
+        severity: r.severity,
+        status: r.status,
+        summary: r.summary,
+      }))}
+      totalViews={totalViews ?? 0}
+      totalLikes={sumLikes}
+      totalComments={sumComments}
+      avgEr={campaignEr}
+      detailHrefPrefix="/marka/kampanyalar"
+    />
   );
 
   const uyumTab = (
@@ -878,11 +974,15 @@ export default async function BrandCampaignPage({
         badges={{
           influencerlar: combinedInfluencerRows.length,
           icerikler: report.pendingDrafts.length + report.gallery.length,
+          takvim: report.deliverables.length,
+          ai_rapor: agentRuns.filter((r) => r.status === "ACIK").length,
           uyum: missing23ACount,
         }}
         ozet={ozetTab}
         influencerlar={influencerlarTab}
         icerikler={iceriklerTab}
+        takvim={takvimTab}
+        aiRapor={aiRaporTab}
         satis={satisTab}
         teslimat={teslimatTab}
         uyum={uyumTab}

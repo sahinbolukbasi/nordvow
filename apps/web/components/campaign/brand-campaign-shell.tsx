@@ -7,12 +7,14 @@ import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { cn } from "@/lib/cn";
 import { useTT } from "@/lib/i18n/tt-client";
 
-export type CampaignTabId = "ozet" | "influencerlar" | "icerikler" | "satis" | "teslimat" | "uyum";
+export type CampaignTabId = "ozet" | "influencerlar" | "icerikler" | "takvim" | "ai_rapor" | "satis" | "teslimat" | "uyum";
 
 const TABS: { id: CampaignTabId; label: string }[] = [
   { id: "ozet", label: "Özet" },
   { id: "influencerlar", label: "Influencer'lar" },
   { id: "icerikler", label: "İçerikler" },
+  { id: "takvim", label: "Takvim" },
+  { id: "ai_rapor", label: "AI İnceleme & Raporlama" },
   { id: "satis", label: "Satış ve kodlar" },
   { id: "teslimat", label: "Teslimat" },
   { id: "uyum", label: "Uyum" },
@@ -191,6 +193,8 @@ export function BrandCampaignTabs({
   ozet,
   influencerlar,
   icerikler,
+  takvim,
+  aiRapor,
   satis,
   teslimat,
   uyum,
@@ -199,6 +203,8 @@ export function BrandCampaignTabs({
   ozet: ReactNode;
   influencerlar: ReactNode;
   icerikler: ReactNode;
+  takvim: ReactNode;
+  aiRapor: ReactNode;
   satis: ReactNode;
   teslimat: ReactNode;
   uyum: ReactNode;
@@ -210,6 +216,8 @@ export function BrandCampaignTabs({
     ozet,
     influencerlar,
     icerikler,
+    takvim,
+    ai_rapor: aiRapor,
     satis,
     teslimat,
     uyum,
