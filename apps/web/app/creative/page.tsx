@@ -273,12 +273,28 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           available={available}
           username={profileName.split(" ")[0]!.toLocaleLowerCase("tr")}
           profileLabel={profileName}
-          library={library.map((u) => ({
-            id: u.id,
-            kind: u.kind === "video" ? "video" : "image",
-            name: u.name,
-            source: u.source,
-          }))}
+          library={(() => {
+            const seen = new Set(library.map((u) => u.s3Key));
+            const items: { id: string; kind: "image" | "video"; name: string | null; source: string }[] = library.map((u) => ({
+              id: u.id,
+              kind: u.kind === "video" ? "video" : "image",
+              name: u.name,
+              source: u.source,
+            }));
+            for (const a of assets) {
+              if (seen.has(a.s3Key)) continue;
+              const k = kindOf.get(a.modelKey);
+              if (k === "audio") continue;
+              seen.add(a.s3Key);
+              items.push({
+                id: a.id,
+                kind: k === "video" ? "video" : "image",
+                name: (a.jobId ? jobPrompt.get(a.jobId) : undefined) ?? `AI · ${a.modelKey}`,
+                source: "ai",
+              });
+            }
+            return items;
+          })()}
           refPrices={{
             imageEdit: priceOf("nano-banana-edit", 6),
             klingI2v: priceOf("kling-v2-5-i2v", 11),

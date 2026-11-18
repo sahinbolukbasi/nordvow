@@ -444,6 +444,7 @@ export function CreativeComposer({
   const [phoneVoiceScript, setPhoneVoiceScript] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sliderTab, setSliderTab] = useState<"ideas" | "saved">("ideas");
+  const [ideasOpen, setIdeasOpen] = useState(false);
   const [ideas, setIdeas] = useState<PromptIdeaItem[]>(STARTER_PROMPT_IDEAS);
   const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>(initialSavedPrompts);
   const [promptNotice, setPromptNotice] = useState<string | null>(null);
@@ -480,23 +481,16 @@ export function CreativeComposer({
     }
   }, [activeJob, activeJobStorageKey]);
 
-  const tierCosts = useMemo(() => {
-    const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
-    const econ = imgs.find((m) => m.key === "flux-schnell")?.creditsPerUnit ?? imgs[0]?.creditsPerUnit ?? minTry;
-    const std = imgs.find((m) => m.key === "nano-banana-2" || m.key === "recraft-v3")?.creditsPerUnit ?? imgs[Math.min(1, imgs.length - 1)]?.creditsPerUnit ?? econ * 2;
-    const pro = imgs.find((m) => m.key === "nano-banana-pro")?.creditsPerUnit ?? imgs[imgs.length - 1]?.creditsPerUnit ?? std * 2;
-    return {
-      economy: chargeTry(econ, 1, minTry),
-      standard: chargeTry(std, 1, minTry),
-      pro: chargeTry(pro, 1, minTry),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models, minTry, currency]);
+  const tierCosts: Record<CreditTier, number> = {
+    economy: 5,
+    standard: 12,
+    pro: 25,
+  };
 
   const TIERS: { id: CreditTier; label: string; desc: string; cost: number }[] = [
-    { id: "economy", label: tt("Uygun Kredi"), desc: "FLUX Schnell / LTX / Hızlı", cost: tierCosts.economy },
-    { id: "standard", label: tt("Dengeli Kredi"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
-    { id: "pro", label: tt("Yüksek Kalite"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
+    { id: "economy", label: tt("Uygun"), desc: "FLUX Schnell / LTX / Hızlı", cost: tierCosts.economy },
+    { id: "standard", label: tt("Dengeli"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
+    { id: "pro", label: tt("Pro"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
   ];
 
   const currentCost = tierCosts[tier];
@@ -517,6 +511,7 @@ export function CreativeComposer({
 
   const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [phoneEditorOpen, setPhoneEditorOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
 
@@ -1279,7 +1274,7 @@ export function CreativeComposer({
                       active ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
                     )}
                   >
-                    {t.label} · {money(t.cost)}
+                    {t.label} · {t.cost} {tt("kredi")}
                   </button>
                 );
               })}
@@ -1299,60 +1294,6 @@ export function CreativeComposer({
             ) : null}
           </div>
         </div>
-
-        {/* Üretilen İçerikler Yatay Slider Şeridi (Chat uzamadan hızlı geçiş) */}
-        {mediaItems.length > 0 ? (
-          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-bg/40 px-3 py-1.5">
-            <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{tt("Üretilenler:")}</span>
-            <button
-              type="button"
-              onClick={() => scrollElement(mediaSliderRef.current, -1)}
-              aria-label={tt("Sola kaydır")}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-            >
-              ‹
-            </button>
-            <div
-              ref={mediaSliderRef}
-              className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scroll-smooth py-0.5 [scrollbar-width:none]"
-            >
-              {mediaItems.map((item) => {
-                const active = result?.assetId === item.assetId;
-                return (
-                  <button
-                    key={item.assetId}
-                    type="button"
-                    onClick={() => {
-                      setResult({
-                        assetId: item.assetId,
-                        uploadId: item.uploadId,
-                        kind: item.kind,
-                        prompt: item.prompt,
-                        format: item.format ?? "9:16",
-                      });
-                      setPanelOpen(true);
-                    }}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-standard",
-                      active ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg hover:border-fg/40",
-                    )}
-                  >
-                    <KindIcon kind={item.kind} size={11} />
-                    <span className="max-w-[140px] truncate">{item.prompt}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => scrollElement(mediaSliderRef.current, 1)}
-              aria-label={tt("Sağa kaydır")}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
 
         {/* Sohbet Mesaj Akışı (Sabit yükseklik içinde kayar, sayfayı uzatmaz) */}
         <div
@@ -1589,55 +1530,69 @@ export function CreativeComposer({
           </button>
 
           <div className={cn("flex-col gap-2", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
-          {/* Slider Sekmeleri ve Sol/Sağ Kaydırma Okları */}
-          <div className="flex items-center justify-between gap-2">
+          {/* Fikir & Hazır Promptlar Açılır/Kapanır Butonu */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setSliderTab("ideas")}
+                aria-expanded={ideasOpen}
+                onClick={() => {
+                  if (ideasOpen && sliderTab === "ideas") setIdeasOpen(false);
+                  else {
+                    setSliderTab("ideas");
+                    setIdeasOpen(true);
+                  }
+                }}
                 className={cn(
                   "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  ideasOpen && sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
                 )}
               >
-                {tt("Fikir & Hazır Promptlar")} ({ideas.length})
+                {tt("Fikir & Hazır Promptlar")} ({ideas.length}) {ideasOpen && sliderTab === "ideas" ? "▲" : "▼"}
               </button>
               <button
                 type="button"
-                onClick={() => setSliderTab("saved")}
+                aria-expanded={ideasOpen}
+                onClick={() => {
+                  if (ideasOpen && sliderTab === "saved") setIdeasOpen(false);
+                  else {
+                    setSliderTab("saved");
+                    setIdeasOpen(true);
+                  }
+                }}
                 className={cn(
                   "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  ideasOpen && sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
                 )}
               >
-                ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length})
+                ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length}) {ideasOpen && sliderTab === "saved" ? "▲" : "▼"}
               </button>
-              <span className="hidden text-[11px] text-fg-passive sm:inline">
-                {tt("(Tıkladığınız prompt sohbet kutusuna eklenir)")}
-              </span>
             </div>
 
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => scrollElement(ideaSliderRef.current, -1)}
-                aria-label={tt("Promptları sola kaydır")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollElement(ideaSliderRef.current, 1)}
-                aria-label={tt("Promptları sağa kaydır")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-              >
-                ›
-              </button>
-            </div>
+            {ideasOpen ? (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => scrollElement(ideaSliderRef.current, -1)}
+                  aria-label={tt("Promptları sola kaydır")}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollElement(ideaSliderRef.current, 1)}
+                  aria-label={tt("Promptları sağa kaydır")}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+                >
+                  ›
+                </button>
+              </div>
+            ) : null}
           </div>
 
-          {/* Yatay Kaydırılabilir (Slider) Kartlar: Tıklayınca Komut Gitmez, Chate Detaylı Ekler */}
+          {/* Yatay Kaydırılabilir (Slider) Kartlar: Yalnızca butonla açıldığında görünür */}
+          {ideasOpen ? (
           <div
             ref={ideaSliderRef}
             className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
@@ -1697,6 +1652,7 @@ export function CreativeComposer({
               ))
             )}
           </div>
+          ) : null}
           </div>
 
           {promptNotice ? (
@@ -1750,7 +1706,13 @@ export function CreativeComposer({
                             setPanelOpen(true);
                             setShowLib(false);
                           } else {
-                            toggleRef(u.id);
+                            setRefs((x) => {
+                              if (x.includes(u.id)) return x.filter((y) => y !== u.id);
+                              if (x.length < 4) return [...x, u.id];
+                              return [...x.slice(1), u.id];
+                            });
+                            setShowLib(false);
+                            setTimeout(() => inputRef.current?.focus(), 20);
                           }
                         }}
                         className={cn(
@@ -1937,114 +1899,122 @@ export function CreativeComposer({
               )}
             </div>
 
-            {/* Videolar İçin Doğrudan Ses Üret & Ekle Bölümü */}
-            {result.kind === "video" ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
-                <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Ekle")}</span>
-                <textarea
-                  rows={2}
-                  value={phoneVoiceScript}
-                  onChange={(e) => setPhoneVoiceScript(e.target.value)}
-                  placeholder={tt("Örn: Yeni koleksiyonumuz şimdi mağazalarda ve online'da! Hemen keşfedin…")}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-                />
+            {/* Telefon Modunda Düzenleyiciyi Aç / Kapat */}
+            {result.kind !== "audio" ? (
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    const txt =
-                      phoneVoiceScript.trim() ||
-                      "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
-                    setPhoneVoiceScript("");
-                    handleAddVoiceToVideo(result.assetId, txt);
-                  }}
-                  className="rounded-lg bg-fg px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                  aria-expanded={phoneEditorOpen}
+                  onClick={() => setPhoneEditorOpen((v) => !v)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-medium transition-standard",
+                    phoneEditorOpen ? "border-fg bg-fg text-bg" : "border-line bg-bg/50 text-fg hover:border-fg/40",
+                  )}
                 >
-                  {tt("Ses Üret & Videoya Göm")}
+                  <span>{tt("Düzenleyici & Ses / Format")}</span>
+                  <span>{phoneEditorOpen ? "▲" : "▼"}</span>
                 </button>
-              </div>
-            ) : null}
 
-            {result.kind !== "audio" ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
-                <span className="text-[11px] font-medium text-fg">{tt("Hızlı Formatlama & Sohbet İşlemleri")}</span>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    9:16 Reels / Story
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    4:5 Instagram Post
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    1:1 Kare
-                  </button>
-                  {result.kind === "image" ? (
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli ve Türkçe seslendirmeli 9:16 Reels videosuna dönüştür", "9:16")}
-                      className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
-                    >
-                      {tt("Sesli Videoya Çevir")}
-                    </button>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-1.5 pt-1">
-                  <input
-                    type="text"
-                    value={quickCmd}
-                    onChange={(e) => setQuickCmd(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
-                      }
-                    }}
-                    placeholder={tt("Komut yazın (örn: arka planı sadeleştir, ışığı ısıt)…")}
-                    className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={pending || !quickCmd.trim()}
-                    onClick={() => {
-                      if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
-                    }}
-                    className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
-                  >
-                    {tt("Uygula")}
-                  </button>
-                </div>
+                {phoneEditorOpen ? (
+                  <div className="flex flex-col gap-2.5">
+                    {result.kind === "video" ? (
+                      <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                        <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Ekle")}</span>
+                        <textarea
+                          rows={2}
+                          value={phoneVoiceScript}
+                          onChange={(e) => setPhoneVoiceScript(e.target.value)}
+                          placeholder={tt("Örn: Yeni koleksiyonumuz şimdi mağazalarda ve online'da! Hemen keşfedin…")}
+                          className="w-full rounded-lg border border-line bg-surface p-2 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            const txt =
+                              phoneVoiceScript.trim() ||
+                              "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
+                            setPhoneVoiceScript("");
+                            handleAddVoiceToVideo(result.assetId, txt);
+                          }}
+                          className="rounded-lg bg-fg px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                        >
+                          {tt("Ses Üret & Videoya Göm")}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                      <span className="text-[11px] font-medium text-fg">{tt("Hızlı Formatlama & Sohbet İşlemleri")}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          9:16 Reels / Story
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          4:5 Instagram Post
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          1:1 Kare
+                        </button>
+                        {result.kind === "image" ? (
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli ve Türkçe seslendirmeli 9:16 Reels videosuna dönüştür", "9:16")}
+                            className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
+                          >
+                            {tt("Sesli Videoya Çevir")}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <input
+                          type="text"
+                          value={quickCmd}
+                          onChange={(e) => setQuickCmd(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                            }
+                          }}
+                          placeholder={tt("Komut yazın (örn: arka planı sadeleştir, ışığı ısıt)…")}
+                          className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={pending || !quickCmd.trim()}
+                          onClick={() => {
+                            if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                          }}
+                          className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                        >
+                          {tt("Uygula")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
 
           <div className="flex flex-col gap-1.5 border-t border-line pt-2.5">
-            {result.kind !== "audio" ? (
-              <form action={openAssetInStudioAction}>
-                <input type="hidden" name="assetId" value={result.assetId} />
-                <button
-                  type="submit"
-                  className="w-full rounded-xl border border-line px-3 py-1.5 text-center text-[12px] font-medium text-fg hover:border-fg/40"
-                >
-                  {result.kind === "video" ? tt("Videoyu Düzenleyicide Aç →") : tt("Fotoğrafı Düzenleyicide Aç →")}
-                </button>
-              </form>
-            ) : null}
             <button
               type="button"
               onClick={() =>
