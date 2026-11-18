@@ -110,10 +110,6 @@ export function WeekCalendar({
     move(from.card, over.day, from.card.time);
   };
 
-  if (rows.length === 0) {
-    return <p className="rounded-[8px] border border-border px-6 py-10 text-center text-sm text-fg-passive">{emptyText}</p>;
-  }
-
   const grid = (
     <div className="overflow-x-auto rounded-[8px] border border-border">
       <div role="grid" aria-label={tt("Haftalık paylaşım takvimi")} className="grid min-w-[1020px] grid-cols-[180px_repeat(7,minmax(118px,1fr))]">
@@ -137,7 +133,13 @@ export function WeekCalendar({
             </div>
           ))}
         </div>
-        {rows.map((row) => (
+        {rows.length === 0 ? (
+          <div role="row" className="contents">
+            <div className="col-span-8 border-b border-border bg-bg px-4 py-8 text-center text-sm text-fg-passive">
+              {emptyText}
+            </div>
+          </div>
+        ) : rows.map((row) => (
           <div role="row" key={row.id} className="contents">
             <div role="rowheader" className="sticky left-0 z-10 flex flex-col justify-center border-b border-border bg-bg px-4 py-3">
               <span className="truncate text-sm text-fg">{row.name}</span>
@@ -217,7 +219,7 @@ export function WeekCalendar({
                       className={cn(
                         "flex flex-col gap-1.5 border-b border-l border-border p-1.5",
                         list.length === 0 ? "min-h-10" : "min-h-14",
-                        day === today && "bg-surface/20",
+                        day === today && "bg-neon-pink/5",
                       )}
                     >
                       {list.map(({ card, influencerName }) => (
@@ -242,6 +244,11 @@ export function WeekCalendar({
 
   return (
     <div className="flex flex-col gap-3">
+      {rows.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-line px-6 py-3 text-center text-sm text-fg-passive">
+          {emptyText}
+        </p>
+      ) : null}
       <div className="flex items-center justify-end gap-1.5">
         <button
           type="button"
