@@ -605,6 +605,15 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
                   <GhostButton href="/kayit">{tt("Davet koduyla kayıt ol")}</GhostButton>
                 </div>
               </div>
+              <div className="mx-auto mt-6 flex flex-wrap items-center justify-center gap-2 text-sm text-fg-muted">
+                <span>{tt("Davet kodun yok mu?")}</span>
+                <Link
+                  href="/kayit?basvuru=1"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-glass-strong px-4 py-1.5 text-sm font-medium text-fg transition hover:border-neon-pink/50 hover:text-neon-pink"
+                >
+                  {tt("Başvuru yap →")}
+                </Link>
+              </div>
             </div>
           </Reveal>
         </section>

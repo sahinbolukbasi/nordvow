@@ -1,4 +1,5 @@
 "use server";
+import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { approveApplication, createInvite, registerWithInvite, rejectApplication, revokeInvite } from "@infulancer/core/access/invites";
 import { prisma } from "@infulancer/core/db";
@@ -7,6 +8,7 @@ import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
+import { notifyAdmins } from "@/lib/notify";
 import { signIn, signOut } from "@/auth";
 
 /** Davetli kayıt (oturum gerektirmez). Başarıda kullanıcı oturum açar ve onay bekleme ekranına gider. */
@@ -123,4 +125,114 @@ export async function reviewApplicationAction(_p: ActionState, fd: FormData): Pr
 export async function reloginAction() {
   await signOut({ redirectTo: "/giris?onaylandi=1" });
   redirect("/giris");
+}
+
+export type InviteRequestRecord = {
+  id: string;
+  role: "INFLUENCER" | "BRAND";
+  name: string;
+  email: string;
+  phone: string;
+  instagram: string | null;
+  tiktok: string | null;
+  youtube: string | null;
+  companyName: string | null;
+  note: string | null;
+  status: "NEW" | "CONTACTED" | "INVITED" | "ARCHIVED";
+  createdAt: string;
+};
+
+const INVITE_REQUESTS_KEY = "invite.requests";
+
+/** Davet kodu olmayan kullanıcıların başvuru formu (oturum gerektirmez). */
+export async function submitInviteRequestAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  return attempt(async () => {
+    const role: "INFLUENCER" | "BRAND" = str(fd, "role") === "BRAND" ? "BRAND" : "INFLUENCER";
+    const name = str(fd, "name").trim();
+    const email = str(fd, "email").trim().toLowerCase();
+    const phone = str(fd, "phone").trim();
+    const instagram = optStr(fd, "instagram");
+    const tiktok = optStr(fd, "tiktok");
+    const youtube = optStr(fd, "youtube");
+    const companyName = optStr(fd, "companyName");
+    const note = optStr(fd, "note");
+
+    if (name.length < 2 || name.length > 100) {
+      return { error: "Lütfen geçerli bir ad soyad girin." };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { error: "Lütfen geçerli bir e-posta adresi girin." };
+    }
+    if (phone.length < 7 || phone.length > 30) {
+      return { error: "Lütfen geçerli bir telefon numarası girin." };
+    }
+    if (role === "INFLUENCER" && !instagram && !tiktok && !youtube) {
+      return { error: "En az bir sosyal medya hesabı (Instagram, TikTok veya YouTube) girmelisiniz." };
+    }
+    if (role === "BRAND" && !companyName) {
+      return { error: "Marka / şirket adı girmelisiniz." };
+    }
+
+    const row = await prisma.configValue.findUnique({ where: { key: INVITE_REQUESTS_KEY }, select: { value: true } });
+    const list: InviteRequestRecord[] = Array.isArray(row?.value) ? (row.value as InviteRequestRecord[]) : [];
+    const item: InviteRequestRecord = {
+      id: randomUUID(),
+      role,
+      name,
+      email,
+      phone,
+      instagram: instagram ?? null,
+      tiktok: tiktok ?? null,
+      youtube: youtube ?? null,
+      companyName: companyName ?? null,
+      note: note ?? null,
+      status: "NEW",
+      createdAt: new Date().toISOString(),
+    };
+
+    const next = [item, ...list].slice(0, 500);
+    await prisma.configValue.upsert({
+      where: { key: INVITE_REQUESTS_KEY },
+      create: { key: INVITE_REQUESTS_KEY, value: next },
+      update: { value: next },
+    });
+
+    try {
+      await notifyAdmins(prisma, {
+        title: "Yeni davet kodu başvurusu",
+        body: `${name} (${role === "BRAND" ? companyName || "Marka" : "Influencer"}) · ${email}`,
+        href: "/admin/davetler?bolum=talepler",
+      });
+    } catch {
+      /* bildirim hatası başvuruyu bozmasın */
+    }
+
+    revalidateAll();
+    return {
+      ok: true,
+      message: "Başvurunuz alındı. Ekibimiz inceleyip en kısa sürede size geri dönüş sağlayacaktır.",
+    };
+  });
+}
+
+export async function updateInviteRequestStatusAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  await requireActor("ADMIN");
+  return attempt(async () => {
+    const id = str(fd, "id");
+    const statusRaw = str(fd, "status");
+    const status: InviteRequestRecord["status"] =
+      statusRaw === "CONTACTED" || statusRaw === "INVITED" || statusRaw === "ARCHIVED" ? statusRaw : "NEW";
+
+    const row = await prisma.configValue.findUnique({ where: { key: INVITE_REQUESTS_KEY }, select: { value: true } });
+    const list: InviteRequestRecord[] = Array.isArray(row?.value) ? (row.value as InviteRequestRecord[]) : [];
+    const next = list.map((item) => (item.id === id ? { ...item, status } : item));
+    await prisma.configValue.upsert({
+      where: { key: INVITE_REQUESTS_KEY },
+      create: { key: INVITE_REQUESTS_KEY, value: next },
+      update: { value: next },
+    });
+
+    revalidateAll();
+    return { ok: true, message: "Başvuru durumu güncellendi." };
+  });
 }
