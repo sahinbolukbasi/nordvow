@@ -7,6 +7,7 @@ import { runFakeEngagement, runFakeEngagementAll } from "./fake-engagement";
 import { runInfluencerRecommendationAll } from "./influencer-recommendation";
 import { runMetricConsistency, runMetricConsistencyAll } from "./metric-consistency";
 import { runPublishCheck } from "./publish-check";
+import { runRemindersJob } from "./reminders";
 import { runStoryReminder } from "./story-reminder";
 import { runTargetProjection } from "./target-projection";
 import { runBudgetBatch } from "../ads/budget-optimizer";
@@ -67,6 +68,7 @@ const HOUR = 60 * MIN;
 
 export const scheduledJobs: ScheduledJob[] = [
   { name: "publish-check", schedule: "rate(15 minutes)", intervalMs: 15 * MIN, run: async () => tally(await runPublishCheck()) },
+  { name: "reminders", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: () => runRemindersJob() },
   { name: "story-reminder", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => tally(await runStoryReminder()) },
   { name: "deletion-check", schedule: "cron(0 4 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runDeletionCheck()) },
   { name: "target-projection", schedule: "cron(0 5 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runTargetProjection()) },

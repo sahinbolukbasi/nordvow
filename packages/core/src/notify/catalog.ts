@@ -35,7 +35,7 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     key: "EVENT_CREATED",
     label: "Etkinlik oluşturuldu",
     vars: ["baslik", "tarih"],
-    defaultChannels: ["INAPP", "EMAIL"],
+    defaultChannels: ["INAPP"],
     templates: {
       INAPP: { subject: "Yeni etkinlik", body: "“{{baslik}}” etkinliği oluşturuldu ({{tarih}})." },
       EMAIL: { subject: "Yeni etkinlik: {{baslik}}", body: "Merhaba,\n\n“{{baslik}}” etkinliği {{tarih}} tarihinde planlandı." },
@@ -147,7 +147,7 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     key: "OPEN_CALL_PUBLISHED",
     label: "Yeni açık çağrı (başvuru)",
     vars: ["marka", "baslik", "link"],
-    defaultChannels: ["INAPP", "EMAIL", "INSTAGRAM"],
+    defaultChannels: ["INAPP", "INSTAGRAM"],
     templates: {
       INAPP: { subject: "Yeni açık çağrı", body: "{{marka}} “{{baslik}}” başvuru çağrısını açtı." },
       EMAIL: { subject: "Yeni fırsat: {{baslik}}", body: "{{marka}} “{{baslik}}” başvuru çağrısını açtı. Başvurun: {{link}}" },
@@ -230,11 +230,11 @@ export const NOTIF_EVENTS: NotifEvent[] = [
   {
     key: "USER_REJECTED",
     label: "Üyelik başvurusu reddedildi",
-    vars: ["ad", "neden"],
+    vars: ["ad", "neden", "link"],
     defaultChannels: ["INAPP", "EMAIL"],
     templates: {
       INAPP: { subject: "Başvuru sonucu", body: "Üyelik başvurunuz onaylanamadı." },
-      EMAIL: { subject: "Nordvow — Üyelik Başvurunuz Hakkında", body: "Merhaba {{ad}},\n\nNordvow üyelik başvurunuz şu aşamada onaylanamadı.{{neden}}" },
+      EMAIL: { subject: "Nordvow — Üyelik Başvurunuz Hakkında", body: "Merhaba {{ad}},\n\nNordvow üyelik başvurunuz şu aşamada onaylanamadı.{{neden}}\n\nSisteme dönün: {{link}}" },
     },
   },
   {
@@ -325,6 +325,36 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     templates: {
       INAPP: { subject: "Destek talebiniz: {{durum}}", body: "“{{konu}}” talebiniz güncellendi: {{durum}}" },
       EMAIL: { subject: "Destek Talebiniz Güncellendi: {{konu}}", body: "Merhaba {{ad}},\n\n“{{konu}}” başlıklı destek talebinizin durumu “{{durum}}” olarak güncellendi.{{not}}\n\nPanel: {{link}}" },
+    },
+  },
+  {
+    key: "EVENT_REMINDER",
+    label: "Etkinlik zamanı hatırlatması",
+    vars: ["ad", "baslik", "tarih", "konum", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Etkinlik yaklaşıyor: {{baslik}}", body: "“{{baslik}}” etkinliği {{tarih}} tarihinde başlıyor ({{konum}})." },
+      EMAIL: { subject: "Etkinlik Hatırlatması: {{baslik}}", body: "Merhaba {{ad}},\n\nDavetli olduğunuz “{{baslik}}” etkinliği {{tarih}} tarihinde başlıyor.\nKonum: {{konum}}\n\nBiletinizi ve detayları görüntüleyin: {{link}}" },
+    },
+  },
+  {
+    key: "COUPON_REMINDER",
+    label: "Kupon son kullanım hatırlatması",
+    vars: ["ad", "baslik", "kod", "tarih", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Kupon hatırlatması: {{baslik}}", body: "“{{baslik}}” kuponunuzun (Kod: {{kod}}) son geçerlilik tarihi yaklaşıyor: {{tarih}}." },
+      EMAIL: { subject: "Kupon Hatırlatması: {{baslik}}", body: "Merhaba {{ad}},\n\nHesabınıza tanımlı “{{baslik}}” kuponunuz (Kod: {{kod}}) {{tarih}} tarihinde sona eriyor.\n\nKuponunuzu kullanmak için sisteme gidin: {{link}}" },
+    },
+  },
+  {
+    key: "TASK_REMINDER",
+    label: "Yapılacak iş / teslimat hatırlatması",
+    vars: ["ad", "kampanya", "gorev", "tarih", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "İş hatırlatması: {{kampanya}}", body: "{{gorev}} için planlanan tarih: {{tarih}}." },
+      EMAIL: { subject: "Yapılacak İş Hatırlatması: {{kampanya}}", body: "Merhaba {{ad}},\n\n“{{kampanya}}” kampanyasındaki “{{gorev}}” göreviniz için planlanan tarih ({{tarih}}) yaklaşıyor/geldi.\n\nİşi tamamlamak için sisteme gidin: {{link}}" },
     },
   },
 ];

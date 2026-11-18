@@ -3,6 +3,7 @@
 locals {
   agent_jobs = var.enable_agent_schedules ? {
     "publish-check"             = "rate(15 minutes)"
+    "reminders"                 = "rate(6 hours)"
     "story-reminder"            = "rate(1 hour)"
     "brief-compliance"          = "rate(1 hour)"
     "metric-consistency"        = "rate(1 hour)"
