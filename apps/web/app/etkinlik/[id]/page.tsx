@@ -8,6 +8,7 @@ import { mapLinks } from "@infulancer/core/wallet/maps";
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { DateBadge, InfoRow, PersonIcon, PinIcon, Pill } from "@/components/luma/primitives";
 import { dateLong, rangeLabel } from "@/lib/event-format";
+import { resolveEventByParam } from "@/lib/event-lookup";
 import { getActor } from "@/lib/auth-guard";
 import { mediaSrc } from "@/lib/media";
 import { BRAND_NAME } from "@/lib/brand";
@@ -15,21 +16,55 @@ import { BRAND_NAME } from "@/lib/brand";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const e = await prisma.event.findUnique({ where: { id }, select: { title: true } });
+  const resolvedId = await resolveEventByParam(id);
+  const e = resolvedId ? await prisma.event.findUnique({ where: { id: resolvedId }, select: { title: true } }) : null;
   return { title: e?.title ?? "Etkinlik" };
 }
 
-/** Herkese açık etkinlik sayfası (Luma düzeni). Giriş yapmış davetli kendi biletine ulaşır. */
+/** Herkese açık etkinlik sayfası (Luma düzeni). Sol alt köşede katılacak kişiler listesi gösterilir. */
 export default async function PublicEventPage({ params }: { params: Promise<{ id: string }> }) {
   const tt = await getTT();
   const { id } = await params;
-  const e = await prisma.event.findUnique({ where: { id }, include: { tickets: { where: { status: { not: "IPTAL" } }, select: { id: true } } } });
+  const resolvedId = await resolveEventByParam(id);
+  if (!resolvedId) notFound();
+  const e = await prisma.event.findUnique({
+    where: { id: resolvedId },
+    include: {
+      tickets: {
+        where: { status: { not: "IPTAL" } },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          holderName: true,
+          status: true,
+          invite: { select: { influencerId: true } },
+        },
+      },
+    },
+  });
   if (!e) notFound();
-  const [brand, partnerIds, actor] = await Promise.all([
+  const attendeeInfIds = e.tickets.map((t) => t.invite?.influencerId).filter((x): x is string => !!x);
+  const [brand, partnerIds, actor, attendeeInfs] = await Promise.all([
     e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null,
     getEventPartnerIds(e.id),
     getActor().catch(() => null),
+    attendeeInfIds.length
+      ? prisma.influencer.findMany({
+          where: { id: { in: attendeeInfIds } },
+          select: { id: true, name: true, category: true },
+        })
+      : Promise.resolve([]),
   ]);
+  const infMap = new Map(attendeeInfs.map((i) => [i.id, i]));
+  const attendees = e.tickets.map((t) => {
+    const inf = t.invite?.influencerId ? infMap.get(t.invite.influencerId) : null;
+    return {
+      id: t.id,
+      name: inf?.name ?? t.holderName,
+      category: inf?.category ?? null,
+      checkedIn: t.status === "KULLANILDI",
+    };
+  });
   const partnerBrands = partnerIds.length
     ? await prisma.brand.findMany({ where: { id: { in: partnerIds } }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
@@ -63,7 +98,54 @@ export default async function PublicEventPage({ params }: { params: Promise<{ id
               {organizer}
             </span>
           </div>
-          {e.tickets.length ? <p className="text-[13px] text-fg-muted">{e.tickets.length}{" "}{tt("kişi katılıyor")}</p> : null}
+          <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4" aria-label={tt("Katılacak kişiler")}>
+            <div className="flex items-center justify-between border-b border-line pb-2">
+              <span className="text-[13px] font-medium text-fg-muted">{tt("Katılacak Kişiler")}</span>
+              <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-semibold text-fg">{attendees.length}</span>
+            </div>
+            {attendees.length === 0 ? (
+              <p className="text-[12px] text-fg-muted">{tt("Henüz onaylanan katılımcı yok.")}</p>
+            ) : (
+              <>
+                <div className="flex -space-x-2 overflow-hidden">
+                  {attendees.slice(0, 8).map((a) => (
+                    <span
+                      key={a.id}
+                      title={a.name}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface bg-surface-hover text-[11px] font-semibold text-fg"
+                    >
+                      {a.name.slice(0, 1).toLocaleUpperCase("tr")}
+                    </span>
+                  ))}
+                  {attendees.length > 8 ? (
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface bg-fg text-[10px] font-semibold text-bg">
+                      +{attendees.length - 8}
+                    </span>
+                  ) : null}
+                </div>
+                <ul className="flex max-h-64 flex-col divide-y divide-line overflow-y-auto pr-1 text-[13px]">
+                  {attendees.map((a) => (
+                    <li key={a.id} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-hover text-[11px] font-semibold text-fg" aria-hidden>
+                          {a.name.slice(0, 1).toLocaleUpperCase("tr")}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-fg">{a.name}</p>
+                          {a.category ? <p className="truncate text-[11px] text-fg-muted">{a.category}</p> : null}
+                        </div>
+                      </div>
+                      {a.checkedIn ? (
+                        <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                          {tt("Geldi")}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
         </aside>
 
         <div className="flex flex-col gap-6">

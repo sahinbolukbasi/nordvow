@@ -5,14 +5,15 @@ import { envStr } from "@infulancer/core/env";
 import { canBrandManageEvent, getEventIdsForBrand, getEventPartnerIds, getEventsPartnerMap } from "@infulancer/core/events/partners";
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { mapLinks } from "@infulancer/core/wallet/maps";
-import { CheckInForm, EventPartnersForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { EventPartnersForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { TicketScannerPanel } from "@/components/events/ticket-scanner";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { CopyCode } from "@/components/wallet/copy-code";
 import { dateLong, pctOf, rangeLabel, timeShort } from "@/lib/event-format";
+import { eventPublicPath } from "@/lib/event-url";
 import { mediaSrc } from "@/lib/media";
 import { BRAND_NAME } from "@/lib/brand";
-import { fmtDateTime } from "@/lib/time";
 import { EventListItem, eventStatusView } from "./list-items";
 import { ListToolbar, type ToolbarSelect } from "./list-toolbar";
 import { BackLink, CalIcon, DateBadge, FilterTabs, InfoRow, PersonIcon, PinIcon, Pill, SectionHead, StatStrip, type PillTone } from "./primitives";
@@ -211,13 +212,23 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
   const map = mapLinks({ latitude: e.latitude, longitude: e.longitude, address: e.address, venueName: e.venueName });
   const location = [e.venueName, e.address, e.city].filter(Boolean).join(", ");
   const base = envStr("APP_URL", "").replace(/\/$/, "");
-  const publicUrl = `${base}/etkinlik/${e.id}`;
+  const publicPath = eventPublicPath(e.id, e.title);
+  const publicUrl = `${base}${publicPath}`;
   const gcal = googleCalendarUrl({ uid: e.id, title: e.title, description: e.description, location: location || null, startsAt: e.startsAt, endsAt: e.endsAt });
   const needsGuests = e.invites.length === 0 && e.status !== "IPTAL";
   const guests = (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section className="flex flex-col gap-3" aria-label="Misafir listesi">
-        <SectionHead title={`Misafirler (${e.invites.length})`} />
+        <SectionHead
+          title={`Misafirler (${e.invites.length})`}
+          action={
+            e.tickets.length ? (
+              <a href={`/api/etkinlik/${e.id}/csv`} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-line-strong">
+                Katılımcıları CSV İndir
+              </a>
+            ) : null
+          }
+        />
         {e.invites.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-[13px] text-fg-muted">Henüz misafir yok. Sağdaki listeden içerik üreticisi seçip davet gönderin.</p>
         ) : (
@@ -268,29 +279,17 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
     </div>
   );
   const checkin = (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-      <section className="flex flex-col gap-3">
-        <SectionHead title="Kapıda giriş" />
-        <div className="rounded-2xl border border-line bg-surface p-4">
-          <CheckInForm />
-        </div>
-      </section>
-      <section className="flex flex-col gap-3">
-        <SectionHead title={`Giriş yapanlar (${checkedIn.length}/${liveTickets.length})`} />
-        {checkedIn.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-[13px] text-fg-muted">Henüz giriş yapan yok.</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface text-sm">
-            {checkedIn.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                <span className="font-medium text-fg">{t.holderName}</span>
-                <span className="text-[12px] tabular-nums text-fg-muted">{t.checkedInAt ? fmtDateTime(t.checkedInAt) : ""}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
+    <TicketScannerPanel
+      eventId={e.id}
+      capacity={e.capacity}
+      initialTickets={e.tickets.map((t) => ({
+        id: t.id,
+        code: t.code,
+        holderName: t.holderName,
+        status: t.status,
+        checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
+      }))}
+    />
   );
   const share = (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -298,7 +297,7 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
         <h3 className="font-semibold text-fg">Etkinlik sayfası</h3>
         <p className="text-[13px] text-fg-muted">{e.visibility === "HERKESE_ACIK" ? "Bağlantıya sahip herkes sayfayı görebilir." : "Sayfa bağlantıyla açılır; bilet yalnız davetlilere verilir."}</p>
         <CopyCode code={publicUrl} tone="app" size="sm" />
-        <Link href={`/etkinlik/${e.id}`} target="_blank" className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">Sayfayı aç ↗</Link>
+        <Link href={publicPath} target="_blank" className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">Sayfayı aç ↗</Link>
       </section>
       <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
         <h3 className="font-semibold text-fg">Takvim ve konum</h3>
@@ -327,7 +326,8 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
           <h1 className="text-title text-fg">{e.title}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href={`/etkinlik/${e.id}`} target="_blank" className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] text-fg hover:border-border-strong">Etkinlik sayfası ↗</Link>
+          <Link href={publicPath} target="_blank" className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] text-fg hover:border-border-strong">Etkinlik sayfası ↗</Link>
+          <Link href={`${basePath}/${e.id}?tab=giris`} className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong">QR Giriş &amp; Biletler</Link>
           {e.status === "TASLAK" ? <EventStatusButton id={e.id} to="YAYINDA" label="Yayınla" variant="primary" /> : null}
           {e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="TAMAMLANDI" label="Tamamlandı" /> : null}
           {e.status === "TASLAK" || e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="IPTAL" label="İptal et" variant="ghost" /> : null}
@@ -391,7 +391,7 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
         defaultTab={tab}
         tabs={[
           { id: "misafirler", label: `Misafirler (${e.invites.length})`, content: guests },
-          { id: "giris", label: `Giriş (${checkedIn.length})`, content: checkin },
+          { id: "giris", label: `Biletler & QR Giriş (${checkedIn.length}/${liveTickets.length})`, content: checkin },
           { id: "paylas", label: "Paylaş", content: share },
         ]}
       />

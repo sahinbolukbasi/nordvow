@@ -9,7 +9,7 @@ import { CouponCard } from "@/components/luma/pass-cards";
 import { cn } from "@/lib/cn";
 import { dateLong } from "@/lib/event-format";
 import { AGENCY_TZ, isDay, zonedToUtc } from "@/lib/time";
-import { createCouponAction, grantCouponAction, importCouponCodesAction, setCouponStatusAction } from "@/lib/actions/coupons";
+import { createCouponAction, generateBulkCouponCodesAction, grantCouponAction, importCouponCodesAction, setCouponGrantStatusAction, setCouponStatusAction } from "@/lib/actions/coupons";
 
 function Section({ n, title, hint, children }: { n: number; title: string; hint?: string; children: ReactNode }) {
   return (
@@ -238,6 +238,53 @@ export function CouponImportForm({ couponId }: { couponId: string }) {
           {tt("Örnek CSV Şablonu (.csv)")}
         </a>
       </div>
+    </ActionForm>
+  );
+}
+
+/** Toplu benzersiz kupon kodu üretici (CSV dışa aktarma veya havuz kullanımı için). */
+export function BulkCodeGenerateForm({ couponId }: { couponId: string }) {
+  const tt = useTT();
+  return (
+    <ActionForm
+      action={generateBulkCouponCodesAction}
+      submitLabel={tt("Kodları Üret")}
+      resetOnSuccess
+      aria-label={tt("Toplu kupon kodu üret")}
+      className="gap-3"
+    >
+      <input type="hidden" name="couponId" value={couponId} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={tt("Kod adedi (1-500)")}>
+          {(p) => <Input {...p} name="count" type="number" min={1} max={500} defaultValue={25} required />}
+        </Field>
+        <Field label={tt("Ön ek (opsiyonel)")}>
+          {(p) => <Input {...p} name="prefix" maxLength={8} defaultValue="KPN" placeholder="YAZ26" className="font-mono uppercase" />}
+        </Field>
+      </div>
+    </ActionForm>
+  );
+}
+
+/** Tekil kupon kodunun durumunu günceller. */
+export function CouponGrantStatusButton({
+  grantId,
+  to,
+  label,
+  variant = "ghost",
+}: {
+  grantId: string;
+  to: "GONDERILDI" | "KULLANILDI" | "IPTAL";
+  label: string;
+  variant?: "primary" | "secondary" | "ghost";
+}) {
+  return (
+    <ActionForm action={setCouponGrantStatusAction} aria-label={label} className="!flex-row">
+      <input type="hidden" name="grantId" value={grantId} />
+      <input type="hidden" name="to" value={to} />
+      <Button type="submit" size="sm" variant={variant}>
+        {label}
+      </Button>
     </ActionForm>
   );
 }

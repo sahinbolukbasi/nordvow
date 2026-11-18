@@ -7,8 +7,10 @@ import { toAuditActor } from "@infulancer/core/access/actor";
 import {
   createCoupon,
   couponValueLabel,
+  generateBulkCouponCodes,
   grantCouponMany,
   importCouponCodesAndGrant,
+  setCouponGrantStatus,
   setCouponStatus,
 } from "@infulancer/core/coupons/service";
 import { parseCouponImportFile } from "@infulancer/core/coupons/spreadsheet";
@@ -181,6 +183,7 @@ export async function importCouponCodesAction(_p: ActionState, fd: FormData): Pr
       couponId,
       rows,
       autoAssignUnmatched,
+      allowUnassigned: true,
     });
 
     await audit.append({
@@ -191,15 +194,63 @@ export async function importCouponCodesAction(_p: ActionState, fd: FormData): Pr
       data: {
         fileName: file.name,
         createdCount: result.createdCount,
+        assignedCount: result.assignedCount,
+        poolCount: result.poolCount,
         skippedDuplicates: result.skippedDuplicates,
         unmatchedCount: result.unmatchedCount,
       },
     });
 
     revalidateAll();
-    const parts = [`${result.createdCount} kod dağıtıldı`];
+    const parts = [`${result.createdCount} kod içe aktarıldı`];
+    if (result.assignedCount > 0) parts.push(`${result.assignedCount} üreticiye atandı`);
+    if (result.poolCount > 0) parts.push(`${result.poolCount} havuza eklendi`);
     if (result.skippedDuplicates > 0) parts.push(`${result.skippedDuplicates} mükerrer atlandı`);
-    if (result.unmatchedCount > 0) parts.push(`${result.unmatchedCount} kod eşleşmedi/uygun alıcı kalmadı`);
     return { ok: true, message: `${parts.join(" · ")}.` };
+  });
+}
+
+/** Toplu benzersiz kupon kodu üretir (CSV dışa aktarma veya havuz kullanımı için). */
+export async function generateBulkCouponCodesAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const couponId = str(fd, "couponId");
+    const count = Number(str(fd, "count") || "10");
+    const prefix = str(fd, "prefix") || "KPN";
+    const coupon = await prisma.coupon.findUnique({ where: { id: couponId }, select: { tenantId: true } });
+    if (!coupon) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+    if (actor.role === "BRAND" && coupon.tenantId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kupon için kod üretme yetkiniz yok.");
+    }
+    const created = await generateBulkCouponCodes({ couponId, count, prefix });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "COUPON_CODES_GENERATED",
+      entityType: "Coupon",
+      entityId: couponId,
+      data: { count: created.length, prefix },
+    });
+    revalidateAll();
+    return { ok: true, message: `${created.length} adet benzersiz kupon kodu üretildi.` };
+  });
+}
+
+/** Tekil bir kupon kodunun durumunu günceller (kullanıldı / iptal / aktif). */
+export async function setCouponGrantStatusAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const grantId = str(fd, "grantId");
+    const to = str(fd, "to") as "GONDERILDI" | "KULLANILDI" | "IPTAL";
+    const grant = await prisma.couponGrant.findUnique({
+      where: { id: grantId },
+      select: { coupon: { select: { tenantId: true } } },
+    });
+    if (!grant) throw new DomainError("BULUNAMADI", "Kupon kodu bulunamadı.");
+    if (actor.role === "BRAND" && grant.coupon.tenantId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kupon kodunu güncelleme yetkiniz yok.");
+    }
+    await setCouponGrantStatus(grantId, to);
+    revalidateAll();
+    return { ok: true, message: "Kod durumu güncellendi." };
   });
 }

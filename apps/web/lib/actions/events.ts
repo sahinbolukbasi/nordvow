@@ -4,7 +4,16 @@ import { redirect } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
-import { createEvent, inviteManyToEvent, inviteToEvent, respondInvite, setEventStatus } from "@infulancer/core/events/service";
+import {
+  cancelEventTicket,
+  createEvent,
+  inviteManyToEvent,
+  inviteToEvent,
+  issueQuickTicket,
+  respondInvite,
+  setEventStatus,
+  undoCheckInTicket,
+} from "@infulancer/core/events/service";
 import { canBrandManageEvent, setEventPartnerIds } from "@infulancer/core/events/partners";
 import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import { fmtDateTime } from "@/lib/time";
@@ -196,6 +205,63 @@ export async function checkInAction(_p: ActionState, fd: FormData): Promise<Acti
     revalidateAll();
     if (r.alreadyUsed) return { ok: true, message: `Bu bilet zaten kullanılmış (${r.ticket.holderName}).` };
     return { ok: true, message: `Giriş onaylandı: ${r.ticket.holderName}.` };
+  });
+}
+
+/** Kapıdan veya bilet yönetimi ekranından tek adımda yeni bilet ekler. */
+export async function issueQuickTicketAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const eventId = str(fd, "eventId");
+    const holderName = str(fd, "holderName");
+    const guestEmail = str(fd, "guestEmail") || undefined;
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
+    if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    }
+    const ticket = await issueQuickTicket({ eventId, holderName, guestEmail });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_TICKET_ISSUED",
+      entityType: "EventTicket",
+      entityId: ticket.id,
+      data: { eventId, holderName, code: ticket.code },
+    });
+    revalidateAll();
+    return { ok: true, message: `Bilet oluşturuldu: ${ticket.holderName} (${ticket.code})` };
+  });
+}
+
+/** Yanlışlıkla okutulan bileti geri alır. */
+export async function undoCheckInAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const ticketId = str(fd, "ticketId");
+    const t = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { event: { select: { id: true, tenantId: true } } } });
+    if (!t) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(t.event, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+    }
+    await undoCheckInTicket(ticketId);
+    revalidateAll();
+    return { ok: true, message: "Giriş kaydı geri alındı." };
+  });
+}
+
+/** Bileti iptal eder. */
+export async function cancelTicketAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const ticketId = str(fd, "ticketId");
+    const t = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { event: { select: { id: true, tenantId: true } } } });
+    if (!t) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(t.event, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+    }
+    await cancelEventTicket(ticketId);
+    revalidateAll();
+    return { ok: true, message: "Bilet iptal edildi." };
   });
 }
 

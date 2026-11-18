@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { couponValueLabel } from "@infulancer/core/coupons/service";
-import { CouponImportForm, CouponStatusButton, GrantForm } from "@/components/coupons/coupon-forms";
+import { BulkCodeGenerateForm, CouponGrantStatusButton, CouponImportForm, CouponStatusButton, GrantForm } from "@/components/coupons/coupon-forms";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { CopyCode } from "@/components/wallet/copy-code";
@@ -223,7 +223,15 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
                 const v = grantView[g.status] ?? { label: g.status, tone: "gray" as PillTone };
                 return (
                   <tr key={g.id} className="border-b border-line last:border-b-0">
-                    <td className="px-4 py-2.5 font-medium text-fg">{g.influencerId ? (names.get(g.influencerId) ?? "İçerik üreticisi") : "—"}</td>
+                    <td className="px-4 py-2.5 font-medium text-fg">
+                      {g.influencerId ? (
+                        (names.get(g.influencerId) ?? "İçerik üreticisi")
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-medium text-fg-muted">
+                          Havuz Kodu
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       <CopyCode code={c.sharedCode ?? g.code} tone="app" size="sm" />
                       {shared ? <span className="mt-0.5 block font-mono text-[11px] text-fg-passive">takip: {g.code}</span> : null}
@@ -232,7 +240,13 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
                     <td className="px-4 py-2.5 tabular-nums text-fg-muted">{fmtDate(g.createdAt)}</td>
                     <td className="px-4 py-2.5 tabular-nums text-fg-muted">{g.redeemedAt ? fmtDate(g.redeemedAt) : "—"}</td>
                     <td className="px-4 py-2.5 text-right">
-                      <div className="inline-flex items-center gap-2">
+                      <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                        {g.status !== "KULLANILDI" && g.status !== "IPTAL" ? (
+                          <CouponGrantStatusButton grantId={g.id} to="KULLANILDI" label="Kullanıldı" variant="secondary" />
+                        ) : null}
+                        {g.status !== "IPTAL" ? (
+                          <CouponGrantStatusButton grantId={g.id} to="IPTAL" label="İptal" variant="ghost" />
+                        ) : null}
                         <a href={`/api/wallet/apple/coupon/${g.id}`} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Apple Wallet</a>
                         <a href={`/api/wallet/google/coupon/${g.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Google Pay</a>
                         <a href={`/api/kupon/${g.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">PDF</a>
@@ -264,9 +278,16 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
             <GrantForm couponId={c.id} influencers={pickable} />
           </div>
           <div className="rounded-2xl border border-line bg-surface p-4">
+            <h3 className="mb-2 text-sm font-semibold text-fg">Toplu Benzersiz Kod Üret</h3>
+            <p className="mb-3 text-[12px] text-fg-muted">
+              Sistemde tanımlı içerik üreticisi beklemeden tek tıkla 1–500 arası benzersiz kupon kodu üretin ve CSV olarak dışa aktarın.
+            </p>
+            <BulkCodeGenerateForm couponId={c.id} />
+          </div>
+          <div className="rounded-2xl border border-line bg-surface p-4">
             <h3 className="mb-2 text-sm font-semibold text-fg">Excel / CSV ile Toplu Kod İçe Aktar</h3>
             <p className="mb-3 text-[12px] text-fg-muted">
-              Dışarıdan (ör. Shopify, Trendyol, ERP) aldığınız hazır kupon kodlarını Excel veya CSV dosyasıyla yükleyip içerik üreticilerine dağıtabilirsiniz.
+              Dışarıdan (ör. Shopify, Trendyol, ERP) aldığınız hazır kupon kodlarını Excel veya CSV dosyasıyla yükleyip içerik üreticilerine dağıtabilir veya havuza ekleyebilirsiniz.
             </p>
             <CouponImportForm couponId={c.id} />
           </div>

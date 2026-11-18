@@ -43,18 +43,21 @@ const ticketStatus: Record<TicketCardProps["statusTone"], string> = {
 
 export function TicketCard({ title, organizer, holderName, dateLabel, venueLabel, code, statusLabel, statusTone, coverSrc, accent = "#7c3aed", qr, className }: TicketCardProps) {
   return (
-    <article aria-label={`${title} bileti`} className={cn("w-full max-w-sm overflow-hidden rounded-[28px] bg-white text-[#0b0b14] ring-1 ring-black/10", className)}>
-      <div className="relative h-36">
+    <article aria-label={`${title} bileti`} className={cn("w-full max-w-sm overflow-hidden rounded-[28px] bg-white text-[#0b0b14] shadow-[0_20px_50px_rgba(0,0,0,0.22)] ring-1 ring-black/10", className)}>
+      <div className="relative h-40">
         {coverSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={coverSrc} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="h-full w-full" style={{ background: `linear-gradient(135deg, ${accent} 0%, #1e1b4b 100%)` }} />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent" />
         <div className="absolute left-4 right-4 top-4 flex items-center justify-between gap-2">
-          <span className="truncate rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-[#0b0b14]">{organizer}</span>
-          <span className="rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-white backdrop-blur">Bilet</span>
+          <span className="truncate rounded-full bg-white/95 px-3 py-1 text-[11px] font-semibold text-[#0b0b14] shadow-sm">{organizer}</span>
+          <span className="rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white backdrop-blur">Etkinlik Bileti</span>
+        </div>
+        <div className="absolute bottom-3 left-4 right-4">
+          <span className="inline-block rounded-full bg-white/20 px-2.5 py-0.5 text-[10px] font-medium text-white backdrop-blur">VIP / Davetli Giriş</span>
         </div>
       </div>
 
@@ -106,7 +109,7 @@ export type CouponCardProps = {
 
 export function CouponCard({ kindLabel, title, brandName, valueLabel, code, codeHint, validLabel, expired, statusLabel, logoSrc, heroSrc, accent = "#ff2bd6", qr, className }: CouponCardProps) {
   return (
-    <article aria-label={`${title} ${kindLabel.toLocaleLowerCase("tr")}`} className={cn("w-full max-w-sm overflow-hidden rounded-[28px] bg-white text-[#0b0b14] ring-1 ring-black/10", className)}>
+    <article aria-label={`${title} ${kindLabel.toLocaleLowerCase("tr")}`} className={cn("w-full max-w-sm overflow-hidden rounded-[28px] bg-white text-[#0b0b14] shadow-[0_20px_50px_rgba(0,0,0,0.22)] ring-1 ring-black/10", className)}>
       <div className="relative px-6 pb-6 pt-5 text-white" style={{ background: `linear-gradient(140deg, ${accent} 0%, #111827 135%)` }}>
         {heroSrc ? (
           // eslint-disable-next-line @next/next/no-img-element

@@ -32,7 +32,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const statusTr: Record<string, string> = { GONDERILDI: "Gönderildi", GORULDU: "Görüldü", KULLANILDI: "Kullanıldı", IPTAL: "İptal" };
   const header = ["Influencer", "Kupon Kodu", "Takip Kodu", "Durum", "Gönderim Tarihi", "Kullanım Tarihi"].map(esc).join(",");
   const rows = grants.map((g) =>
-    [names.get(g.influencerId ?? "") ?? "—", coupon.sharedCode ?? g.code, g.code, statusTr[g.status] ?? g.status, g.createdAt.toISOString().slice(0, 10), g.redeemedAt ? g.redeemedAt.toISOString().slice(0, 10) : ""].map(esc).join(","),
+    [names.get(g.influencerId ?? "") ?? "Havuz (Atanmamış)", coupon.sharedCode ?? g.code, g.code, statusTr[g.status] ?? g.status, g.createdAt.toISOString().slice(0, 10), g.redeemedAt ? g.redeemedAt.toISOString().slice(0, 10) : ""].map(esc).join(","),
   );
   // BOM + CRLF: Excel'de Türkçe karakter ve kolon ayrımı düzgün görünür.
   const csv = "\uFEFF" + [header, ...rows].join("\r\n") + "\r\n";
