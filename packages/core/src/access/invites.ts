@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../db";
 import { audit } from "../audit";
 import { runOnboardingQuickScan } from "../social/multi-agent-analytics";
+import { ensureStarterCredits } from "../creative/credits";
 import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
@@ -190,9 +191,13 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
     return { app, influencerId: app.user.influencerId };
   });
   await audit.append({ actor: toAuditActor(actor), action: "SIGNUP_APPROVED", entityType: "SignupApplication", entityId: applicationId, data: { userId: result.app.userId, role: result.app.targetRole } });
-  const approvedInf = await prisma.user.findUnique({ where: { id: result.app.userId }, select: { influencerId: true } });
-  if (approvedInf?.influencerId) {
-    void runOnboardingQuickScan(approvedInf.influencerId).catch(() => {});
+  const approvedUser = await prisma.user.findUnique({ where: { id: result.app.userId }, select: { influencerId: true, brandId: true } });
+  const starterTenantId = approvedUser?.influencerId ?? approvedUser?.brandId;
+  if (starterTenantId) {
+    await ensureStarterCredits(starterTenantId).catch((e) => console.error("[invites] ensureStarterCredits error:", e));
+  }
+  if (approvedUser?.influencerId) {
+    void runOnboardingQuickScan(approvedUser.influencerId).catch(() => {});
   }
 }
 
