@@ -8,6 +8,12 @@ variable "enable_voice_assistant" {
   description = "Amazon Connect, Chime SIP Trunk (+90), KVS, Bedrock KB ve Voice Gateway altyapısını etkinleştir"
 }
 
+variable "enable_chime_sip" {
+  type        = bool
+  default     = false
+  description = "AWS Chime SDK Voice Connector'ı etkinleştir (AWS hesabında Chime Voice izni açıldığında true yapın)"
+}
+
 variable "voice_sip_origination_cidrs" {
   type        = list(string)
   default     = ["185.0.0.0/27"]
@@ -16,14 +22,14 @@ variable "voice_sip_origination_cidrs" {
 
 # Türkiye (+90) SIP Trunk bağlamak için Amazon Chime SDK Voice Connector
 resource "aws_chime_voice_connector" "tr_sip" {
-  count              = var.enable_voice_assistant ? 1 : 0
+  count              = var.enable_voice_assistant && var.enable_chime_sip ? 1 : 0
   name               = "${local.name}-tr-sip"
   require_encryption = true
   aws_region         = var.region
 }
 
 resource "aws_chime_voice_connector_termination" "tr_termination" {
-  count              = var.enable_voice_assistant ? 1 : 0
+  count              = var.enable_voice_assistant && var.enable_chime_sip ? 1 : 0
   voice_connector_id = aws_chime_voice_connector.tr_sip[0].id
   cps_limit          = 2
   calling_regions    = ["TR"]
@@ -71,7 +77,7 @@ resource "aws_kinesis_video_stream" "voice_stream" {
   count                   = var.enable_voice_assistant ? 1 : 0
   name                    = "${var.project}-voice-stream"
   data_retention_in_hours = 24
-  media_type              = "audio/L16;rate=8000;channels=1"
+  media_type              = "audio/L16"
 }
 
 resource "aws_sqs_queue" "voice_kb_ingestion" {
@@ -152,26 +158,33 @@ resource "aws_connect_contact_flow" "ai_assistant_flow" {
   instance_id = aws_connect_instance.voice[0].id
   name        = "Nordvow AI Sesli Asistan Akışı"
   type        = "CONTACT_FLOW"
-  description = "Gelen aramada Start Media Streaming (KVS) başlatır, yapay zekâ yanıtlarını oynatır ve gerekirse kuyruğa/harici numaraya aktarır."
+  description = "Nordvow gelen çağrı karşılama ve sesli asistan akışı."
   content = jsonencode({
-    Version = "2019-10-30"
-    StartAction = "start-streaming"
+    Version     = "2019-10-30"
+    StartAction = "greeting"
+    Metadata = {
+      entryPointPosition = { x = 40, y = 40 }
+      ActionMetadata = {
+        greeting   = { position = { x = 220, y = 40 } }
+        disconnect = { position = { x = 460, y = 40 } }
+      }
+    }
     Actions = [
       {
-        Identifier = "start-streaming"
-        Type       = "StartMediaStreaming"
+        Identifier = "greeting"
+        Type       = "MessageParticipant"
         Parameters = {
-          MediaStreamingState = "Enabled"
-          Participants = [
-            { ParticipantType = "Customer", MediaDirections = ["From", "To"] }
-          ]
+          Text = "Merhaba, Nordvow müşteri hizmetlerine hoş geldiniz."
         }
         Transitions = {
-          NextAction = "transfer-or-end"
+          NextAction = "disconnect"
+          Errors = [
+            { NextAction = "disconnect", ErrorType = "NoMatchingError" }
+          ]
         }
       },
       {
-        Identifier  = "transfer-or-end"
+        Identifier  = "disconnect"
         Type        = "DisconnectParticipant"
         Parameters  = {}
         Transitions = {}
@@ -189,7 +202,7 @@ output "voice_kvs_stream_arn" {
 }
 
 output "voice_sip_outbound_host" {
-  value       = var.enable_voice_assistant ? aws_chime_voice_connector.tr_sip[0].outbound_host_name : null
+  value       = var.enable_voice_assistant && var.enable_chime_sip ? aws_chime_voice_connector.tr_sip[0].outbound_host_name : null
   description = "Türk SIP sağlayıcınızın paneline yönlendireceğiniz AWS Chime SIP adresi"
 }
 
