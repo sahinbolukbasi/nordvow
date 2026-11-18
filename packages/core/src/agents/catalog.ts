@@ -53,6 +53,7 @@ export const AUDIT_AGENTS: AuditAgentMeta[] = [
   { job: "kvkk-reminders", name: "KVKK bildirim hatırlatıcı", group: "uyum", does: "Standart sözleşme imzalandıktan sonra 5 iş günü içinde Kurul bildirimi ve makbuz yüklenmesi için markaya hatırlatma gönderir.", when: "Her gün 07:00", output: "Marka kullanıcılarına bildirim.", required: true },
   { job: "ads-budget-batch", name: "Reklam bütçe uygulayıcı", group: "reklam", does: "Ötelenen bütçe değişikliklerini Meta limitlerine (saatte 4, aynı nesneye 30 sn) uyarak uygular.", when: "Saat başı", output: "Reklam sayfasındaki bütçe kuyruğu." },
   { job: "social-sync", name: "Sosyal hesap senkronu", group: "sistem", does: "Influencer takipçi, gönderi ve etkileşim verilerini resmî API'lerden günceller (12 saatten eski hesaplar).", when: "6 saatte bir", output: "Influencer profilinde 'Son senkron' bilgisi." },
+  { job: "daily-social-flow", name: "Günlük sıralı sosyal & ajan akışı", group: "sistem", does: "Sırayla: TikTok token yenileme → Instagram/TikTok/YouTube veri & büyüme senkronu → Reels/Story/Yorum/Bot/Uyum çoklu-ajan analizi → Sahte etkileşim ve öneri güncellemesi.", when: "Her gün 08:00", output: "Influencer AI & Gezgin raporları." },
   { job: "webhook-dedupe-ttl", name: "Webhook temizliği", group: "sistem", does: "7 günden eski webhook tekrar-engelleme kayıtlarını siler.", when: "Her gün 03:30", output: "—", required: true },
 ];
 

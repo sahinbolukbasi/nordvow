@@ -123,6 +123,7 @@ export type IngestedAccountData = {
   apiMessage: string;
   followers: number;
   prevFollowers: number | null;
+  followerGrowth?: { delta: number; deltaPct: number } | null;
   followsCount: number;
   mediaCount: number;
   erPct: number;
@@ -132,6 +133,14 @@ export type IngestedAccountData = {
   stories?: IngestedMediaItem[];
   comments: IngestedComment[];
   followerSample: FollowerSampleProfile[];
+  tiktok?: {
+    handle: string;
+    connected: boolean;
+    followers: number;
+    videosCount: number;
+    totalViews: number;
+    avgLikes: number;
+  } | null;
   durationMs: number;
 };
 
@@ -215,19 +224,26 @@ export async function getMultiAgentReport(influencerId: string): Promise<MultiAg
  */
 export async function ingestMetaAccountSnapshot(influencerId: string): Promise<IngestedAccountData | null> {
   const start = Date.now();
-  const inf = await prisma.influencer.findUnique({
-    where: { id: influencerId },
-    include: {
-      user: { select: { id: true, status: true } },
-      socialAccounts: {
-        orderBy: { followers: "desc" },
-        include: { snapshots: { orderBy: { takenAt: "desc" }, take: 2 } },
+  const [inf, ttAccount] = await Promise.all([
+    prisma.influencer.findUnique({
+      where: { id: influencerId },
+      include: {
+        user: { select: { id: true, status: true } },
+        socialAccounts: {
+          orderBy: { followers: "desc" },
+          include: { snapshots: { orderBy: { takenAt: "desc" }, take: 2 } },
+        },
       },
-    },
-  });
+    }),
+    prisma.tikTokAccount.findFirst({
+      where: { influencerId, status: "active" },
+      include: { videos: { orderBy: { createTime: "desc" }, take: 20 } },
+    }),
+  ]);
   if (!inf) return null;
 
   const igAcc = inf.socialAccounts.find((a) => a.platform === "INSTAGRAM") ?? inf.socialAccounts[0];
+  const ttSocial = inf.socialAccounts.find((a) => a.platform === "TIKTOK");
   const handle = cleanSocialHandle(igAcc?.handle ?? inf.name, "INSTAGRAM");
 
   const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
@@ -402,7 +418,12 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
           mediaCount = bd.media_count ?? mediaCount;
           pushMediaList(bd.media?.data ?? []);
         } else {
-          apiMessage = json.error?.message ?? `Meta Graph API yanıt vermedi (HTTP ${res.status}).`;
+          const subcode = (json.error as { error_subcode?: number } | undefined)?.error_subcode;
+          if (subcode === 2207013 || json.error?.code === 110) {
+            apiMessage = `@${handle} herkese açık Profesyonel (Business/Creator) hesabı değil veya kullanıcı adı bulunamadı (kişisel/gizli hesaplar için Instagram OAuth bağlantısı gerekir).`;
+          } else {
+            apiMessage = json.error?.message ?? `Meta Graph API yanıt vermedi (HTTP ${res.status}).`;
+          }
           apiErrorCode = classifyMetaError(res.status, apiMessage, json.error?.code);
         }
       } catch (e) {
@@ -460,6 +481,27 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     }
   }
 
+  const followerDelta = prevFollowers != null ? followers - prevFollowers : 0;
+  const followerGrowth =
+    prevFollowers != null && prevFollowers > 0
+      ? { delta: followerDelta, deltaPct: Number(((followerDelta / prevFollowers) * 100).toFixed(2)) }
+      : null;
+
+  const ttVideos = ttAccount?.videos ?? [];
+  const ttTotalViews = ttVideos.reduce((s, v) => s + v.viewCount, 0);
+  const ttAvgLikes = ttVideos.length ? Math.round(ttVideos.reduce((s, v) => s + v.likeCount, 0) / ttVideos.length) : (ttSocial?.avgLikes ?? 0);
+  const tiktok =
+    ttAccount || ttSocial
+      ? {
+          handle: ttAccount?.username || cleanSocialHandle(ttSocial?.handle ?? "", "TIKTOK") || handle,
+          connected: Boolean(ttAccount),
+          followers: ttAccount?.followerCount ?? ttSocial?.followers ?? 0,
+          videosCount: ttAccount?.videoCount ?? ttSocial?.postsCount ?? ttVideos.length,
+          totalViews: ttTotalViews,
+          avgLikes: ttAvgLikes,
+        }
+      : null;
+
   return {
     influencerId: inf.id,
     userId: inf.user?.id ?? null,
@@ -474,6 +516,7 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     apiMessage,
     followers,
     prevFollowers,
+    followerGrowth,
     followsCount,
     mediaCount,
     erPct,
@@ -483,6 +526,7 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
     stories,
     comments,
     followerSample: [],
+    tiktok,
     durationMs: Date.now() - start,
   };
 }
@@ -971,7 +1015,7 @@ export async function runOnboardingQuickScan(influencerId: string): Promise<Mult
 }
 
 /** Faz 2: Zamanlayıcı (Cron) için tüm aktif influencer'larda günlük Multi-Agent pipeline'ını çalıştırır. */
-export async function runMultiAgentSocialPipelineAll(limit = 50): Promise<{ processed: number; withData: number }> {
+export async function runMultiAgentSocialPipelineAll(limit = 200): Promise<{ processed: number; withData: number }> {
   const list = await prisma.influencer.findMany({
     where: { user: { status: "ACTIVE" } },
     take: limit,

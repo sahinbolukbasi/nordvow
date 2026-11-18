@@ -353,16 +353,19 @@ async function fetchMetaGraphMedia(
         profile_picture_url?: string;
         media?: { data?: MetaMediaRaw[] };
       };
-      error?: { message?: string };
+      error?: { message?: string; code?: number; error_subcode?: number };
     };
     if (!res.ok || !json.business_discovery) {
+      const isMissingBiz = json.error?.error_subcode === 2207013 || json.error?.code === 110;
       return {
         ok: false,
         usedOAuth: false,
         media: [],
         stories: [],
         durationMs: Date.now() - start,
-        detail: json.error?.message ?? `HTTP ${res.status} — Business Discovery yanıt vermedi.`,
+        detail: isMissingBiz
+          ? `@${clean} herkese açık Profesyonel (Business/Creator) hesabı değil veya kullanıcı adı bulunamadı (kişisel/gizli hesaplar için Instagram OAuth gerekir).`
+          : (json.error?.message ?? `HTTP ${res.status} — Business Discovery yanıt vermedi.`),
       };
     }
     const bd = json.business_discovery;

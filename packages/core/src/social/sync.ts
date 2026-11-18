@@ -71,8 +71,19 @@ export const mockSocial: SocialProvider = {
 
 async function getJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: { message?: string; code?: number } };
-  if (!res.ok || json.error) throw new SyncError(json.error?.message ?? `HTTP ${res.status}`, res.status === 404 ? "NOT_FOUND" : "API");
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+    error?: { message?: string; code?: number; error_subcode?: number; error_user_msg?: string };
+  };
+  if (!res.ok || json.error) {
+    if (json.error?.error_subcode === 2207013 || json.error?.code === 110) {
+      throw new SyncError(
+        json.error.error_user_msg ||
+          "Hesap herkese açık Profesyonel (Business/Creator) hesabı değil veya kullanıcı adı bulunamadı (kişisel/gizli hesaplar için Instagram OAuth gerekir).",
+        "NOT_BUSINESS",
+      );
+    }
+    throw new SyncError(json.error?.message ?? `HTTP ${res.status}`, res.status === 404 ? "NOT_FOUND" : "API");
+  }
   return json;
 }
 
