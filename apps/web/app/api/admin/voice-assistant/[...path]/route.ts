@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@infulancer/core/db";
 import { requireApiActor } from "@/lib/auth-guard";
 import { getVoiceRuntime } from "@/lib/voice-assistant/engine";
 import { PartialAssistantSettingsSchema } from "@/lib/voice-assistant/settings";
@@ -154,6 +155,27 @@ export async function PATCH(
   const updated = runtime.settingsStore.update(parsed.data);
   if (parsed.data.companyProfile) {
     runtime.syncCompanyKnowledge(updated);
+  }
+  if (brandId !== "default") {
+    const cleanNum = updated.telephony.virtualForwardingNumber.replace(/[^\d+]/g, "") || null;
+    await prisma.voiceAssistantConfig
+      .upsert({
+        where: { brandId },
+        create: {
+          brandId,
+          connectPhoneNumber: cleanNum,
+          assistantName: updated.businessName,
+          greetingText: updated.conversation.greetingMessage,
+          active: updated.enabled,
+        },
+        update: {
+          connectPhoneNumber: cleanNum,
+          assistantName: updated.businessName,
+          greetingText: updated.conversation.greetingMessage,
+          active: updated.enabled,
+        },
+      })
+      .catch(() => undefined);
   }
   return NextResponse.json(updated);
 }

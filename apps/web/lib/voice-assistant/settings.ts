@@ -64,12 +64,12 @@ export const AssistantSettingsSchema = z.object({
     .object({
       operator: OperatorSchema.default("vodafone"),
       personalMobileNumber: z.string().default("05348987073"),
-      virtualForwardingNumber: z.string().default(""),
+      virtualForwardingNumber: z.string().default("+442038631184"),
     })
     .default({
       operator: "vodafone",
       personalMobileNumber: "05348987073",
-      virtualForwardingNumber: "",
+      virtualForwardingNumber: "+442038631184",
     }),
   companyProfile: z
     .object({

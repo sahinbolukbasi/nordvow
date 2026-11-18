@@ -158,27 +158,51 @@ resource "aws_connect_contact_flow" "ai_assistant_flow" {
   instance_id = aws_connect_instance.voice[0].id
   name        = "Nordvow AI Sesli Asistan Akışı"
   type        = "CONTACT_FLOW"
-  description = "Nordvow gelen çağrı karşılama ve sesli asistan akışı."
+  description = "Nordvow gelen çağrı karşılama ve Türkçe Lex V2 AI sesli asistan akışı."
   content = jsonencode({
     Version     = "2019-10-30"
-    StartAction = "greeting"
+    StartAction = "set-voice"
     Metadata = {
       entryPointPosition = { x = 40, y = 40 }
       ActionMetadata = {
-        greeting   = { position = { x = 220, y = 40 } }
-        disconnect = { position = { x = 460, y = 40 } }
+        set-voice  = { position = { x = 180, y = 40 } }
+        lex-bot    = { position = { x = 420, y = 40 } }
+        disconnect = { position = { x = 680, y = 40 } }
       }
     }
     Actions = [
       {
-        Identifier = "greeting"
-        Type       = "MessageParticipant"
+        Identifier = "set-voice"
+        Type       = "UpdateContactTextToSpeechVoice"
         Parameters = {
-          Text = "Merhaba, Nordvow müşteri hizmetlerine hoş geldiniz."
+          TextToSpeechVoice  = "Burcu"
+          TextToSpeechEngine = "Neural"
+          TextToSpeechStyle  = "None"
+        }
+        Transitions = {
+          NextAction = "lex-bot"
+          Errors = [
+            { NextAction = "lex-bot", ErrorType = "NoMatchingError" }
+          ]
+        }
+      },
+      {
+        Identifier = "lex-bot"
+        Type       = "ConnectParticipantWithLexBot"
+        Parameters = {
+          Text = "Merhaba, Nordvow müşteri hizmetlerine hoş geldiniz. Size nasıl yardımcı olabilirim?"
+          LexV2Bot = {
+            AliasArn = "arn:aws:lex:${var.region}:${local.account_id}:bot-alias/PMSDD4F3RY/YN9QNN08SS"
+          }
+          LexSessionAttributes = {
+            calledPhone = "$.SystemEndpoint.Address"
+            callerPhone = "$.CustomerEndpoint.Address"
+          }
         }
         Transitions = {
           NextAction = "disconnect"
           Errors = [
+            { NextAction = "disconnect", ErrorType = "NoMatchingCondition" },
             { NextAction = "disconnect", ErrorType = "NoMatchingError" }
           ]
         }

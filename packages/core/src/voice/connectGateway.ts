@@ -7,10 +7,21 @@ import { businessHoursSchema, routingRuleSchema, type TranscriptTurn } from "./t
 
 export async function resolveBrandByConnectPhone(calledPhone: string) {
   const clean = calledPhone.replace(/[^\d+]/g, "");
-  const cfg =
-    (await prisma.voiceAssistantConfig.findFirst({ where: { connectPhoneNumber: clean, active: true } })) ??
+  let cfg =
+    (clean ? await prisma.voiceAssistantConfig.findFirst({ where: { connectPhoneNumber: clean, active: true } }) : null) ??
     (await prisma.voiceAssistantConfig.findFirst({ where: { active: true }, orderBy: { updatedAt: "desc" } }));
-  if (!cfg) return null;
+  if (!cfg) {
+    const firstBrand = await prisma.brand.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true, name: true } });
+    if (!firstBrand) return null;
+    cfg = await prisma.voiceAssistantConfig.create({
+      data: {
+        brandId: firstBrand.id,
+        connectPhoneNumber: clean || "+442038631184",
+        active: true,
+      },
+    });
+    return { config: cfg, brand: firstBrand };
+  }
   const brand = await prisma.brand.findUnique({ where: { id: cfg.brandId }, select: { id: true, name: true } });
   return brand ? { config: cfg, brand } : null;
 }
