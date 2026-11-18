@@ -11,6 +11,7 @@ import { contentTypeLabels, deliverableStatusLabels, platformLabels } from "@inf
 import { assertContentType } from "@infulancer/core/domain/platform-rules";
 import { buildUtmLink } from "@infulancer/core/domain/utm";
 import { publish } from "@infulancer/core/events";
+import { adminRecipients, dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, parseInput, revalidateAll, str, tags } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -227,11 +228,41 @@ export async function changeDeliverableStatus(_prev: ActionState, fd: FormData):
           href: `/influencer/isler/${input.id}`,
         });
       }
-      return r;
+      return { r, influencerId: access.assignment.influencerId, toLabel };
     });
-    if (result.published) await publish({ type: "DELIVERABLE_PUBLISHED", deliverableId: result.id });
+    if (result.r.published) await publish({ type: "DELIVERABLE_PUBLISHED", deliverableId: result.r.id });
+    try {
+      if (actor.role === "INFLUENCER") {
+        const [admins, sender] = await Promise.all([
+          adminRecipients(),
+          prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true, email: true } }),
+        ]);
+        if (admins.length) {
+          await dispatchNotification("DELIVERABLE_SUBMITTED", admins, {
+            ad: sender?.name || sender?.email || "Influencer",
+            durum: result.toLabel,
+            link: `/admin/teslimler/${input.id}`,
+          });
+        }
+      } else if (["BRIEF_GONDERILDI", "REVIZYON", "ONAYLANDI", "IPTAL"].includes(input.to)) {
+        const inf = await prisma.influencer.findUnique({
+          where: { id: result.influencerId },
+          select: { user: { select: { id: true } } },
+        });
+        if (inf?.user?.id) {
+          const recipients = await recipientsFromUserIds([inf.user.id]);
+          if (recipients.length) {
+            await dispatchNotification("DELIVERABLE_REVIEWED", recipients, {
+              durum: result.toLabel,
+              not: input.note ? `\n\nNot: ${input.note}` : "",
+              link: `/influencer/isler/${input.id}`,
+            });
+          }
+        }
+      }
+    } catch { /* e-posta/bildirim hatası teslim durumunu bozmasın */ }
     revalidateAll();
-    return { ok: true, message: `Durum: ${deliverableStatusLabels[result.status]}` };
+    return { ok: true, message: `Durum: ${deliverableStatusLabels[result.r.status]}` };
   });
 }
 

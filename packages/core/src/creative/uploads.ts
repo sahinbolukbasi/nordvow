@@ -22,17 +22,42 @@ export const MAX_VIDEO_SECONDS = 60;
 
 export type UploadKind = "image" | "video";
 
+const EXT_TO_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
+
+export function normalizeCreativeMime(raw: string, keyHint?: string): string {
+  const base = raw.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (base === "image/jpg") return "image/jpeg";
+  if (base === "video/x-m4v") return "video/mp4";
+  if (base && base !== "application/octet-stream") return base;
+  if (keyHint) {
+    const ext = keyHint.split(".").pop()?.toLowerCase() ?? "";
+    if (EXT_TO_MIME[ext]) return EXT_TO_MIME[ext];
+  }
+  return base;
+}
+
 export function kindOfMime(mime: string): UploadKind | null {
-  if (mime in IMAGE_MIMES) return "image";
-  if (mime in VIDEO_MIMES) return "video";
+  const norm = normalizeCreativeMime(mime);
+  if (norm in IMAGE_MIMES) return "image";
+  if (norm in VIDEO_MIMES) return "video";
   return null;
 }
 function extOf(mime: string): string {
-  return (IMAGE_MIMES as Record<string, string>)[mime] ?? (VIDEO_MIMES as Record<string, string>)[mime] ?? "bin";
+  const norm = normalizeCreativeMime(mime);
+  return (IMAGE_MIMES as Record<string, string>)[norm] ?? (VIDEO_MIMES as Record<string, string>)[norm] ?? "bin";
 }
 
 /** Tarayıcıdan doğrudan S3'e yükleme için imzalı PUT. Tür ve boyut sunucuda doğrulanır. */
-export async function presignCreativeUpload(tenantId: string, mime: string, size: number): Promise<{ key: string; url: string }> {
+export async function presignCreativeUpload(tenantId: string, rawMime: string, size: number): Promise<{ key: string; url: string }> {
+  const mime = normalizeCreativeMime(rawMime);
   const kind = kindOfMime(mime);
   if (!kind) throw new DomainError("DOGRULAMA", "Yalnız JPEG, PNG, WebP görsel veya MP4, MOV, WebM video yükleyebilirsiniz.");
   const max = kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES;
@@ -50,7 +75,7 @@ export async function confirmCreativeUpload(input: { tenantId: string; key: stri
   }
   const head = await headObject(input.key);
   if (!head || head.size === 0) throw new DomainError("DOGRULAMA", "Dosya yüklenmemiş görünüyor, tekrar deneyin.");
-  const mime = head.mime ?? "";
+  const mime = normalizeCreativeMime(head.mime ?? "", input.key);
   const kind = kindOfMime(mime);
   if (!kind) throw new DomainError("DOGRULAMA", "Desteklenmeyen dosya türü.");
   if (head.size > (kind === "image" ? MAX_IMAGE_BYTES : MAX_VIDEO_BYTES)) throw new DomainError("DOGRULAMA", "Dosya boyut sınırını aşıyor.");

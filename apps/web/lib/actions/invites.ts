@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { approveApplication, createInvite, registerWithInvite, rejectApplication, revokeInvite } from "@infulancer/core/access/invites";
 import { prisma } from "@infulancer/core/db";
 import { envStr } from "@infulancer/core/env";
-import { dispatchNotification } from "@infulancer/core/notify/dispatch";
+import { adminRecipients, dispatchNotification } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -19,11 +19,12 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
     if (password !== str(fd, "password2")) return { error: "Şifreler eşleşmiyor." };
     const kind = str(fd, "kind") === "BRAND" ? "BRAND" : "INFLUENCER";
     const categoryIds = fd.getAll("categoryIds").map(String);
+    const name = str(fd, "name");
     await registerWithInvite({
       code: str(fd, "code"),
       email,
       password,
-      name: str(fd, "name"),
+      name,
       phone: str(fd, "phone"),
       acceptTerms: bool(fd, "acceptTerms"),
       application:
@@ -39,6 +40,23 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
               about: optStr(fd, "about") ?? undefined,
             },
     });
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      await dispatchNotification("USER_REGISTERED", [
+        { email: normalizedEmail, vars: { ad: name, link: "/onay-bekliyor" } },
+      ]);
+      const admins = await adminRecipients();
+      if (admins.length) {
+        await dispatchNotification("ADMIN_NEW_APPLICATION", admins, {
+          ad: name,
+          rol: kind === "BRAND" ? "Marka" : "Influencer",
+          eposta: normalizedEmail,
+          link: "/admin/davetler",
+        });
+      }
+    } catch (e) {
+      console.error("[invites] register notification error:", e);
+    }
     return { ok: true };
   });
   if (!res.ok) return res;
@@ -115,7 +133,26 @@ export async function reviewApplicationAction(_p: ActionState, fd: FormData): Pr
       revalidateAll();
       return { ok: true, message: "Başvuru onaylandı; kullanıcıya hoş geldiniz e-postası gönderildi." };
     }
-    await rejectApplication(actor, id, str(fd, "note"));
+    const rejectNote = str(fd, "note");
+    await rejectApplication(actor, id, rejectNote);
+    try {
+      const appRow = await prisma.signupApplication.findUnique({
+        where: { id },
+        select: { user: { select: { id: true, email: true, name: true, locale: true } } },
+      });
+      if (appRow?.user) {
+        await dispatchNotification("USER_REJECTED", [
+          {
+            userId: appRow.user.id,
+            email: appRow.user.email,
+            locale: appRow.user.locale,
+            vars: { ad: appRow.user.name, neden: rejectNote ? `\n\nAçıklama: ${rejectNote}` : "" },
+          },
+        ]);
+      }
+    } catch (e) {
+      console.error("[invites] reject notification error:", e);
+    }
     revalidateAll();
     return { ok: true, message: "Başvuru reddedildi." };
   });
@@ -198,11 +235,21 @@ export async function submitInviteRequestAction(_p: ActionState, fd: FormData): 
     });
 
     try {
-      await notifyAdmins(prisma, {
-        title: "Yeni davet kodu başvurusu",
-        body: `${name} (${role === "BRAND" ? companyName || "Marka" : "Influencer"}) · ${email}`,
-        href: "/admin/davetler?bolum=talepler",
-      });
+      const admins = await adminRecipients();
+      if (admins.length) {
+        await dispatchNotification("ADMIN_NEW_APPLICATION", admins, {
+          ad: name,
+          rol: role === "BRAND" ? companyName || "Marka" : "Influencer",
+          eposta: email,
+          link: "/admin/davetler?bolum=talepler",
+        });
+      } else {
+        await notifyAdmins(prisma, {
+          title: "Yeni davet kodu başvurusu",
+          body: `${name} (${role === "BRAND" ? companyName || "Marka" : "Influencer"}) · ${email}`,
+          href: "/admin/davetler?bolum=talepler",
+        });
+      }
     } catch {
       /* bildirim hatası başvuruyu bozmasın */
     }

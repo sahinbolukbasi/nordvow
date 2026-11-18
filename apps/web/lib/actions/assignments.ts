@@ -12,6 +12,8 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import { assertInfluencerFitsCampaign } from "@infulancer/core/domain/campaign-region";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
 import { linkOrCreateShipmentForAssignment } from "@infulancer/core/shipping/service";
+import { formatKurus } from "@infulancer/core/domain/labels";
+import { dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, intOrNull, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -130,6 +132,22 @@ export async function createAssignment(_prev: ActionState, fd: FormData): Promis
       },
     );
     const assignmentId = await insertAssignment(actor, input);
+    try {
+      const [camp, inf] = await Promise.all([
+        prisma.campaign.findUnique({ where: { id: input.campaignId }, select: { name: true } }),
+        prisma.influencer.findUnique({ where: { id: input.influencerId }, select: { user: { select: { id: true } } } }),
+      ]);
+      if (inf?.user?.id) {
+        const recipients = await recipientsFromUserIds([inf.user.id]);
+        if (recipients.length) {
+          await dispatchNotification("CAMPAIGN_ASSIGNED", recipients, {
+            kampanya: camp?.name ?? "Kampanya",
+            tutar: formatKurus(input.feeKurus),
+            link: "/influencer/isler",
+          });
+        }
+      }
+    } catch { /* bildirim hatası atamayı bozmasın */ }
     revalidateAll();
     return { ok: true, message: "Influencer atandı; sözleşme teklifi gönderildi.", data: { assignmentId } };
   });

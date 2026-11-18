@@ -43,9 +43,18 @@ function runCmd(cmd: string, args: string[], timeoutMs = 180_000): Promise<{ cod
 }
 
 export async function probeVideoDuration(filePath: string): Promise<number | null> {
-  const r = await runCmd("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", filePath], 30_000);
-  const n = Number(r.out.trim());
-  return r.code === 0 && Number.isFinite(n) && n > 0 ? n : null;
+  const r = await runCmd("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=duration", "-of", "default=nw=1:nk=1", filePath], 30_000);
+  if (r.code !== 0) return null;
+  for (const line of r.out.split(/\r?\n/)) {
+    const n = Number(line.trim());
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+async function probeHasAudio(filePath: string): Promise<boolean> {
+  const r = await runCmd("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", filePath], 15_000);
+  return r.code === 0 && r.out.trim().length > 0;
 }
 
 function fmtSrtTime(sec: number): string {
@@ -431,6 +440,7 @@ export async function renderAiVideoEdit(input: {
       vFilters.push(`subtitles='${escaped}':force_style='FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=42'`);
     }
 
+    const hasAudio = await probeHasAudio(activeInput);
     const baseEditPath = path.join(dir, "edited-base.mp4");
     const baseArgs = [
       "-y",
@@ -446,7 +456,7 @@ export async function renderAiVideoEdit(input: {
       "-vf",
       vFilters.join(","),
     ];
-    if (input.plan.audioMix?.muteOriginal || input.voiceoverS3Key || input.musicS3Key) {
+    if (!hasAudio || input.plan.audioMix?.muteOriginal || input.voiceoverS3Key || input.musicS3Key) {
       baseArgs.push("-an");
     } else {
       if (input.plan.speed !== 1) baseArgs.push("-af", `atempo=${Math.min(2, Math.max(0.5, input.plan.speed))}`);

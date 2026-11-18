@@ -7,6 +7,7 @@ import { ensureStarterCredits, topUp } from "@infulancer/core/creative/credits";
 import { runOnboardingQuickScan } from "@infulancer/core/social/multi-agent-analytics";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
@@ -73,6 +74,9 @@ export async function createStaffUserAction(_p: ActionState, fd: FormData): Prom
     const passwordHash = await bcrypt.hash(input.password, 10);
     const user = await prisma.user.create({ data: { email: input.email, name: input.name, role: input.role, passwordHash } });
     await audit.append({ actor: toAuditActor(actor), action: "USER_CREATED", entityType: "User", entityId: user.id, data: { role: input.role, email: input.email } });
+    await dispatchNotification("STAFF_INVITED", [
+      { userId: user.id, email: user.email, vars: { ad: user.name, rol: input.role === "ADMIN" ? "Yönetici" : "Ajans", link: "/giris" } },
+    ]).catch(() => undefined);
     revalidateAll();
     return { ok: true, message: `${input.email} eklendi. Geçici şifreyi güvenli bir kanaldan paylaşın.` };
   });

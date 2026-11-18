@@ -73,6 +73,25 @@ export async function setOpenCallStatusAction(_p: ActionState, fd: FormData): Pr
     if (!tenantId) throw new DomainError("BULUNAMADI", "Çağrı bulunamadı.");
     await setOpenCallStatus(tenantId, id, to);
     await audit.append({ actor: toAuditActor(actor), action: "OPEN_CALL_STATUS", entityType: "CampaignOpenCall", entityId: id, data: { to } });
+    if (to === "ACIK") {
+      try {
+        const [call, brand, infUsers] = await Promise.all([
+          prisma.campaignOpenCall.findUnique({ where: { id }, select: { title: true } }),
+          prisma.brand.findUnique({ where: { id: tenantId }, select: { name: true } }),
+          prisma.user.findMany({ where: { role: "INFLUENCER", status: "ACTIVE" }, select: { id: true }, take: 200 }),
+        ]);
+        if (call && infUsers.length) {
+          const recipients = await recipientsFromUserIds(infUsers.map((u) => u.id));
+          if (recipients.length) {
+            await dispatchNotification("OPEN_CALL_PUBLISHED", recipients, {
+              marka: brand?.name ?? "Marka",
+              baslik: call.title,
+              link: "/influencer/firsatlar",
+            });
+          }
+        }
+      } catch { /* bildirim hatası çağrı yayınını bozmasın */ }
+    }
     revalidateAll();
     return { ok: true, message: "Durum güncellendi." };
   });

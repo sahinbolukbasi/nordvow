@@ -96,7 +96,12 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
 
       if (status === "SENT") sent++;
       else if (status === "MOCKED") mocked++;
-      else skipped++;
+      else {
+        skipped++;
+        if (status === "FAILED") {
+          console.error("[notify/dispatch] FAILED", { eventKey, channel, toAddress, error });
+        }
+      }
 
       await prisma.notificationLog.create({
         data: { eventKey, channel, userId: r.userId ?? null, toAddress, subject, body, status, error },
@@ -104,6 +109,21 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
     }
   }
   return { sent, mocked, skipped };
+}
+
+/** Aktif admin/ajans kullanıcılarını e-posta + panel bildirimi için alıcı listesi olarak döndürür. */
+export async function adminRecipients(): Promise<Recipient[]> {
+  const admins = await prisma.user.findMany({
+    where: { role: { in: ["ADMIN", "AGENCY"] }, status: "ACTIVE" },
+    select: { id: true, email: true, phone: true, name: true, locale: true },
+  });
+  return admins.map((u) => ({
+    userId: u.id,
+    email: u.email,
+    phone: u.phone,
+    locale: u.locale,
+    vars: { ad: u.name ?? "" },
+  }));
 }
 
 /** Kullanıcı id'lerinden alıcı listesi kurar (email/phone/instagram otomatik çeker). */

@@ -35,7 +35,7 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     key: "EVENT_CREATED",
     label: "Etkinlik oluşturuldu",
     vars: ["baslik", "tarih"],
-    defaultChannels: ["INAPP"],
+    defaultChannels: ["INAPP", "EMAIL"],
     templates: {
       INAPP: { subject: "Yeni etkinlik", body: "“{{baslik}}” etkinliği oluşturuldu ({{tarih}})." },
       EMAIL: { subject: "Yeni etkinlik: {{baslik}}", body: "Merhaba,\n\n“{{baslik}}” etkinliği {{tarih}} tarihinde planlandı." },
@@ -147,7 +147,7 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     key: "OPEN_CALL_PUBLISHED",
     label: "Yeni açık çağrı (başvuru)",
     vars: ["marka", "baslik", "link"],
-    defaultChannels: ["INAPP", "INSTAGRAM"],
+    defaultChannels: ["INAPP", "EMAIL", "INSTAGRAM"],
     templates: {
       INAPP: { subject: "Yeni açık çağrı", body: "{{marka}} “{{baslik}}” başvuru çağrısını açtı." },
       EMAIL: { subject: "Yeni fırsat: {{baslik}}", body: "{{marka}} “{{baslik}}” başvuru çağrısını açtı. Başvurun: {{link}}" },
@@ -215,6 +215,116 @@ export const NOTIF_EVENTS: NotifEvent[] = [
     templates: {
       INAPP: { subject: "Ürün teslim edildi", body: "Ürün {{influencer}}'na teslim edildi." },
       EMAIL: { subject: "Teslimat tamamlandı: {{influencer}}", body: "Merhaba,\n\n“{{kampanya}}” kampanyası kapsamında gönderilen ürün {{influencer}}'na teslim edildi.\n\nLojistik paneli: {{link}}" },
+    },
+  },
+  {
+    key: "USER_REGISTERED",
+    label: "Yeni üyelik başvurusu alındı",
+    vars: ["ad", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Kaydınız alındı", body: "Kaydınız başarıyla alındı ve incelemeye gönderildi." },
+      EMAIL: { subject: "Nordvow — Kaydınız Alındı", body: "Merhaba {{ad}},\n\nNordvow üyelik başvurunuz alınmıştır. Ekibimiz başvurunuzu inceledikten sonra hesabınız onaylanacak ve size tekrar bilgilendirme yapılacaktır.\n\nDurumunuzu takip edin: {{link}}" },
+    },
+  },
+  {
+    key: "USER_REJECTED",
+    label: "Üyelik başvurusu reddedildi",
+    vars: ["ad", "neden"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Başvuru sonucu", body: "Üyelik başvurunuz onaylanamadı." },
+      EMAIL: { subject: "Nordvow — Üyelik Başvurunuz Hakkında", body: "Merhaba {{ad}},\n\nNordvow üyelik başvurunuz şu aşamada onaylanamadı.{{neden}}" },
+    },
+  },
+  {
+    key: "ADMIN_NEW_APPLICATION",
+    label: "Yeni üyelik / davet başvurusu (admin)",
+    vars: ["ad", "rol", "eposta", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Yeni üyelik başvurusu", body: "{{ad}} ({{rol}}) · {{eposta}}" },
+      EMAIL: { subject: "Yeni Başvuru: {{ad}} ({{rol}})", body: "Merhaba,\n\n{{ad}} ({{rol}}) sisteme yeni üyelik/davet başvurusu gönderdi.\nE-posta: {{eposta}}\n\nİncelemek için: {{link}}" },
+    },
+  },
+  {
+    key: "STAFF_INVITED",
+    label: "Ekip üyesi eklendi",
+    vars: ["ad", "rol", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Ekibe hoş geldiniz", body: "Hesabınız {{rol}} yetkisiyle oluşturuldu." },
+      EMAIL: { subject: "Nordvow Ekibine Hoş Geldiniz", body: "Merhaba {{ad}},\n\nNordvow yönetim paneli hesabınız {{rol}} rolüyle oluşturuldu. Size iletilen geçici şifre ile giriş yapabilirsiniz.\n\nGiriş yapın: {{link}}" },
+    },
+  },
+  {
+    key: "CAMPAIGN_ASSIGNED",
+    label: "Kampanyaya influencer atandı",
+    vars: ["ad", "kampanya", "tutar", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Yeni kampanya ataması", body: "“{{kampanya}}” kampanyasına atandınız ({{tutar}})." },
+      EMAIL: { subject: "Yeni Kampanya Ataması: {{kampanya}}", body: "Merhaba {{ad}},\n\n“{{kampanya}}” kampanyasına atandınız. Ücret: {{tutar}}.\n\nDetaylar ve sözleşme: {{link}}" },
+    },
+  },
+  {
+    key: "DELIVERABLE_SUBMITTED",
+    label: "Teslimat güncellendi (influencer)",
+    vars: ["ad", "durum", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "İş durumu: {{durum}}", body: "{{ad}} teslimatı güncelledi ({{durum}})." },
+      EMAIL: { subject: "Teslimat Güncellendi: {{durum}}", body: "Merhaba,\n\n{{ad}} kampanya teslimatını “{{durum}}” durumuna güncelledi.\n\nİncelemek için: {{link}}" },
+    },
+  },
+  {
+    key: "DELIVERABLE_REVIEWED",
+    label: "Teslimat değerlendirildi (ajans/marka)",
+    vars: ["ad", "durum", "not", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "İş durumu: {{durum}}", body: "İşiniz “{{durum}}” durumuna geçti. {{not}}" },
+      EMAIL: { subject: "Teslimat Durumu: {{durum}}", body: "Merhaba {{ad}},\n\nTeslimatınız “{{durum}}” durumuna güncellendi.{{not}}\n\nDetay: {{link}}" },
+    },
+  },
+  {
+    key: "CREDIT_REQUEST_CREATED",
+    label: "Yeni Creative bakiye talebi",
+    vars: ["ad", "tutar", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Yeni bakiye talebi", body: "{{ad}} {{tutar}} bakiye talep etti." },
+      EMAIL: { subject: "Yeni Bakiye Talebi: {{tutar}}", body: "Merhaba,\n\n{{ad}} Creative Studio için {{tutar}} tutarında bakiye talebi oluşturdu.\n\nOnaylamak için: {{link}}" },
+    },
+  },
+  {
+    key: "CREDIT_REQUEST_REVIEWED",
+    label: "Creative bakiye talebi sonucu",
+    vars: ["ad", "tutar", "durum", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Bakiye talebi: {{durum}}", body: "{{tutar}} tutarındaki bakiye talebiniz {{durum}}." },
+      EMAIL: { subject: "Bakiye Talebiniz {{durum}}", body: "Merhaba {{ad}},\n\n{{tutar}} tutarındaki Creative Studio bakiye talebiniz {{durum}}.\n\nStüdyo: {{link}}" },
+    },
+  },
+  {
+    key: "SUPPORT_TICKET_CREATED",
+    label: "Yeni destek talebi",
+    vars: ["ad", "eposta", "konu", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Yeni destek talebi", body: "{{ad}} ({{eposta}}): {{konu}}" },
+      EMAIL: { subject: "Yeni Destek Talebi: {{konu}}", body: "Merhaba,\n\n{{ad}} ({{eposta}}) yeni bir destek talebi oluşturdu.\nKonu: {{konu}}\n\nYönetim paneli: {{link}}" },
+    },
+  },
+  {
+    key: "SUPPORT_TICKET_UPDATED",
+    label: "Destek talebi güncellendi",
+    vars: ["ad", "konu", "durum", "not", "link"],
+    defaultChannels: ["INAPP", "EMAIL"],
+    templates: {
+      INAPP: { subject: "Destek talebiniz: {{durum}}", body: "“{{konu}}” talebiniz güncellendi: {{durum}}" },
+      EMAIL: { subject: "Destek Talebiniz Güncellendi: {{konu}}", body: "Merhaba {{ad}},\n\n“{{konu}}” başlıklı destek talebinizin durumu “{{durum}}” olarak güncellendi.{{not}}\n\nPanel: {{link}}" },
     },
   },
 ];
