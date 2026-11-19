@@ -5,7 +5,7 @@ import { detectRegion } from "@infulancer/core/i18n/regions";
 import { roleHome } from "./lib/roles";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek", "/sifremi-unuttum", "/sifre-sifirla"]);
+const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek", "/sifremi-unuttum", "/sifre-sifirla", "/veri-silme-durumu"]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";
 
@@ -41,7 +41,7 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
   const { pathname, search } = req.nextUrl;
   const user = req.auth?.user;
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/") || pathname === "/api/voice/connect" || pathname === "/api/health" || pathname === "/sitemap.xml" || pathname === "/robots.txt") return NextResponse.next();
+  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/") || pathname.startsWith("/api/meta/") || pathname === "/api/voice/connect" || pathname === "/api/health" || pathname === "/sitemap.xml" || pathname === "/robots.txt") return NextResponse.next();
   // Herkese açık blog, bilet/kupon kartları ve görsel uçları.
   if (pathname === "/blog" || pathname.startsWith("/blog/") || pathname.startsWith("/api/blog/") || pathname.startsWith("/bilet/") || pathname.startsWith("/kupon/") || pathname.startsWith("/etkinlik/") || pathname.startsWith("/api/media/") || pathname.startsWith("/api/bilet/") || pathname.startsWith("/api/kupon/") || pathname.startsWith("/api/etkinlik/") || pathname.startsWith("/api/wallet/") || pathname.startsWith("/l/") || pathname.startsWith("/brand/") || pathname === "/opengraph-image" || pathname === "/icon.svg" || pathname === "/apple-icon") return NextResponse.next();
   if (pathname === LANDING && !user?.role) return NextResponse.next();
