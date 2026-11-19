@@ -4,6 +4,10 @@ import { cleanSocialHandle } from "./handle";
 import { envStr } from "../env";
 import type { Platform } from "../generated/prisma/enums";
 import { vault } from "../channels/vault";
+import {
+  fetchVerifiedInstagramViaSdk,
+  type VerifiedAudienceDemographics,
+} from "./meta-business-sdk";
 
 /**
  * Sosyal hesap senkronu — yalnız RESMÎ API'ler (scraping YOK; platform kurallarına aykırı).
@@ -26,7 +30,8 @@ export type ProfileStats = {
   profileUrl: string | null;
   avatarUrl: string | null;
   verified: boolean;
-  source: "instagram_business_discovery" | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock";
+  demographics?: VerifiedAudienceDemographics | null;
+  source: "instagram_business_discovery" | "instagram_oauth" | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock";
 };
 
 export class SyncError extends Error {
@@ -36,7 +41,7 @@ export class SyncError extends Error {
 }
 
 export interface SocialProvider {
-  fetch(platform: Platform, handle: string, ctx: { tokenRef: string | null }): Promise<ProfileStats>;
+  fetch(platform: Platform, handle: string, ctx: { tokenRef: string | null; externalId?: string | null }): Promise<ProfileStats>;
 }
 
 function cleanHandle(h: string, platform?: Platform) {
@@ -91,34 +96,46 @@ export const httpSocial: SocialProvider = {
   async fetch(platform, rawHandle, ctx) {
     const handle = cleanHandle(rawHandle, platform);
     if (platform === "INSTAGRAM") {
-      const igUser = envStr("IG_BUSINESS_ACCOUNT_ID", "") || envStr("INSTAGRAM_IG_USER_ID", "");
-      const token =
-        envStr("IG_GRAPH_TOKEN", "") ||
-        envStr("INSTAGRAM_ACCESS_TOKEN", "") ||
-        envStr("META_IG_TOKEN", "") ||
-        envStr("META_SYSTEM_USER_TOKEN", "");
-      if (!igUser || !token) throw new SyncError("Instagram senkronu yapılandırılmadı (INSTAGRAM_IG_USER_ID / INSTAGRAM_ACCESS_TOKEN).", "NOT_CONFIGURED");
-      const fields = `business_discovery.username(${encodeURIComponent(handle)}){id,followers_count,media_count,profile_picture_url,media.limit(12){like_count,comments_count}}`;
-      const j = (await getJson(`https://graph.facebook.com/v24.0/${igUser}?fields=${fields}&access_token=${encodeURIComponent(token)}`)) as {
-        business_discovery?: { id: string; followers_count: number; media_count: number; profile_picture_url?: string; media?: { data: { like_count?: number; comments_count?: number }[] } };
-      };
-      const bd = j.business_discovery;
-      if (!bd) throw new SyncError(`@${handle} bir Business/Creator hesabı değil veya bulunamadı.`, "NOT_BUSINESS");
-      const media = bd.media?.data ?? [];
-      const avgLikes = media.length ? Math.round(media.reduce((s, m) => s + (m.like_count ?? 0), 0) / media.length) : null;
-      const avgComments = media.length ? Math.round(media.reduce((s, m) => s + (m.comments_count ?? 0), 0) / media.length) : null;
+      const sdk = await fetchVerifiedInstagramViaSdk({
+        handle,
+        oauthTokenRef: ctx.tokenRef,
+        oauthExternalId: ctx.externalId,
+      });
+      if (!sdk.ok) {
+        const msg = sdk.errorMessage ?? "Instagram SDK senkronu başarısız.";
+        if (msg.includes("yapılandırılmadı")) throw new SyncError(msg, "NOT_CONFIGURED");
+        if (sdk.errorSubcode === 2207013 || sdk.errorCode === 110) {
+          throw new SyncError(`@${handle} bir Business/Creator hesabı değil veya bulunamadı.`, "NOT_BUSINESS");
+        }
+        throw new SyncError(msg, "API");
+      }
+      const media = sdk.media.slice(0, 12);
+      const avgLikes = media.length ? Math.round(media.reduce((s, m) => s + m.likes, 0) / media.length) : null;
+      const avgComments = media.length ? Math.round(media.reduce((s, m) => s + m.commentsCount, 0) / media.length) : null;
+      const viewList = media.map((m) => m.plays || m.reach).filter((v) => v > 0);
+      const avgViews = viewList.length
+        ? Math.round(viewList.reduce((s, v) => s + v, 0) / viewList.length)
+        : sdk.accountInsights?.reach && sdk.postsCount
+          ? Math.round(sdk.accountInsights.reach)
+          : null;
       return {
-        externalId: bd.id,
-        followers: bd.followers_count,
-        postsCount: bd.media_count,
+        externalId: sdk.externalId,
+        followers: sdk.followers,
+        postsCount: sdk.postsCount,
         avgLikes,
         avgComments,
-        avgViews: null,
-        engagementRate: bd.followers_count && avgLikes != null ? (avgLikes + (avgComments ?? 0)) / bd.followers_count : null,
-        profileUrl: `https://instagram.com/${handle}`,
-        avatarUrl: bd.profile_picture_url ?? null,
+        avgViews,
+        engagementRate:
+          sdk.followers && avgLikes != null
+            ? (avgLikes + (avgComments ?? 0)) / sdk.followers
+            : sdk.accountInsights?.accountsEngaged && sdk.followers
+              ? sdk.accountInsights.accountsEngaged / sdk.followers
+              : null,
+        profileUrl: `https://instagram.com/${sdk.username || handle}`,
+        avatarUrl: sdk.avatarUrl,
         verified: false,
-        source: "instagram_business_discovery",
+        demographics: sdk.demographics,
+        source: sdk.usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
       };
     }
     if (platform === "YOUTUBE") {
@@ -236,8 +253,9 @@ export async function syncSocialAccount(accountId: string, now = new Date()): Pr
     }
   }
   try {
-    const s = await socialProvider().fetch(acc.platform, acc.handle, { tokenRef: acc.tokenRef });
+    const s = await socialProvider().fetch(acc.platform, acc.handle, { tokenRef: acc.tokenRef, externalId: acc.externalId });
     const er = s.engagementRate ?? Number(acc.engagementRate);
+    const nextDemo = s.demographics ? (s.demographics as object) : (acc.demographics as object);
     await prisma.$transaction(async (tx) => {
       await tx.socialAccount.update({
         where: { id: acc.id },
@@ -252,14 +270,15 @@ export async function syncSocialAccount(accountId: string, now = new Date()): Pr
           profileUrl: s.profileUrl,
           avatarUrl: s.avatarUrl,
           verified: s.verified,
+          ...(s.demographics ? { demographics: s.demographics as object } : {}),
           syncSource: s.source,
           lastSyncedAt: now,
           syncError: null,
         },
       });
-      if (s.followers !== acc.followers || Math.abs(er - Number(acc.engagementRate)) > 0.0001) {
+      if (s.followers !== acc.followers || Math.abs(er - Number(acc.engagementRate)) > 0.0001 || s.demographics) {
         await tx.socialAccountSnapshot.create({
-          data: { socialAccountId: acc.id, followers: s.followers, engagementRate: Math.min(9.9999, Math.max(0, er)), demographics: acc.demographics as object, takenAt: now },
+          data: { socialAccountId: acc.id, followers: s.followers, engagementRate: Math.min(9.9999, Math.max(0, er)), demographics: nextDemo, takenAt: now },
         });
       }
     });
@@ -308,7 +327,8 @@ export async function syncStaleAccounts(limit = 50, now = new Date()) {
 
 export const syncSourceLabels: Record<string, string> = {
   manual: "Elle girildi",
-  instagram_business_discovery: "Instagram API",
+  instagram_business_discovery: "Meta Business SDK (Business Discovery)",
+  instagram_oauth: "Meta Business SDK (Doğrulanmış OAuth + Insights)",
   youtube_data: "YouTube API",
   tiktok_oauth: "TikTok (influencer bağlantısı)",
   tiktok_public: "TikTok (açık profil)",
