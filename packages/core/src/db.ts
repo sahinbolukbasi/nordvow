@@ -20,14 +20,11 @@ function createClient(): PrismaClient {
   return new PrismaClient({ adapter });
 }
 
-// Next.js dev'de hot reload sırasında bağlantı sızıntısını önlemek için globalThis önbelleği.
+// Tekil pg.Pool: hem dev hot-reload'da hem production standalone chunk'larında bağlantı sızıntısını önler.
 const globalForPrisma = globalThis as unknown as { __infulancerPrisma?: PrismaClient; __infulancerShutdownBound?: boolean };
 
 export const prisma: PrismaClient = globalForPrisma.__infulancerPrisma ?? createClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.__infulancerPrisma = prisma;
-}
+globalForPrisma.__infulancerPrisma = prisma;
 
 if (!globalForPrisma.__infulancerShutdownBound) {
   globalForPrisma.__infulancerShutdownBound = true;

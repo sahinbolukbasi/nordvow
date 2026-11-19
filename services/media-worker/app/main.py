@@ -1,3 +1,4 @@
+import hmac
 import logging
 from fastapi import FastAPI, HTTPException, Header, Depends
 from typing import Dict, Any
@@ -20,7 +21,10 @@ app = FastAPI(
 )
 
 async def verify_internal_secret(x_internal_secret: str = Header(...)):
-    if x_internal_secret != settings.INTERNAL_API_SECRET:
+    expected = settings.INTERNAL_API_SECRET.strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Dahili servis kimlik doğrulaması yapılandırılmamış.")
+    if not hmac.compare_digest(x_internal_secret, expected):
         raise HTTPException(status_code=403, detail="Geçersiz dahili servis yetkisi.")
 
 @app.get("/health")
@@ -65,5 +69,5 @@ async def dispatch_media_job(payload: MediaJobPayload):
         return result
     except Exception as e:
         logger.error(f"Medya üretiminde kritik hata [{payload.job_id}]: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Medya işleme sırasında beklenmeyen bir hata oluştu.")
 

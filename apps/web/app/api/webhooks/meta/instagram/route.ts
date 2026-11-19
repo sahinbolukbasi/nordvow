@@ -1,4 +1,5 @@
 import { receiveWebhook } from "@infulancer/core/channels/webhook";
+import { recordOperationalEvent } from "@infulancer/core/dm-automation/store";
 import { envStr } from "@infulancer/core/env";
 import {
   verifyMetaSignature,
@@ -30,6 +31,12 @@ export async function POST(req: Request) {
 
   if (requireSig && !verifyMetaSignature(rawBody, sig)) {
     console.warn(`[webhook:instagram] bad_signature (len=${rawBody.length})`);
+    await recordOperationalEvent({
+      level: "WARNING",
+      type: "webhook.instagram.bad_signature",
+      details: { hadSignatureHeader: Boolean(sig), bodyLength: rawBody.length },
+      bodyPreview: rawBody.slice(0, 200),
+    }).catch(() => undefined);
     return Response.json({ error: "Geçersiz webhook imzası." }, { status: 401 });
   }
 
@@ -45,3 +52,4 @@ export async function POST(req: Request) {
   await receiveWebhook("meta", rawBody, sig);
   return Response.json({ received: true }, { status: 200 });
 }
+

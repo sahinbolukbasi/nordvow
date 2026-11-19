@@ -28,6 +28,16 @@ resource "aws_ecs_cluster" "main" {
   name = local.name
 }
 
+resource "aws_ecs_cluster_capacity_providers" "main" {
+  cluster_name       = aws_ecs_cluster.main.name
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    weight            = 1
+  }
+}
+
 # --- IAM ---
 data "aws_iam_policy_document" "ecs_assume" {
   statement {
@@ -78,13 +88,16 @@ resource "aws_iam_role_policy" "task" {
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.assets.arn] },
       { Effect = "Allow", Action = ["sqs:SendMessage"], Resource = [aws_sqs_queue.agent_events.arn] },
       {
-        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar) + entegrasyon anahtarları
-        Effect = "Allow"
-        Action = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
-        Resource = [
-          "arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*",
-          aws_secretsmanager_secret.integrations.arn,
-        ]
+        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar)
+        Effect   = "Allow"
+        Action   = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
+        Resource = ["arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*"]
+      },
+      {
+        # Platform-geneli entegrasyon API anahtarları: uygulama yalnız okuyabilir (silme/değiştirme yok)
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+        Resource = [aws_secretsmanager_secret.integrations.arn]
       },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = ["*"] },
       {
@@ -113,7 +126,6 @@ locals {
     { name = "APP_URL", value = local.app_url },
     { name = "AUTH_URL", value = local.app_url },
     { name = "AUTH_TRUST_HOST", value = "true" },
-    { name = "AUTH_URL", value = local.app_url },
     { name = "EMAIL_PROVIDER", value = "ses" },
     { name = "SES_FROM_EMAIL", value = "info@${var.domain_name}" },
     { name = "SES_REGION", value = var.region },

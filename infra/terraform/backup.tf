@@ -4,6 +4,20 @@ resource "aws_backup_vault" "main" {
   name = "${local.name}-backup-vault"
 }
 
+# Değişmez (immutable) yedek kasası: 7 günlük inceleme süresi sonunda Compliance kilidi devreye girer.
+resource "aws_backup_vault_lock_configuration" "main" {
+  backup_vault_name   = aws_backup_vault.main.name
+  changeable_for_days = 7
+  min_retention_days  = 14
+  max_retention_days  = 120
+}
+
+resource "aws_backup_vault_notifications" "failed_jobs" {
+  backup_vault_name   = aws_backup_vault.main.name
+  sns_topic_arn       = aws_sns_topic.ops_alerts.arn
+  backup_vault_events = ["BACKUP_JOB_FAILED", "RESTORE_JOB_FAILED", "COPY_JOB_FAILED"]
+}
+
 data "aws_iam_policy_document" "backup_assume" {
   statement {
     actions = ["sts:AssumeRole"]

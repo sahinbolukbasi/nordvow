@@ -20,7 +20,6 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
   useEffect(() => {
     const el = ref.current;
     if (!el || !video.src) return;
-    el.load();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduced) return;
     const tryPlay = () => {
@@ -35,10 +34,9 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
           setPlaying(false);
         }
       },
-      { threshold: 0.25 },
+      { threshold: 0.25, rootMargin: "120px 0px" },
     );
     io.observe(el);
-    tryPlay();
     return () => io.disconnect();
   }, [userPaused, video.src]);
 
@@ -71,7 +69,7 @@ export function ReelCard({ video, className, delay = 0 }: { video: LandingVideo;
           muted
           loop
           playsInline
-          preload="metadata"
+          preload={video.poster ? "none" : "metadata"}
           onClick={toggle}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}

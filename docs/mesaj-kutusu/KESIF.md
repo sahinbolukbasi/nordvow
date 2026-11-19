@@ -55,3 +55,4 @@
 | **AI Yanıt Önerisi** | `packages/core/src/inbox/store.ts` (`generateInboxAiSuggestions`) → `converseStructured` | Yalnızca insan onaylı taslak üretir; PII (`[gizli]`) maskelenir; kendi başına mesaj göndermez |
 | **Gerçek Zamanlı Akış** | `apps/web/app/api/inbox/stream/route.ts` (SSE) + `EventSource` | 25 sn heartbeat, `Last-Event-ID` telafisi ve tenant/kanal izolasyonu |
 | **Panel Rotası & Menü** | `/dashboard/mesaj-kutusu` (`UnifiedInboxShell`) + `/marka/gelen-kutusu` bağlantısı | Hem Marka hem Creator (`INFLUENCER`) hem de Ajans/Admin için 3 sütunlu Türkçe "Mesaj Kutusu" |
+

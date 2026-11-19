@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
@@ -22,10 +23,32 @@ export interface VoiceAssistantApp {
   close: () => Promise<void>;
 }
 
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+
+function verifyApiKey(req: http.IncomingMessage): boolean {
+  const expected = process.env.VOICE_ASSISTANT_API_KEY?.trim();
+  if (!expected) {
+    // Production ortamında anahtar yoksa fail-closed; yerel/test ortamında serbest.
+    return process.env.NODE_ENV !== 'production';
+  }
+  const authHeader = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  const apiKeyHeader =
+    typeof req.headers['x-api-key'] === 'string' ? req.headers['x-api-key'].trim() : '';
+  const provided = authHeader || apiKeyHeader;
+  if (!provided || provided.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+}
+
 async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buf.length;
+    if (total > MAX_BODY_BYTES) {
+      throw new Error('İstek gövdesi izin verilen 1 MB sınırını aşıyor.');
+    }
+    chunks.push(buf);
   }
   const raw = Buffer.concat(chunks).toString('utf-8').trim();
   if (!raw) return {};
@@ -75,17 +98,23 @@ export function createVoiceAssistantApp(baseDir: string): VoiceAssistantApp {
         return res.end();
       }
 
-      if (method === 'GET' && pathname === '/admin') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(renderAdminHtml());
-      }
-
       if (method === 'GET' && pathname === '/health') {
         return sendJson(res, 200, {
           status: 'ok',
           service: 'voice-assistant',
           costProfile: settingsStore.get().costProfile,
         });
+      }
+
+      if (pathname === '/admin' || pathname.startsWith('/api/')) {
+        if (!verifyApiKey(req)) {
+          return sendJson(res, 401, { error: 'Yetkisiz erişim.' });
+        }
+      }
+
+      if (method === 'GET' && pathname === '/admin') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(renderAdminHtml());
       }
 
       // Ayarları görüntüle / güncelle (özellik açma-kapama ve maliyet profili)

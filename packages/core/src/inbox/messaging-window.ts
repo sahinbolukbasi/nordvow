@@ -111,3 +111,4 @@ export function formatRemainingWindow(remainingMinutes: number | null): string {
   const mins = remainingMinutes % 60;
   return hours > 0 ? `${hours} sa ${mins} dk` : `${mins} dk`;
 }
+

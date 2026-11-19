@@ -90,8 +90,12 @@ resource "aws_scheduler_schedule" "agent" {
 
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.app.arn
-      launch_type         = "FARGATE"
       task_count          = 1
+      # Zamanlanmış arka plan görevleri FARGATE_SPOT ile ~%70 daha düşük maliyetle çalışır.
+      capacity_provider_strategy {
+        capacity_provider = "FARGATE_SPOT"
+        weight            = 1
+      }
       network_configuration {
         subnets          = aws_subnet.public[*].id
         security_groups  = [aws_security_group.app.id]

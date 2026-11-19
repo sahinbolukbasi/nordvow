@@ -1,4 +1,5 @@
 import { envStr } from "../env";
+import { assertSafeOutboundUrl } from "../security/outbound-url";
 
 /**
  * Yayın bağlantısının canlı olup olmadığını kontrol eder.
@@ -8,6 +9,11 @@ import { envStr } from "../env";
 export async function isLinkAlive(url: string): Promise<boolean> {
   if (envStr("LINK_CHECK_MODE", "mock") !== "http") {
     return !url.toLocaleLowerCase("tr").includes("silindi");
+  }
+  try {
+    await assertSafeOutboundUrl(url);
+  } catch {
+    return false;
   }
   const attempt = async (method: "HEAD" | "GET") => {
     const res = await fetch(url, { method, redirect: "manual", signal: AbortSignal.timeout(10_000) });

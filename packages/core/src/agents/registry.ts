@@ -31,6 +31,12 @@ import {
   snapshotTikTokDailyStatsJob,
   syncStaleTikTokAccountsJob,
 } from "../tiktok/service";
+import {
+  attachNextReelJob,
+  reconcileAccountComments,
+  refreshIgTokensJob,
+  runDmRetentionJob,
+} from "../dm-automation/store";
 
 export type EventHandler<T extends AppEventType = AppEventType> = (
   event: Extract<AppEvent, { type: T }>,
@@ -116,6 +122,11 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "tiktok-sync", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { const r = await syncStaleTikTokAccountsJob(50); return { created: r.ok, skipped: r.checked - r.ok }; } },
   { name: "tiktok-daily-snapshot", schedule: "cron(0 2 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await snapshotTikTokDailyStatsJob(); return { created: r.accountSnapshots + r.videoSnapshots, skipped: 0 }; } },
   { name: "tiktok-publish-poll", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => { const r = await pollPendingTikTokPostsJob(30); return { created: r.updated, skipped: r.checked - r.updated }; } },
+  // DM Otomasyonu (Instagram Yorum → DM) zamanlanmış işleri
+  { name: "dm-reconcile", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => { const r = await reconcileAccountComments(); return { created: r.processed, skipped: Math.max(0, r.checked - r.processed) }; } },
+  { name: "dm-attach-next-reel", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => { const r = await attachNextReelJob(); return { created: r.attached, skipped: 0 }; } },
+  { name: "dm-token-refresh", schedule: "cron(0 3 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await refreshIgTokensJob(); return { created: r.refreshed, skipped: r.failed }; } },
+  { name: "dm-retention", schedule: "cron(30 4 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await runDmRetentionJob(); return { created: r.maskedLogs + r.purgedClicks + r.purgedOps, skipped: 0 }; } },
 ];
 
 export function findJob(name: string): ScheduledJob | undefined {

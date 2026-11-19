@@ -12,6 +12,22 @@ resource "aws_s3_bucket_public_access_block" "assets" {
 
 data "aws_iam_policy_document" "assets_cloudfront" {
   statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.assets.arn, "${aws_s3_bucket.assets.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  statement {
     sid       = "AllowCloudFrontReadMedia"
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.assets.arn}/media/*"]
@@ -82,6 +98,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "assets" {
     filter {}
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
+    }
+  }
+
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = 30
     }
   }
 }

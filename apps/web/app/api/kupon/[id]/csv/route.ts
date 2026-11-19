@@ -1,13 +1,14 @@
 import { prisma } from "@infulancer/core/db";
 import { buildCouponTemplateCsv } from "@infulancer/core/coupons/spreadsheet";
-import { getActor } from "@/lib/auth-guard";
+import { requireApiActor } from "@/lib/auth-guard";
 
 export const runtime = "nodejs";
 
 /** Bir kuponun gönderim listesini CSV olarak indirir (kime hangi kod, durum). ?template=1 ile örnek şablon döner. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const actor = await getActor();
-  if (!actor) return new Response("Yetkisiz", { status: 401 });
+  const guard = await requireApiActor("ADMIN", "AGENCY", "BRAND");
+  if (guard.response) return new Response("Yetkisiz", { status: guard.response.status });
+  const actor = guard.actor;
   const url = new URL(req.url);
   if (url.searchParams.get("template") === "1") {
     return new Response(buildCouponTemplateCsv(), {
@@ -28,7 +29,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const names = new Map(
     (await prisma.influencer.findMany({ where: { id: { in: grants.map((g) => g.influencerId).filter((x): x is string => !!x) } }, select: { id: true, name: true } })).map((i) => [i.id, i.name]),
   );
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const esc = (v: string) => {
+    const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
   const statusTr: Record<string, string> = { GONDERILDI: "Gönderildi", GORULDU: "Görüldü", KULLANILDI: "Kullanıldı", IPTAL: "İptal" };
   const header = ["Influencer", "Kupon Kodu", "Takip Kodu", "Durum", "Gönderim Tarihi", "Kullanım Tarihi"].map(esc).join(",");
   const rows = grants.map((g) =>

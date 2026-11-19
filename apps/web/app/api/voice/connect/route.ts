@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { envStr } from "@infulancer/core/env";
 import { handleConnectGatewayEvent } from "@infulancer/core/voice/connectGateway";
@@ -35,9 +36,19 @@ const connectEventSchema = z.object({
  * Kimlik doğrulama: `x-voice-connect-secret` başlığı (`VOICE_CONNECT_SECRET`).
  */
 export async function POST(req: Request) {
-  const expected = envStr("VOICE_CONNECT_SECRET", "");
-  if (expected && req.headers.get("x-voice-connect-secret") !== expected) {
-    return jsonError(401, "Yetkisiz Amazon Connect isteği.");
+  const expected = envStr("VOICE_CONNECT_SECRET", "").trim();
+  if (!expected) {
+    if (process.env.NODE_ENV === "production") {
+      return jsonError(503, "Servis kimlik doğrulaması yapılandırılmamış.");
+    }
+  } else {
+    const provided = req.headers.get("x-voice-connect-secret")?.trim() ?? "";
+    if (
+      provided.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+    ) {
+      return jsonError(401, "Yetkisiz Amazon Connect isteği.");
+    }
   }
 
   try {

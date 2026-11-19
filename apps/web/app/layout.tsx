@@ -9,8 +9,8 @@ import { I18nProvider } from "@/lib/i18n/client";
 import { MessagesProvider } from "@/lib/i18n/tt-client";
 import { messagesFor } from "@/lib/i18n/messages";
 
-const geistSans = Geist({ subsets: ["latin", "latin-ext"], variable: "--font-geist-sans" });
-const geistMono = Geist_Mono({ subsets: ["latin", "latin-ext"], variable: "--font-geist-mono" });
+const geistSans = Geist({ subsets: ["latin", "latin-ext"], variable: "--font-geist-sans", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin", "latin-ext"], variable: "--font-geist-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "https://nordvow.com"),

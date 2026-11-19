@@ -21,3 +21,4 @@
 - `META_TOKEN_ENC_KEY` (32 bayt base64; yoksa `AUTH_SECRET` üzerinden SHA-256 ile türetilir)
 - `OAUTH_STATE_SECRET`
 - `INBOX_BEDROCK_MODEL` (varsayılan mevcut `BEDROCK_TEXT_MODEL_ID` / `eu.anthropic.claude-haiku-4-5-20251001-v1:0`)
+

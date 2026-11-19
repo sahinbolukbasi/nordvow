@@ -1,13 +1,14 @@
 import { prisma } from "@infulancer/core/db";
 import { canBrandManageEvent } from "@infulancer/core/events/partners";
-import { getActor } from "@/lib/auth-guard";
+import { requireApiActor } from "@/lib/auth-guard";
 
 export const runtime = "nodejs";
 
 /** Etkinliğin tüm bilet ve katılımcı listesini CSV olarak indirir. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const actor = await getActor();
-  if (!actor) return new Response("Yetkisiz", { status: 401 });
+  const guard = await requireApiActor("ADMIN", "AGENCY", "BRAND");
+  if (guard.response) return new Response("Yetkisiz", { status: guard.response.status });
+  const actor = guard.actor;
 
   const { id } = await params;
   const event = await prisma.event.findUnique({
@@ -34,7 +35,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     : [];
   const infMap = new Map(infs.map((i) => [i.id, i]));
 
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const esc = (v: string) => {
+    const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
   const statusTr: Record<string, string> = { GECERLI: "Bekleniyor", KULLANILDI: "Geldi", IPTAL: "İptal" };
   const header = ["Katılımcı", "E-posta", "Bilet Kodu", "Durum", "Giriş Saati", "Oluşturulma"].map(esc).join(",");
   const rows = event.tickets.map((t) => {

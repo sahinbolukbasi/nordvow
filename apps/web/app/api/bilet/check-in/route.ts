@@ -3,16 +3,17 @@ import { prisma } from "@infulancer/core/db";
 import { canBrandManageEvent } from "@infulancer/core/events/partners";
 import { checkInTicket, issueQuickTicket, undoCheckInTicket } from "@infulancer/core/events/service";
 import { DomainError } from "@infulancer/core/domain/errors";
-import { getActor } from "@/lib/auth-guard";
+import { requireApiActor } from "@/lib/auth-guard";
 
 export const runtime = "nodejs";
 
 /** Mobil QR tarayıcı ve kapı giriş ekranı için anlık check-in / geri alma / hızlı bilet ekleme API'si. */
 export async function POST(req: Request) {
-  const actor = await getActor();
-  if (!actor || (actor.role !== "ADMIN" && actor.role !== "AGENCY" && actor.role !== "BRAND")) {
-    return NextResponse.json({ ok: false, error: "Yetkisiz erişim." }, { status: 401 });
+  const guard = await requireApiActor("ADMIN", "AGENCY", "BRAND");
+  if (guard.response) {
+    return NextResponse.json({ ok: false, error: "Yetkisiz erişim." }, { status: guard.response.status });
   }
+  const actor = guard.actor;
 
   try {
     const body = (await req.json()) as {

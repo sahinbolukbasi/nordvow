@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { unstable_cache } from "next/cache";
 import { BRAND_NAME } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
@@ -12,6 +13,32 @@ export const metadata: Metadata = {
   description: "Influencer kampanyalarını brief'ten ödemeye kadar tek panelden yönetin: doğru içerik üreticisi, ölçülebilir sonuç.",
 };
 export const dynamic = "force-dynamic";
+
+/** Tanıtım istatistikleri, içerik ve ziyaretçi duyuruları 60 sn önbelleklenir (her ziyarette 6 DB sorgusu yerine <20ms). */
+const getCachedLandingPayload = unstable_cache(
+  async () => {
+    const [influencers, f, campaigns, published, content, popupRow] = await Promise.all([
+      prisma.influencer.count().catch(() => 0),
+      prisma.socialAccount.aggregate({ _sum: { followers: true } }).catch(() => ({ _sum: { followers: 0 } })),
+      prisma.campaign.count({ where: { status: { not: "IPTAL" } } }).catch(() => 0),
+      prisma.deliverable.count({ where: { publishedAt: { not: null } } }).catch(() => 0),
+      getLandingContent(),
+      prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null),
+    ]);
+    const stats: LandingStats = {
+      influencers,
+      followers: f._sum.followers ?? 0,
+      campaigns,
+      published,
+    };
+    const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+    const visitorPopups = allPopups.filter((p) => p.audience === "visitors" || p.audience === "all");
+    return { stats, content, visitorPopups };
+  },
+  ["landing-page-payload-v1"],
+  { revalidate: 60, tags: ["landing-content", "system-popups"] },
+);
+
 /** Girişli kullanıcı rol ana sayfasına gider; ziyaretçi tanıtım sayfasını görür. */
 export default async function RootPage({
   searchParams,
@@ -30,20 +57,7 @@ export default async function RootPage({
     }
     redirect(roleHome[actor.role]);
   }
-  const stats: LandingStats = await Promise.all([
-    prisma.influencer.count(),
-    prisma.socialAccount.aggregate({ _sum: { followers: true } }),
-    prisma.campaign.count({ where: { status: { not: "IPTAL" } } }),
-    prisma.deliverable.count({ where: { publishedAt: { not: null } } }),
-  ])
-    .then(([influencers, f, campaigns, published]) => ({ influencers, followers: f._sum.followers ?? 0, campaigns, published }))
-    .catch(() => ({ influencers: 0, followers: 0, campaigns: 0, published: 0 }));
-  const [content, popupRow] = await Promise.all([
-    getLandingContent(),
-    prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null),
-  ]);
-  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
-  const visitorPopups = allPopups.filter((p) => p.audience === "visitors" || p.audience === "all");
+  const { stats, content, visitorPopups } = await getCachedLandingPayload();
   return (
     <>
       <LandingPage stats={stats} data={{ videos: toVideos(content), references: toReferences(content), creators: content.creators }} />

@@ -1,17 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { envStr } from "@infulancer/core/env";
 import { receiveWebhook } from "@infulancer/core/channels/webhook";
+import { recordOperationalEvent } from "@infulancer/core/dm-automation/store";
+import { verifyMetaSignature, verifyMetaTokenConstantTime } from "@infulancer/core/inbox/meta-security";
 import { handleUserWhatsAppInbound } from "@infulancer/core/messaging/user-whatsapp-ai";
-
-function verifyMetaSignature(raw: string, sigHeader: string | null): boolean {
-  const secret = envStr("META_APP_SECRET", "").trim();
-  if (!secret) return envStr("WEBHOOK_REQUIRE_SIGNATURE", "false") !== "true";
-  if (!sigHeader?.startsWith("sha256=")) return false;
-  const expected = "sha256=" + createHmac("sha256", secret).update(raw, "utf8").digest("hex");
-  const a = Buffer.from(sigHeader);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +14,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   const u = new URL(req.url);
-  const token = process.env.META_VERIFY_TOKEN;
-  if (token && u.searchParams.get("hub.mode") === "subscribe" && u.searchParams.get("hub.verify_token") === token) {
+  if (
+    u.searchParams.get("hub.mode") === "subscribe" &&
+    verifyMetaTokenConstantTime(u.searchParams.get("hub.verify_token"))
+  ) {
     return new Response(u.searchParams.get("hub.challenge") ?? "", { status: 200 });
   }
   return new Response("forbidden", { status: 403 });
@@ -33,8 +26,18 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const body = await req.text();
   const sig = req.headers.get("x-hub-signature-256");
-  if (!verifyMetaSignature(body, sig)) {
+  const requireSig =
+    process.env.NODE_ENV === "production"
+      ? true
+      : envStr("WEBHOOK_REQUIRE_SIGNATURE", "true") !== "false";
+  if (requireSig && !verifyMetaSignature(body, sig)) {
     console.warn(`[webhook:meta] bad_signature (hasHeader=${Boolean(sig)})`);
+    await recordOperationalEvent({
+      level: "WARNING",
+      type: "webhook.meta.bad_signature",
+      details: { hadSignatureHeader: Boolean(sig), bodyLength: body.length },
+      bodyPreview: body.slice(0, 200),
+    }).catch(() => undefined);
     return new Response(null, { status: 401 });
   }
   let handledByPersonalAi = false;

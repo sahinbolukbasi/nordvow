@@ -52,3 +52,4 @@
 4. Mesajın **Mesaj Kutusu** listesinde gerçek zamanlı (SSE) göründüğünü, 24 saatlik yeşil pencere sayacının (`Yanıt penceresi açık · 23 sa 59 dk kaldı`) aktif olduğunu gösterin.
 5. `✨ Yanıt öner` butonuna basıp gelen AI taslağını `"Kullan"` ile yazma kutusuna aktarın, metni düzenleyip **"Gönder"** butonuna basın.
 6. İkinci hesapta yanıtın ulaştığını gösterin; ardından konuşmayı **"Çözüldü olarak işaretle"** ile kapatın.
+

@@ -57,3 +57,4 @@ export function inboxErrorResponse(err: unknown): Response {
   console.error("[inbox-api]", err);
   return jsonError(500, "Mesaj Kutusu işlemi sırasında beklenmeyen bir hata oluştu.");
 }
+

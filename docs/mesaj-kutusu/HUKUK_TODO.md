@@ -23,3 +23,4 @@
    - **Meta Data Deletion & Deauthorize Callback:**
      - `POST /api/meta/data-deletion` (`signed_request` HMAC-SHA256 doğrulamalı) silme talebini kayda alır ve Türkçe durum takip adresi (`https://nordvow.com/veri-silme-durumu?kod=...`) ile `confirmation_code` döndürür.
      - `POST /api/meta/deauthorize` ilgili kanal bağlantısını `REVOKED` / `DISCONNECTED` durumuna çeker ve erişim token'ını kasadan siler.
+

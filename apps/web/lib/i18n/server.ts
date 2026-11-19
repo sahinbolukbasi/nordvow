@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { prisma } from "@infulancer/core/db";
 import { DEFAULT_REGION, detectRegion, isLocale, isRegion, regionOf, type Locale, type Region } from "@infulancer/core/i18n/regions";
 import { auth } from "@/auth";
+import { getUserStatus } from "@/lib/auth-guard";
 import { translate } from "./dict";
 
 export const LOCALE_COOKIE = "nv_locale";
@@ -26,12 +27,13 @@ export const getPreferences = cache(async (): Promise<{ locale: Locale; region: 
   const session = await auth().catch(() => null);
   const userId = session?.user?.id;
   if (userId) {
-    const u = await prisma.user.findUnique({ where: { id: userId }, select: { locale: true, country: true } });
+    // getUserStatus React.cache ile memoize edilir: aynı istekte auth-guard ile tek DB sorgusunu paylaşır.
+    const u = await getUserStatus(userId);
     if (u?.locale) locale = u.locale;
     if (u?.country) country = u.country;
-    // İlk girişte algılanan tercih hesaba yazılır (sonra kullanıcı değiştirebilir).
+    // İlk girişte algılanan tercih hesaba yazılır (arka planda, sayfa açılışını bekletmeden).
     if (u && (!u.locale || !u.country) && (isLocale(locale) || isRegion(country))) {
-      await prisma.user.update({ where: { id: userId }, data: { locale: u.locale ?? (isLocale(locale) ? locale : null), country: u.country ?? (isRegion(country) ? country!.toUpperCase() : null) } }).catch(() => undefined);
+      void prisma.user.update({ where: { id: userId }, data: { locale: u.locale ?? (isLocale(locale) ? locale : null), country: u.country ?? (isRegion(country) ? country!.toUpperCase() : null) } }).catch(() => undefined);
     }
   }
   const region = isRegion(country) ? regionOf(country) : DEFAULT_REGION;

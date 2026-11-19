@@ -6,5 +6,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
   const { key } = await params;
   if (!/^[a-f0-9-]+\.(jpg|png|webp|mp4|webm|mov)$/.test(key)) return new Response("Bulunamadı", { status: 404 });
   const url = await presignMediaGet(`media/${key}`);
-  return Response.redirect(url, 307);
+  return new Response(null, {
+    status: 307,
+    headers: {
+      Location: url,
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+    },
+  });
 }

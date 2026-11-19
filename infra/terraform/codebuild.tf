@@ -13,6 +13,15 @@ resource "aws_s3_bucket_public_access_block" "build" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "build" {
+  bucket = aws_s3_bucket.build.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "build" {
   bucket = aws_s3_bucket.build.id
   rule {
@@ -72,7 +81,7 @@ resource "aws_codebuild_project" "image" {
 
   environment {
     type            = "ARM_CONTAINER"
-    compute_type    = "BUILD_GENERAL1_LARGE"
+    compute_type    = "BUILD_GENERAL1_MEDIUM"
     image           = "aws/codebuild/amazonlinux-aarch64-standard:3.0"
     privileged_mode = true
 

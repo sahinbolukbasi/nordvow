@@ -6,7 +6,7 @@ import { SHIPPING_PROVIDERS } from "@infulancer/core/shipping/types";
 
 function verifyOptionalSecret(req: Request): boolean {
   const expected = envStr("SHIPPING_WEBHOOK_SECRET", "").trim();
-  if (!expected) return true;
+  if (!expected) return process.env.NODE_ENV !== "production";
   const provided =
     req.headers.get("x-webhook-secret")?.trim() ||
     req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ||

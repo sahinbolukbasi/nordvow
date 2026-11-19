@@ -27,11 +27,24 @@ export const getActor = cache(async (): Promise<Actor | null> => {
 
 export const getSessionUser = cache(async () => (await auth())?.user ?? null);
 
-/** Üyelik durumu her istekte veritabanından okunur (JWT'deki durum onaydan sonra eskiyebilir). */
+/** Üyelik durumu, güncel rol ve dil/ülke tercihi istek başına TEK sorguda okunur (React.cache). */
 export const getUserStatus = cache(async (userId: string) => {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { status: true, brandId: true, influencerId: true } });
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true, role: true, brandId: true, influencerId: true, locale: true, country: true },
+  });
   return u;
 });
+
+function resolveActorFromDb(sessionActor: Actor, st: { role: Role; brandId: string | null; influencerId: string | null }): Actor {
+  return {
+    ...sessionActor,
+    role: st.role === "AGENCY" ? "ADMIN" : st.role,
+    staffRole: st.role === "AGENCY" ? "AGENCY" : undefined,
+    brandId: st.brandId,
+    influencerId: st.influencerId,
+  };
+}
 
 /**
  * Server Component ve Server Action'lar için: oturum yoksa /giris'e,
@@ -43,8 +56,8 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
   const st = await getUserStatus(sessionActor.userId);
   if (!st) redirect("/api/auth/clear-session?hata=oturum");
   if (st.status !== "ACTIVE") redirect("/onay-bekliyor");
-  // Onay sonrası profil bağları JWT'de olmayabilir; veritabanındaki değerler esas alınır.
-  const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
+  // Onay sonrası profil bağları veya rol değişikliği JWT'de eskiyebilir; veritabanındaki değerler esas alınır.
+  const actor: Actor = resolveActorFromDb(sessionActor, st);
   if (roles.length > 0 && !roles.includes(actor.role)) {
     if (actor.staffRole === "AGENCY") {
       const pathname = (await headers()).get("x-pathname");
@@ -101,7 +114,7 @@ export async function requireApiActor(
   if (!st || st.status !== "ACTIVE") {
     return { response: Response.json({ error: "Üyeliğiniz onay bekliyor." }, { status: 403 }) };
   }
-  const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
+  const actor: Actor = resolveActorFromDb(sessionActor, st);
   if (roles.length > 0 && !roles.includes(actor.role)) {
     return { response: Response.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 }) };
   }

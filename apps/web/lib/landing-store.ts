@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@infulancer/core/db";
 import { LANDING_CREATORS, LANDING_REFERENCES, LANDING_VIDEOS, type LandingReference, type LandingVideo } from "@/lib/landing-content";
@@ -115,9 +116,11 @@ export async function saveLandingContent(content: LandingContent): Promise<void>
     create: { key: KEY, value: content, note: "Tanıtım sayfası içeriği (admin)", verified: true },
     update: { value: content, verified: true },
   });
+  try { revalidateTag("landing-content", "max"); } catch { /* test/script ortamında yoksay */ }
 }
 export async function resetLandingContent(): Promise<void> {
   await prisma.configValue.deleteMany({ where: { key: KEY } });
+  try { revalidateTag("landing-content", "max"); } catch { /* test/script ortamında yoksay */ }
 }
 
 /** Bileşenlerin beklediği tiplere dönüştürür. */

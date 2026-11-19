@@ -57,6 +57,8 @@ function appendJsonRecord<T>(filePath: string, record: T): void {
   fs.writeFileSync(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
 
+import { assertSafeOutboundUrl } from "@infulancer/core/security/outbound-url";
+
 async function sendStaffWebhook(
   webhookUrl: string,
   event: string,
@@ -64,8 +66,10 @@ async function sendStaffWebhook(
 ): Promise<boolean> {
   if (!webhookUrl) return false;
   try {
+    await assertSafeOutboundUrl(webhookUrl);
     const res = await fetch(webhookUrl, {
       method: "POST",
+      redirect: "error",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         event,

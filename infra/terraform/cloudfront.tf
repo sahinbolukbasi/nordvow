@@ -39,6 +39,30 @@ resource "aws_cloudfront_origin_access_control" "assets" {
   signing_protocol                  = "sigv4"
 }
 
+resource "aws_cloudfront_response_headers_policy" "security" {
+  name    = "${local.name}-security-headers"
+  comment = "HSTS, nosniff, DENY frame ve Referrer-Policy kenar güvenlik başlıkları"
+
+  security_headers_config {
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      override                   = false
+    }
+    content_type_options {
+      override = false
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = false
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = false
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "app" {
   enabled         = true
   comment         = local.name
@@ -73,8 +97,9 @@ resource "aws_cloudfront_distribution" "app" {
     allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
     compress                 = true
-    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.all_viewer_country.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer_country.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   # Next.js derleme çıktısı (içerik hash'li, değişmez).

@@ -17,6 +17,7 @@ import { fetchIgSenderProfile, showTyping } from "./meta-client";
 import { vault } from "./vault";
 import { firstSeen, rawBodies } from "./webhook";
 import { applyInboundOptOutIfMatched, publishInboxEvent } from "../inbox/store";
+import { processInstagramWebhookForDmAutomation } from "../dm-automation/store";
 
 /**
  * Webhook işlemcisi: external_ids → tenant_id çözümleme, dedupe, olay türüne göre dağıtım.
@@ -87,6 +88,17 @@ async function dispatch(p: Any): Promise<string | null> {
   }
   if (p.object === "instagram" || p.object === "page") {
     const provider: ChannelProvider = p.object === "instagram" ? "INSTAGRAM" : "MESSENGER";
+    const dmOutcome =
+      provider === "INSTAGRAM"
+        ? await processInstagramWebhookForDmAutomation(p).catch(() => ({
+            commentsHandled: 0,
+            messagesHandled: 0,
+            postbacksHandled: 0,
+            optOutsCaptured: 0,
+            handledMessageIds: [] as string[],
+          }))
+        : { commentsHandled: 0, messagesHandled: 0, postbacksHandled: 0, optOutsCaptured: 0, handledMessageIds: [] as string[] };
+    const dmHandledMids = new Set(dmOutcome.handledMessageIds);
     const hasGlobalIgToken = Boolean(envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", ""));
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
@@ -106,10 +118,10 @@ async function dispatch(p: Any): Promise<string | null> {
         console.warn(`[processor] ${provider} tenant bulunamadı (entry.id=${entry.id})`);
         continue;
       }
-      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m);
+      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m, dmHandledMids);
       for (const change of entry.changes ?? []) {
         if (change.field === "messages" && change.value) {
-          await handleMetaMessaging(t, provider, change.value);
+          await handleMetaMessaging(t, provider, change.value, dmHandledMids);
         } else if (provider === "INSTAGRAM" && (change.field === "comments" || change.field === "mentions") && change.value) {
           await handleInstagramEngagementEvent(t, String(change.field), change.value).catch(() => undefined);
         }
@@ -200,7 +212,12 @@ async function handleInstagramEngagementEvent(tenantId: string, field: string, v
   }).catch(() => undefined);
 }
 
-async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, m: Any) {
+async function handleMetaMessaging(
+  tenantId: string,
+  provider: ChannelProvider,
+  m: Any,
+  dmHandledMids?: Set<string>,
+) {
   const msg = m.message ?? {};
   if (msg.is_deleted || m.message_deletes) {
     const mid = msg.mid ?? m.message_deletes?.mid;
@@ -222,6 +239,7 @@ async function handleMetaMessaging(tenantId: string, provider: ChannelProvider, 
     at: new Date(Number(m.timestamp ?? Date.now())),
     fromAd: !!m.referral?.ad_id || m.referral?.source === "ADS",
     mediaUrl: msg.attachments?.[0]?.payload?.url ?? null,
+    skipAutoReply: Boolean(dmHandledMids?.has(mid)),
   });
 }
 
@@ -234,6 +252,7 @@ export type InboundInput = {
   at: Date;
   fromAd: boolean;
   mediaUrl?: string | null;
+  skipAutoReply?: boolean;
 };
 
 export async function handleInbound(tenantId: string, channel: ChannelProvider, input: InboundInput) {
@@ -300,7 +319,7 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     }
     return { conversationId: conv.id, optOut: true };
   }
-  if (input.text) {
+  if (input.text && !input.skipAutoReply) {
     if (channel === "WHATSAPP" && waToken && waPhoneId) {
       void showTyping({ channel: "WHATSAPP", token: waToken, phoneNumberId: waPhoneId, inboundMessageId: input.externalMessageId });
     } else if (channel === "INSTAGRAM" && igToken && igUserId) {

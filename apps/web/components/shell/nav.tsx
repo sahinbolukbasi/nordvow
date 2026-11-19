@@ -41,6 +41,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kullanicilar", label: "Kullanıcılar", icon: UsersIcon, section: "Taraflar ve İletişim", order: 120 },
     { href: "/admin/davetler", label: "Davetler", icon: UserIcon, section: "Taraflar ve İletişim", order: 130 },
     { href: "/dashboard/mesaj-kutusu", label: "Mesaj Kutusu", icon: BellIcon, section: "Taraflar ve İletişim", order: 138 },
+    { href: "/dashboard/dm-otomasyonu", label: "DM Otomasyonu", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 139 },
     { href: "/admin/kanallar", label: "Mesajlar ve asistan", icon: LinkIcon, section: "Taraflar ve İletişim", order: 140 },
     { href: "/admin/whatsapp-ai", label: "WhatsApp AI Takip", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 145 },
     { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Taraflar ve İletişim", order: 150 },
@@ -84,6 +85,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 130 },
 
     { href: "/dashboard/mesaj-kutusu", label: "Mesaj Kutusu", icon: BellIcon, section: "İletişim", order: 195 },
+    { href: "/dashboard/dm-otomasyonu", label: "DM Otomasyonu", icon: SparkleIcon, section: "İletişim", order: 197 },
     { href: "/marka/gelen-kutusu", label: "Gelen kutusu", icon: BellIcon, section: "İletişim", order: 200 },
     { href: "/marka/kanallar", label: "Kanallar ve asistan", icon: LinkIcon, section: "İletişim", order: 210 },
 
@@ -100,6 +102,7 @@ export const navByRole: Record<Role, NavItem[]> = {
 
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Üretim ve Kazanç", order: 100 },
     { href: "/dashboard/mesaj-kutusu", label: "Mesaj Kutusu", icon: BellIcon, section: "Üretim ve Kazanç", order: 105 },
+    { href: "/dashboard/dm-otomasyonu", label: "DM Otomasyonu", icon: SparkleIcon, section: "Üretim ve Kazanç", order: 107 },
     { href: "/influencer/odemeler", label: "Ödemeler", icon: WalletIcon, section: "Üretim ve Kazanç", order: 110 },
 
     { href: "/profil", label: "Profilim", icon: UserIcon, section: "Hesap ve Rehber", order: 200 },
