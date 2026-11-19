@@ -1,6 +1,7 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
 import { startTransition, useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addVoiceoverToVideoAction,
@@ -362,15 +363,23 @@ function ChatMediaCard({
         </button>
 
         {kind !== "audio" ? (
-          <form action={openAssetInStudioAction}>
-            <input type="hidden" name="assetId" value={assetId} />
-            <button
-              type="submit"
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
+          <>
+            <Link
+              href={`/creative?sekme=editor&asset=${encodeURIComponent(effectiveRefId || assetId)}`}
+              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Düzenleyici")}
-            </button>
-          </form>
+              {tt("Editörde Aç")}
+            </Link>
+            <form action={openAssetInStudioAction}>
+              <input type="hidden" name="assetId" value={assetId} />
+              <button
+                type="submit"
+                className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
+              >
+                {tt("Düzenleyici")}
+              </button>
+            </form>
+          </>
         ) : null}
 
         <a

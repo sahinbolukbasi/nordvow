@@ -23,6 +23,12 @@ import { resolveFalKey } from "@infulancer/core/creative/fal";
 import { getConfig } from "@infulancer/core/config/store";
 import { withUnverified } from "@infulancer/core/unverified";
 import { CreativeComposer, type ChatHistoryItem, type ComposerModel } from "@/components/creative/creative-composer";
+import {
+  TimelineVideoEditor,
+  type EditorCampaignOption,
+  type EditorMediaAsset,
+  type EditorModelOption,
+} from "@/components/creative/timeline-video-editor";
 import { KindIcon } from "@/components/creative/kind-icon";
 import { ActionForm } from "@/components/forms/action-form";
 import { TopUpForm } from "@/components/forms/operations-forms";
@@ -39,7 +45,7 @@ export const dynamic = "force-dynamic";
 
 const usd = new Intl.NumberFormat("tr-TR", { style: "currency", currency: "USD", maximumFractionDigits: 4 });
 
-type Tab = "uret" | "galeri" | "yonetim";
+type Tab = "uret" | "editor" | "galeri" | "yonetim";
 type SP = {
   sekme?: string;
   tur?: string;
@@ -197,9 +203,10 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
     loadCreativeChatHistory(own),
   ]);
 
+  const editorEnabled = process.env.CREATIVE_STUDIO_EDITOR_ENABLED !== "false";
   const rawTab = sp.sekme === "kitaplik" ? "galeri" : sp.sekme;
   const tab: Tab =
-    rawTab === "galeri" || (rawTab === "yonetim" && isAdmin)
+    (rawTab === "editor" && editorEnabled) || rawTab === "galeri" || (rawTab === "yonetim" && isAdmin)
       ? (rawTab as Tab)
       : "uret";
 
@@ -209,9 +216,80 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
   const tabs = [
     { id: "uret", label: "Nordvow Creative AI", href: "/creative" },
+    ...(editorEnabled ? [{ id: "editor", label: "Video Editörü", href: "/creative?sekme=editor" }] : []),
     { id: "galeri", label: "Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
     ...(isAdmin ? [{ id: "yonetim", label: "Yönetim", href: "/creative?sekme=yonetim" }] : []),
   ];
+
+  // Video Editör sekmesinde aktif kampanya & teslimat listesi
+  let editorCampaigns: EditorCampaignOption[] = [];
+  if (tab === "editor") {
+    if (isAdmin) {
+      const camps = await prisma.campaign.findMany({
+        where: { status: { in: ["AKTIF", "TASLAK"] } },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: {
+          id: true,
+          name: true,
+          brand: { select: { name: true } },
+          assignments: {
+            select: {
+              deliverables: { select: { id: true, platform: true, contentType: true } },
+            },
+          },
+        },
+      });
+      editorCampaigns = camps.map((c) => ({
+        id: c.id,
+        name: c.name,
+        brandName: c.brand.name,
+        deliverables: c.assignments.flatMap((a) =>
+          a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
+        ),
+      }));
+    } else if (actor.role === "BRAND" && actor.brandId) {
+      const camps = await prisma.campaign.findMany({
+        where: { brandId: actor.brandId },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: {
+          id: true,
+          name: true,
+          brand: { select: { name: true } },
+          assignments: {
+            select: {
+              deliverables: { select: { id: true, platform: true, contentType: true } },
+            },
+          },
+        },
+      });
+      editorCampaigns = camps.map((c) => ({
+        id: c.id,
+        name: c.name,
+        brandName: c.brand.name,
+        deliverables: c.assignments.flatMap((a) =>
+          a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
+        ),
+      }));
+    } else if (actor.role === "INFLUENCER" && actor.influencerId) {
+      const assigns = await prisma.assignment.findMany({
+        where: { influencerId: actor.influencerId, contractStatus: { not: "RED" } },
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        select: {
+          campaign: { select: { id: true, name: true, brand: { select: { name: true } } } },
+          deliverables: { select: { id: true, platform: true, contentType: true } },
+        },
+      });
+      editorCampaigns = assigns.map((a) => ({
+        id: a.campaign.id,
+        name: a.campaign.name,
+        brandName: a.campaign.brand.name,
+        deliverables: a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
+      }));
+    }
+  }
 
   const initialKind: CreativeKind | undefined =
     sp.tur === "video" || sp.tur === "image" || sp.tur === "audio" ? sp.tur : undefined;
@@ -310,7 +388,46 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         />
       ) : null}
 
-      {/* 2. Sekme: Birleşik Kitaplık (Üretilen & Yüklenen Tüm Videolar ve Fotoğraflar) */}
+      {/* 2. Sekme: Tarayıcı Tabanlı Video Editörü */}
+      {tab === "editor" && editorEnabled ? (
+        <TimelineVideoEditor
+          mediaAssets={(() => {
+            const seen = new Set(library.map((u) => u.s3Key));
+            const items: EditorMediaAsset[] = library.map((u) => ({
+              id: u.id,
+              kind: u.kind === "video" ? "video" : u.kind === "audio" ? "audio" : "image",
+              name: u.name ?? `${u.kind.toUpperCase()} · ${u.id.slice(-6)}`,
+              durationSec: u.durationSec ?? null,
+              source: u.source,
+            }));
+            for (const a of assets) {
+              if (seen.has(a.s3Key)) continue;
+              seen.add(a.s3Key);
+              const k = kindOf.get(a.modelKey);
+              items.push({
+                id: a.id,
+                kind: k === "video" ? "video" : k === "audio" ? "audio" : "image",
+                name: (a.jobId ? jobPrompt.get(a.jobId) : undefined)?.slice(0, 60) ?? `AI · ${a.modelKey}`,
+                source: "ai",
+              });
+            }
+            return items;
+          })()}
+          models={usable.map(
+            (m): EditorModelOption => ({
+              key: m.key,
+              label: modelName(m.key),
+              kind: m.kind,
+              credits: Math.max(1, Math.round(m.creditsPerUnit)),
+            }),
+          )}
+          campaigns={editorCampaigns}
+          initialAssetId={sp.asset}
+          currency={currency}
+        />
+      ) : null}
+
+      {/* 3. Sekme: Birleşik Kitaplık (Üretilen & Yüklenen Tüm Videolar ve Fotoğraflar) */}
       {tab === "galeri" && sp.hata ? (
         <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-[13px] text-critical">
           {sp.hata.slice(0, 200)}
@@ -326,6 +443,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
           adBase={adBase}
           filter={sp.tur}
           completed={completed}
+          editorEnabled={editorEnabled}
         />
       ) : null}
 
@@ -507,6 +625,7 @@ async function UnifiedLibrary({
   jobPrompt,
   adBase,
   filter,
+  editorEnabled,
 }: {
   assets: { id: string; tenantId: string; jobId: string | null; modelKey: string; s3Key: string; c2paManifestId: string; createdAt: Date }[];
   uploads: { id: string; kind: string; name: string | null; s3Key: string; source: string; createdAt: Date }[];
@@ -516,6 +635,7 @@ async function UnifiedLibrary({
   adBase: string | null;
   filter?: string;
   completed: number;
+  editorEnabled?: boolean;
 }) {
   const tt = await getTT();
   const active: CreativeKind | "hepsi" =
@@ -663,14 +783,24 @@ async function UnifiedLibrary({
                       </form>
                     ) : null}
 
-                    {/* Hem Video hem Fotoğraf için AI Sohbette Düzenle */}
+                    {/* Hem Video hem Fotoğraf için AI Sohbette Düzenle & Timeline Video Editör */}
                     {item.kind !== "audio" ? (
-                      <Link
-                        href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&prompt=${encodeURIComponent(item.kind === "video" ? "Bu videoyu 9:16 dikey formata kırpıp renklerini canlandır" : "Bu fotoğrafın arka planını temizleyip stüdyo ışığında düzenle")}`}
-                        className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
-                      >
-                        {tt("AI Sohbette Düzenle")}
-                      </Link>
+                      <>
+                        {editorEnabled ? (
+                          <Link
+                            href={`/creative?sekme=editor&asset=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}`}
+                            className="rounded-full bg-fg px-2.5 py-1 text-[11px] font-medium text-bg hover:opacity-90"
+                          >
+                            {tt("Video Editör")}
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={`/creative?ref=${encodeURIComponent(item.uploadId ?? item.assetId ?? "")}&prompt=${encodeURIComponent(item.kind === "video" ? "Bu videoyu 9:16 dikey formata kırpıp renklerini canlandır" : "Bu fotoğrafın arka planını temizleyip stüdyo ışığında düzenle")}`}
+                          className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40"
+                        >
+                          {tt("AI Sohbette Düzenle")}
+                        </Link>
+                      </>
                     ) : null}
 
                     {/* Fotoğraf ise AI Sohbette Referans / Sesli Videoya Çevir */}
