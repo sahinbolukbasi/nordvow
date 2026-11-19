@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { envStr } from "@infulancer/core/env";
-import { createSignedOAuthState } from "@infulancer/core/inbox/meta-security";
+import { createSignedOAuthState, verifySignedOAuthState } from "@infulancer/core/inbox/meta-security";
 import { getHourlyRateLimitCap, getHourlyUsageCount } from "@infulancer/core/dm-automation/rate-limiter";
 import {
   connectDmInstagramAccount,
@@ -22,6 +22,7 @@ export const dynamic = "force-dynamic";
 
 const connectSchema = z.object({
   code: z.string().min(1).max(500).optional(),
+  state: z.string().min(1).max(1000).optional(),
   igUserId: z.string().min(3).max(60).optional(),
   igUsername: z.string().min(1).max(80).optional(),
   accountType: z.enum(["BUSINESS", "CREATOR", "PERSONAL"]).default("CREATOR"),
@@ -45,7 +46,7 @@ export async function GET(req: Request) {
 
     const hourlyCap = getHourlyRateLimitCap();
     const igAppId = envStr("INSTAGRAM_APP_ID", "") || envStr("FACEBOOK_APP_ID", "");
-    const baseUrl = envStr("NEXT_PUBLIC_APP_URL", "https://nordvow.com").replace(/\/$/, "");
+    const baseUrl = (envStr("APP_URL", "") || envStr("NEXT_PUBLIC_APP_URL", "https://nordvow.com")).replace(/\/$/, "");
     const oauthState = createSignedOAuthState({ userId: auth.actor.userId, tenantId });
     const igAuthorizeUrl = igAppId
       ? `https://www.instagram.com/oauth/authorize?client_id=${encodeURIComponent(igAppId)}&redirect_uri=${encodeURIComponent(`${baseUrl}/dashboard/dm-otomasyonu`)}&response_type=code&scope=instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments&state=${encodeURIComponent(oauthState)}`
@@ -79,10 +80,24 @@ export async function POST(req: Request) {
     if (denied) return denied;
 
     const body = await readJson(req, connectSchema);
+    let targetTenantId = tenantId;
+    if (body.code && body.state) {
+      const verified = verifySignedOAuthState(body.state);
+      if (!verified || verified.userId !== auth.actor.userId) {
+        return Response.json(
+          { error: { code: "YETKISIZ", message: "Instagram OAuth doğrulama durumu geçersiz veya süresi dolmuş." } },
+          { status: 400 },
+        );
+      }
+      targetTenantId = verified.tenantId;
+    }
+
+    const baseUrl = (envStr("APP_URL", "") || envStr("NEXT_PUBLIC_APP_URL", "https://nordvow.com")).replace(/\/$/, "");
     const account = await connectDmInstagramAccount({
-      tenantId,
+      tenantId: targetTenantId,
       actorId: auth.actor.userId,
       code: body.code,
+      redirectUri: `${baseUrl}/dashboard/dm-otomasyonu`,
       igUserId: body.igUserId,
       igUsername: body.igUsername,
       accountType: body.accountType,

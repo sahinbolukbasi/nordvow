@@ -180,6 +180,8 @@ export function TimelineVideoEditor({
   const [toast, setToast] = useState<{ tone: "info" | "warn" | "error" | "ok"; text: string } | null>(null);
 
   // Modals / Popovers
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [aiEditCommand, setAiEditCommand] = useState("");
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [versions, setVersions] = useState<VersionItem[]>([]);
@@ -1562,9 +1564,65 @@ export function TimelineVideoEditor({
     return mediaAssets.filter((m) => m.name.toLowerCase().includes(q));
   }, [mediaAssets, mediaQuery]);
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
+  const handleAiEditCommand = async () => {
+    const cmd = aiEditCommand.trim();
+    if (!cmd) return;
+    const lower = cmd.toLocaleLowerCase("tr-TR");
+    if (lower.includes("9:16") || lower.includes("dikey") || lower.includes("reels") || lower.includes("tiktok")) {
+      applyTimelineEdit((cur) => applyReframeToTimeline(cur, "9:16", "blur"));
+      notify("ok", "AI: Video 9:16 dikey Reels formatına uyarlandı.");
+      setAiEditCommand("");
+      return;
+    }
+    if (lower.includes("16:9") || lower.includes("yatay") || lower.includes("youtube")) {
+      applyTimelineEdit((cur) => applyReframeToTimeline(cur, "16:9", "blur"));
+      notify("ok", "AI: Video 16:9 yatay formata uyarlandı.");
+      setAiEditCommand("");
+      return;
+    }
+    if (lower.includes("1:1") || lower.includes("kare")) {
+      applyTimelineEdit((cur) => applyReframeToTimeline(cur, "1:1", "blur"));
+      notify("ok", "AI: Video 1:1 kare formata uyarlandı.");
+      setAiEditCommand("");
+      return;
+    }
+    if (lower.includes("sessiz") || lower.includes("boşluk")) {
+      setActiveDrawer("sessizlik");
+      notify("info", "AI Sessizlik Kes paneli açıldı; tek tıkla boşlukları temizleyebilirsiniz.");
+      setAiEditCommand("");
+      return;
+    }
+    if (lower.includes("altyazı") || lower.includes("alt yazı") || lower.includes("caption")) {
+      setActiveDrawer("altyazi");
+      notify("info", "AI Türkçe Otomatik Altyazı paneli açıldı.");
+      setAiEditCommand("");
+      return;
+    }
+    if (lower.includes("kanca") || lower.includes("hook") || lower.includes("başlık") || lower.includes("senaryo") || lower.includes("metin")) {
+      setActiveDrawer("metin_ai");
+      setAiBrief(cmd);
+      setAiEditCommand("");
+      await runBedrock("hooks");
+      return;
+    }
+    setActiveDrawer("ai_uret");
+    setGenPrompt(cmd);
+    setAiEditCommand("");
+    notify("info", "AI Sahne Üret paneli komutunuzla hazırlandı — 'Üret' ile sahneyi oluşturabilirsiniz.");
+  };
+
   if (loadingProjects && !project) {
     return (
-      <div className="flex h-[560px] items-center justify-center rounded-2xl border border-line bg-[#0B0C10] text-sm text-zinc-400">
+      <div className="flex h-[560px] items-center justify-center rounded-2xl border border-line bg-surface text-sm text-fg-muted">
         Video Editörü yükleniyor…
       </div>
     );
@@ -1574,15 +1632,21 @@ export function TimelineVideoEditor({
   const playheadX = ticksToSeconds(playheadTicks) * zoomPxPerSec;
 
   return (
-    <div className="flex min-h-[780px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0B0C10] text-zinc-100 shadow-2xl">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 flex h-screen w-screen flex-col overflow-hidden bg-canvas text-fg"
+          : "flex min-h-[780px] flex-col overflow-hidden rounded-2xl border border-line bg-canvas text-fg"
+      }
+    >
       {/* Üst Başlık Çubuğu */}
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#11131A] px-3 py-2">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface px-3 py-2">
         <div className="flex flex-wrap items-center gap-2">
           <select
             aria-label="Aktif Proje"
             value={project?.id ?? ""}
             onChange={(e) => e.target.value && void loadProjectById(e.target.value)}
-            className="h-8 max-w-[180px] rounded-lg border border-white/15 bg-[#191C26] px-2 text-xs text-white"
+            className="h-8 max-w-[180px] rounded-lg border border-line bg-bg px-2 text-xs text-fg"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -1607,13 +1671,13 @@ export function TimelineVideoEditor({
                 body: JSON.stringify({ title: project.title }),
               });
             }}
-            className="h-8 w-44 rounded-lg border border-white/10 bg-black/30 px-2.5 text-xs font-medium text-white focus:border-cyan-400 focus:outline-none disabled:opacity-60"
+            className="h-8 w-44 rounded-lg border border-line bg-bg px-2.5 text-xs font-medium text-fg focus:border-cyan-400 focus:outline-none disabled:opacity-60"
           />
 
           <button
             type="button"
             onClick={() => setShowNewProjectModal(true)}
-            className="h-8 rounded-lg border border-white/15 bg-white/5 px-2.5 text-xs font-medium hover:bg-white/10"
+            className="h-8 rounded-lg border border-line bg-bg px-2.5 text-xs font-medium hover:bg-surface-hover"
           >
             + Yeni Proje
           </button>
@@ -1627,14 +1691,14 @@ export function TimelineVideoEditor({
 
         {/* En-Boy Oranı, Reframe, Geri/İleri, Kayıt Durumu, Dışa Aktar */}
         <div className="flex flex-wrap items-center gap-1.5">
-          <div className="flex items-center overflow-hidden rounded-lg border border-white/15 bg-black/30 text-[11px]">
+          <div className="flex items-center overflow-hidden rounded-lg border border-line bg-bg text-[11px]">
             {(["9:16", "4:5", "1:1", "16:9"] as const).map((ratio) => (
               <button
                 key={ratio}
                 type="button"
                 onClick={() => applyTimelineEdit((cur) => applyReframeToTimeline(cur, ratio, "blur"))}
                 className={`px-2 py-1 font-medium transition ${
-                  timeline.settings.aspectPreset === ratio ? "bg-cyan-500 text-slate-950" : "text-zinc-300 hover:bg-white/10"
+                  timeline.settings.aspectPreset === ratio ? "bg-cyan-500 text-slate-950" : "text-fg-muted hover:bg-surface-hover"
                 }`}
               >
                 {ratio}
@@ -1647,7 +1711,7 @@ export function TimelineVideoEditor({
             onClick={handleUndo}
             disabled={undoStack.length === 0}
             title="Geri Al (Cmd/Ctrl+Z)"
-            className="h-8 rounded-lg border border-white/15 px-2 text-xs hover:bg-white/10 disabled:opacity-35"
+            className="h-8 rounded-lg border border-line px-2 text-xs hover:bg-surface-hover disabled:opacity-35"
           >
             ↶ Geri
           </button>
@@ -1656,7 +1720,7 @@ export function TimelineVideoEditor({
             onClick={handleRedo}
             disabled={redoStack.length === 0}
             title="İleri Al (Cmd/Ctrl+Shift+Z)"
-            className="h-8 rounded-lg border border-white/15 px-2 text-xs hover:bg-white/10 disabled:opacity-35"
+            className="h-8 rounded-lg border border-line px-2 text-xs hover:bg-surface-hover disabled:opacity-35"
           >
             ↷ İleri
           </button>
@@ -1688,29 +1752,82 @@ export function TimelineVideoEditor({
           <button
             type="button"
             onClick={() => void openVersionDrawer()}
-            className="h-8 rounded-lg border border-white/15 px-2.5 text-xs hover:bg-white/10"
+            className="h-8 rounded-lg border border-line px-2.5 text-xs hover:bg-surface-hover"
           >
             Sürümler
           </button>
 
           <button
             type="button"
-            onClick={() => setShowShortcuts(true)}
-            title="Klavye Kısayolları (?)"
-            className="h-8 w-8 rounded-lg border border-white/15 text-xs font-bold hover:bg-white/10"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="h-8 rounded-lg border border-line bg-bg px-2.5 text-xs font-medium text-fg hover:bg-surface-hover"
           >
-            ?
+            {isFullscreen ? "Tam Ekrandan Çık" : "Tam Ekran"}
           </button>
 
           <button
             type="button"
             onClick={() => setShowExportModal(true)}
-            className="h-8 rounded-lg bg-gradient-to-r from-cyan-400 to-fuchsia-500 px-3 text-xs font-bold text-slate-950 hover:opacity-95"
+            className="h-8 rounded-lg bg-fg px-3 text-xs font-semibold text-bg hover:opacity-90"
           >
-            Dışa Aktar / Teslim Et
+            Dışa Aktar
           </button>
         </div>
       </header>
+
+      {/* Sade AI Video Edit Komut Çubuğu */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-bg px-3 py-2 text-xs">
+        <span className="font-semibold text-fg">AI Video Edit</span>
+        <input
+          value={aiEditCommand}
+          onChange={(e) => setAiEditCommand(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleAiEditCommand();
+            }
+          }}
+          placeholder="AI'ya ne yapmasını istediğini yaz (ör. '9:16 Reels yap', 'Türkçe altyazı ekle', 'Kanca başlık öner', 'Sessizlikleri kes' veya yeni sahne prompt'u)..."
+          className="h-8 min-w-[260px] flex-1 rounded-lg border border-line bg-surface px-3 text-xs text-fg placeholder:text-fg-muted focus:border-fg focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => void handleAiEditCommand()}
+          className="h-8 rounded-lg bg-fg px-3 text-xs font-semibold text-bg hover:opacity-90"
+        >
+          AI ile Uygula
+        </button>
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveDrawer("ai_uret")}
+            className="h-7 rounded-md border border-line bg-surface px-2 text-[11px] text-fg-muted hover:text-fg"
+          >
+            AI Sahne
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveDrawer("altyazi")}
+            className="h-7 rounded-md border border-line bg-surface px-2 text-[11px] text-fg-muted hover:text-fg"
+          >
+            AI Altyazı
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveDrawer("metin_ai")}
+            className="h-7 rounded-md border border-line bg-surface px-2 text-[11px] text-fg-muted hover:text-fg"
+          >
+            AI Kanca
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveDrawer("sessizlik")}
+            className="h-7 rounded-md border border-line bg-surface px-2 text-[11px] text-fg-muted hover:text-fg"
+          >
+            Sessizlik Kes
+          </button>
+        </div>
+      </div>
 
       {/* Çevrimdışı Yedek Banner */}
       {offlineBackupBanner ? (
@@ -1734,7 +1851,7 @@ export function TimelineVideoEditor({
                 if (project) localStorage.removeItem(backupStorageKey(project.id));
                 setOfflineBackupBanner(null);
               }}
-              className="text-zinc-300 hover:underline"
+              className="text-fg-muted hover:underline"
             >
               Yoksay
             </button>
@@ -1763,28 +1880,27 @@ export function TimelineVideoEditor({
       {/* Orta Çalışma Alanı: Sol Çekmece (290px) + Merkez Sahne + Sağ Özellikler (280px) */}
       <div className="grid min-h-[430px] flex-1 grid-cols-1 lg:grid-cols-[320px_1fr_280px]">
         {/* Sol Araç Paneli + 6 Çekmece */}
-        <aside className="flex border-b border-white/10 bg-[#12141C] lg:border-b-0 lg:border-r">
-          <nav aria-label="Editör Araçları" className="flex w-16 shrink-0 flex-col gap-1 border-r border-white/10 bg-[#0E1016] p-1.5">
+        <aside className="flex border-b border-line bg-surface lg:border-b-0 lg:border-r">
+          <nav aria-label="Editör Araçları" className="flex w-20 shrink-0 flex-col gap-1 border-r border-line bg-bg p-1.5">
             {(
               [
-                { id: "medya", label: "Medya", icon: "🎞️" },
-                { id: "ai_uret", label: "AI Üret", icon: "✨" },
-                { id: "altyazi", label: "Altyazı", icon: "💬" },
-                { id: "metin_ai", label: "Metin & AI", icon: "⚡" },
-                { id: "sablonlar", label: "Şablon", icon: "🧩" },
-                { id: "sessizlik", label: "Sessizlik", icon: "✂️" },
+                { id: "ai_uret", label: "AI Üret" },
+                { id: "medya", label: "Medya" },
+                { id: "altyazi", label: "Altyazı" },
+                { id: "metin_ai", label: "AI Metin" },
+                { id: "sessizlik", label: "Sessizlik" },
+                { id: "sablonlar", label: "Şablon" },
               ] as const
             ).map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setActiveDrawer(t.id)}
-                className={`flex flex-col items-center gap-0.5 rounded-xl px-1 py-2 text-[10px] font-medium transition ${
-                  activeDrawer === t.id ? "bg-cyan-500/20 text-cyan-300" : "text-zinc-400 hover:bg-white/5 hover:text-white"
+                className={`rounded-lg px-2 py-2 text-left text-[11px] font-medium transition ${
+                  activeDrawer === t.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"
                 }`}
               >
-                <span className="text-base leading-none">{t.icon}</span>
-                <span>{t.label}</span>
+                {t.label}
               </button>
             ))}
           </nav>
@@ -1793,7 +1909,7 @@ export function TimelineVideoEditor({
             {activeDrawer === "medya" ? (
               <>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-white">Kitaplık & Yükle</span>
+                  <span className="font-semibold text-fg">Kitaplık & Yükle</span>
                   <label className="cursor-pointer rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-950 hover:opacity-90">
                     + Dosya Yükle
                     <input
@@ -1809,26 +1925,26 @@ export function TimelineVideoEditor({
                   </label>
                 </div>
                 {uploadPct !== null ? (
-                  <div className="rounded-lg bg-white/5 p-2 text-[11px] text-cyan-300">Yükleniyor: %{uploadPct}</div>
+                  <div className="rounded-lg bg-bg p-2 text-[11px] text-cyan-300">Yükleniyor: %{uploadPct}</div>
                 ) : null}
                 <input
                   value={mediaQuery}
                   onChange={(e) => setMediaQuery(e.target.value)}
                   placeholder="Medya ara..."
-                  className="h-8 rounded-lg border border-white/10 bg-black/30 px-2.5 text-xs text-white placeholder:text-zinc-500"
+                  className="h-8 rounded-lg border border-line bg-bg px-2.5 text-xs text-fg placeholder:text-fg-passive"
                 />
                 <ul className="flex flex-col gap-1.5">
                   {filteredMedia.length === 0 ? (
-                    <li className="py-4 text-center text-zinc-500">Kitaplıkta eşleşen medya yok.</li>
+                    <li className="py-4 text-center text-fg-passive">Kitaplıkta eşleşen medya yok.</li>
                   ) : null}
                   {filteredMedia.map((m) => (
                     <li
                       key={m.id}
-                      className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/25 p-2"
+                      className="flex items-center justify-between gap-2 rounded-xl border border-line bg-bg p-2"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-zinc-100">{m.name}</p>
-                        <p className="text-[10px] text-zinc-400">
+                        <p className="truncate font-medium text-fg">{m.name}</p>
+                        <p className="text-[10px] text-fg-muted">
                           {m.kind.toUpperCase()} {m.durationSec ? `· ${m.durationSec.toFixed(1)}s` : ""}
                         </p>
                       </div>
@@ -1847,11 +1963,11 @@ export function TimelineVideoEditor({
 
             {activeDrawer === "ai_uret" ? (
               <>
-                <span className="font-semibold text-white">AI Sahne / Görsel Üret (fal.ai)</span>
+                <span className="font-semibold text-fg">AI Sahne / Görsel Üret (fal.ai)</span>
                 <select
                   value={genModelKey}
                   onChange={(e) => setGenModelKey(e.target.value)}
-                  className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                  className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                 >
                   {models
                     .filter((m) => m.kind !== "audio")
@@ -1862,12 +1978,12 @@ export function TimelineVideoEditor({
                     ))}
                 </select>
                 {models.find((m) => m.key === genModelKey)?.kind === "video" ? (
-                  <label className="flex items-center justify-between text-[11px] text-zinc-300">
+                  <label className="flex items-center justify-between text-[11px] text-fg-muted">
                     <span>Süre (sn):</span>
                     <select
                       value={genSeconds}
                       onChange={(e) => setGenSeconds(Number(e.target.value))}
-                      className="h-7 rounded border border-white/10 bg-black/30 px-2 text-xs"
+                      className="h-7 rounded border border-line bg-bg px-2 text-xs"
                     >
                       <option value={5}>5 sn</option>
                       <option value={6}>6 sn</option>
@@ -1880,7 +1996,7 @@ export function TimelineVideoEditor({
                   onChange={(e) => setGenPrompt(e.target.value)}
                   rows={4}
                   placeholder="Örn: Stüdyo ışığında elinde cilt serumu şişesi tutan içerik üreticisi, 9:16 dikey sinematik çekim"
-                  className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-white placeholder:text-zinc-500"
+                  className="rounded-lg border border-line bg-bg p-2 text-xs text-fg placeholder:text-fg-passive"
                 />
                 <button
                   type="button"
@@ -1896,14 +2012,14 @@ export function TimelineVideoEditor({
 
             {activeDrawer === "altyazi" ? (
               <>
-                <span className="font-semibold text-white">Türkçe Otomatik Altyazı</span>
-                <p className="text-[11px] text-zinc-400">
+                <span className="font-semibold text-fg">Türkçe Otomatik Altyazı</span>
+                <p className="text-[11px] text-fg-muted">
                   fal Wizper ile sesi çözer; AWS Bedrock Türkçe yazımı düzeltir. (Max 3 kelime · ≥0.8 sn)
                 </p>
                 <select
                   value={captionAssetId}
                   onChange={(e) => setCaptionAssetId(e.target.value)}
-                  className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                  className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                 >
                   <option value="">Ana kanal videosu</option>
                   {mediaAssets
@@ -1924,7 +2040,7 @@ export function TimelineVideoEditor({
                 </button>
 
                 <div className="mt-1 flex flex-col gap-1.5">
-                  <span className="text-[11px] font-medium text-zinc-300">Stil Şablonu (Tüm Altyazılar)</span>
+                  <span className="text-[11px] font-medium text-fg-muted">Stil Şablonu (Tüm Altyazılar)</span>
                   <div className="grid grid-cols-2 gap-1.5">
                     {(
                       [
@@ -1941,7 +2057,7 @@ export function TimelineVideoEditor({
                         className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium ${
                           captionPreset === p.id
                             ? "border-cyan-400 bg-cyan-500/20 text-cyan-200"
-                            : "border-white/10 bg-black/30 text-zinc-300 hover:bg-white/10"
+                            : "border-line bg-bg text-fg-muted hover:bg-surface-hover"
                         }`}
                       >
                         {p.label}
@@ -1950,15 +2066,15 @@ export function TimelineVideoEditor({
                   </div>
                 </div>
 
-                <div className="mt-2 flex gap-2 border-t border-white/10 pt-2">
+                <div className="mt-2 flex gap-2 border-t border-line pt-2">
                   <button
                     type="button"
                     onClick={exportSrtFile}
-                    className="flex-1 rounded-lg border border-white/15 py-1.5 text-[11px] hover:bg-white/10"
+                    className="flex-1 rounded-lg border border-line py-1.5 text-[11px] hover:bg-surface-hover"
                   >
                     .SRT İndir
                   </button>
-                  <label className="flex-1 cursor-pointer rounded-lg border border-white/15 py-1.5 text-center text-[11px] hover:bg-white/10">
+                  <label className="flex-1 cursor-pointer rounded-lg border border-line py-1.5 text-center text-[11px] hover:bg-surface-hover">
                     .SRT Yükle
                     <input
                       type="file"
@@ -1977,12 +2093,12 @@ export function TimelineVideoEditor({
 
             {activeDrawer === "metin_ai" ? (
               <>
-                <span className="font-semibold text-white">Metin, CTA & Bedrock Zekâsı</span>
+                <span className="font-semibold text-fg">Metin, CTA & Bedrock Zekâsı</span>
                 <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
                     onClick={() => addTextOverlay("Yeni Başlık ✨", "bold-yellow")}
-                    className="rounded-lg border border-white/15 bg-white/5 py-1.5 text-[11px] font-medium hover:bg-white/10"
+                    className="rounded-lg border border-line bg-bg py-1.5 text-[11px] font-medium hover:bg-surface-hover"
                   >
                     + Metin Ekle
                   </button>
@@ -1995,12 +2111,12 @@ export function TimelineVideoEditor({
                   </button>
                 </div>
 
-                <div className="mt-2 flex flex-col gap-2 border-t border-white/10 pt-2">
+                <div className="mt-2 flex flex-col gap-2 border-t border-line pt-2">
                   <input
                     value={aiBrief}
                     onChange={(e) => setAiBrief(e.target.value)}
                     placeholder="Ürün / Kampanya özeti (opsiyonel)"
-                    className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                    className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                   />
                   <div className="grid grid-cols-3 gap-1">
                     <button
@@ -2015,7 +2131,7 @@ export function TimelineVideoEditor({
                       type="button"
                       disabled={aiLoading}
                       onClick={() => void runBedrock("script")}
-                      className="rounded-lg border border-white/15 px-2 py-1.5 text-[11px] font-medium hover:bg-white/10"
+                      className="rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium hover:bg-surface-hover"
                     >
                       Senaryo
                     </button>
@@ -2023,7 +2139,7 @@ export function TimelineVideoEditor({
                       type="button"
                       disabled={aiLoading}
                       onClick={() => void runBedrock("highlights")}
-                      className="rounded-lg border border-white/15 px-2 py-1.5 text-[11px] font-medium hover:bg-white/10"
+                      className="rounded-lg border border-line px-2 py-1.5 text-[11px] font-medium hover:bg-surface-hover"
                     >
                       Highlight
                     </button>
@@ -2032,9 +2148,9 @@ export function TimelineVideoEditor({
                   {aiHooks.length > 0 ? (
                     <ul className="flex flex-col gap-1.5">
                       {aiHooks.map((h, i) => (
-                        <li key={i} className="rounded-lg border border-white/10 bg-black/30 p-2">
+                        <li key={i} className="rounded-lg border border-line bg-bg p-2">
                           <p className="font-semibold text-amber-300">{h.text}</p>
-                          <p className="mt-0.5 text-[10px] text-zinc-400">{h.reason}</p>
+                          <p className="mt-0.5 text-[10px] text-fg-muted">{h.reason}</p>
                           <button
                             type="button"
                             onClick={() => addTextOverlay(h.text, "bold-yellow", true)}
@@ -2050,11 +2166,11 @@ export function TimelineVideoEditor({
                   {aiScript?.sections?.length ? (
                     <ul className="flex flex-col gap-1.5">
                       {aiScript.sections.map((s, i) => (
-                        <li key={i} className="rounded-lg border border-white/10 bg-black/30 p-2">
+                        <li key={i} className="rounded-lg border border-line bg-bg p-2">
                           <p className="font-semibold text-cyan-300">
                             {s.part} ({s.sec} sn)
                           </p>
-                          <p className="mt-0.5 text-[11px] text-zinc-200">{s.line}</p>
+                          <p className="mt-0.5 text-[11px] text-fg">{s.line}</p>
                         </li>
                       ))}
                     </ul>
@@ -2065,7 +2181,7 @@ export function TimelineVideoEditor({
                       {aiHighlights.map((hl, i) => (
                         <li key={i} className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-2">
                           <p className="font-semibold text-emerald-200">{hl.suggestedTitle || hl.id}</p>
-                          <p className="text-[10px] text-zinc-300">{hl.reason}</p>
+                          <p className="text-[10px] text-fg-muted">{hl.reason}</p>
                         </li>
                       ))}
                     </ul>
@@ -2076,15 +2192,15 @@ export function TimelineVideoEditor({
 
             {activeDrawer === "sablonlar" ? (
               <>
-                <span className="font-semibold text-white">Kampanya Şablonları</span>
-                <p className="text-[11px] text-zinc-400">
+                <span className="font-semibold text-fg">Kampanya Şablonları</span>
+                <p className="text-[11px] text-fg-muted">
                   Her şablon zorunlu kilitli <span className="text-amber-300">#reklam</span> rozeti ve kampanya kupon/UTM kartıyla başlar.
                 </p>
                 <ul className="flex flex-col gap-2">
                   {templates.map((t) => (
-                    <li key={t.id} className="rounded-xl border border-white/10 bg-black/30 p-2.5">
-                      <p className="font-semibold text-white">{t.name}</p>
-                      <p className="mt-1 text-[11px] text-zinc-400">{t.description}</p>
+                    <li key={t.id} className="rounded-xl border border-line bg-bg p-2.5">
+                      <p className="font-semibold text-fg">{t.name}</p>
+                      <p className="mt-1 text-[11px] text-fg-muted">{t.description}</p>
                       <button
                         type="button"
                         onClick={() => {
@@ -2092,7 +2208,7 @@ export function TimelineVideoEditor({
                           setNewProjAspect(t.aspectPreset);
                           void createNewProject({ templateId: t.id });
                         }}
-                        className="mt-2 w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-semibold text-white hover:bg-white/20"
+                        className="mt-2 w-full rounded-lg bg-surface-hover py-1.5 text-[11px] font-semibold text-fg hover:bg-surface-hover"
                       >
                         Bu Şablonla Proje Aç
                       </button>
@@ -2104,14 +2220,14 @@ export function TimelineVideoEditor({
 
             {activeDrawer === "sessizlik" ? (
               <>
-                <span className="font-semibold text-white">Otomatik Sessizlik Kes</span>
-                <p className="text-[11px] text-zinc-400">
+                <span className="font-semibold text-fg">Otomatik Sessizlik Kes</span>
+                <p className="text-[11px] text-fg-muted">
                   FFmpeg sesi tarar, konuşma aralarındaki duraksamaları algılar ve tek Geri Al adımında kırpar.
                 </p>
                 <select
                   value={silenceAssetId}
                   onChange={(e) => setSilenceAssetId(e.target.value)}
-                  className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                  className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                 >
                   <option value="">Ana video klibi</option>
                   {mediaAssets
@@ -2122,7 +2238,7 @@ export function TimelineVideoEditor({
                       </option>
                     ))}
                 </select>
-                <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                   <span>Sessizlik Eşiği: {silenceDb} dB</span>
                   <input
                     type="range"
@@ -2133,7 +2249,7 @@ export function TimelineVideoEditor({
                     onChange={(e) => setSilenceDb(Number(e.target.value))}
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                   <span>En Kısa Duraksama: {silenceMinSec} sn</span>
                   <input
                     type="range"
@@ -2172,8 +2288,8 @@ export function TimelineVideoEditor({
         </aside>
 
         {/* Merkez Canvas2D Önizleme Sahnesi */}
-        <section className="relative flex flex-col items-center justify-center bg-[#07080B] p-4">
-          <div className="mb-2 flex w-full max-w-[420px] items-center justify-between text-[11px] text-zinc-400">
+        <section className="relative flex flex-col items-center justify-center bg-bg p-4">
+          <div className="mb-2 flex w-full max-w-[420px] items-center justify-between text-[11px] text-fg-muted">
             <span>
               {timeline.settings.canvas.width}×{timeline.settings.canvas.height} · {timeline.settings.fps} fps
             </span>
@@ -2181,7 +2297,7 @@ export function TimelineVideoEditor({
               type="button"
               onClick={() => setSafeAreaVisible((v) => !v)}
               className={`rounded-md border px-2 py-0.5 ${
-                safeAreaVisible ? "border-cyan-400/50 text-cyan-300" : "border-white/10 text-zinc-400"
+                safeAreaVisible ? "border-cyan-400/50 text-cyan-300" : "border-line text-fg-muted"
               }`}
             >
               {safeAreaVisible ? "Güvenli Alan Açık" : "Güvenli Alan Kapalı"}
@@ -2189,7 +2305,7 @@ export function TimelineVideoEditor({
           </div>
 
           <div
-            className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-black shadow-2xl"
+            className="relative flex items-center justify-center overflow-hidden rounded-xl border border-line bg-black shadow-2xl"
             style={{
               aspectRatio: `${timeline.settings.canvas.width} / ${timeline.settings.canvas.height}`,
               maxHeight: "360px",
@@ -2212,18 +2328,18 @@ export function TimelineVideoEditor({
         </section>
 
         {/* Sağ Özellik Denetleyicisi */}
-        <aside className="flex max-h-[440px] flex-col gap-3 overflow-y-auto border-t border-white/10 bg-[#12141C] p-3 text-xs lg:border-l lg:border-t-0">
+        <aside className="flex max-h-[440px] flex-col gap-3 overflow-y-auto border-t border-line bg-surface p-3 text-xs lg:border-l lg:border-t-0">
           <div className="flex items-center justify-between">
-            <span className="font-semibold text-white">Özellikler</span>
+            <span className="font-semibold text-fg">Özellikler</span>
             {selectedElement ? (
-              <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase text-zinc-300">
+              <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] uppercase text-fg-muted">
                 {selectedElement.type}
               </span>
             ) : null}
           </div>
 
           {!selectedElement ? (
-            <p className="py-6 text-center text-[11px] text-zinc-500">
+            <p className="py-6 text-center text-[11px] text-fg-passive">
               Düzenlemek için zaman çizelgesinden veya sahneden bir klip ya da katman seçin.
             </p>
           ) : (
@@ -2239,14 +2355,14 @@ export function TimelineVideoEditor({
                   type="button"
                   onClick={() => applyTimelineEdit((c) => splitElementAtPlayhead(c, playheadRef.current, [selectedElement.id]))}
                   disabled={selectedElement.locked}
-                  className="flex-1 rounded-lg border border-white/15 py-1 text-[11px] hover:bg-white/10 disabled:opacity-40"
+                  className="flex-1 rounded-lg border border-line py-1 text-[11px] hover:bg-surface-hover disabled:opacity-40"
                 >
                   Böl (S)
                 </button>
                 <button
                   type="button"
                   onClick={() => applyTimelineEdit((c) => duplicateElements(c, [selectedElement.id]))}
-                  className="flex-1 rounded-lg border border-white/15 py-1 text-[11px] hover:bg-white/10"
+                  className="flex-1 rounded-lg border border-line py-1 text-[11px] hover:bg-surface-hover"
                 >
                   Çoğalt
                 </button>
@@ -2265,7 +2381,7 @@ export function TimelineVideoEditor({
 
               {(selectedElement.type === "text" || selectedElement.type === "caption") && (
                 <div className="flex flex-col gap-2">
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>Metin</span>
                     <textarea
                       rows={3}
@@ -2277,10 +2393,10 @@ export function TimelineVideoEditor({
                           if (el.type === "text" || el.type === "caption") el.text = v;
                         });
                       }}
-                      className="rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-white disabled:opacity-60"
+                      className="rounded-lg border border-line bg-bg p-2 text-xs text-fg disabled:opacity-60"
                     />
                   </label>
-                  <label className="flex items-center justify-between text-[11px] text-zinc-300">
+                  <label className="flex items-center justify-between text-[11px] text-fg-muted">
                     <span>Yazı Boyutu: {selectedElement.style.fontSize}px</span>
                     <input
                       type="range"
@@ -2301,7 +2417,7 @@ export function TimelineVideoEditor({
 
               {selectedElement.type === "cta" && (
                 <div className="flex flex-col gap-2">
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>CTA Başlığı</span>
                     <input
                       disabled={selectedElement.locked}
@@ -2312,10 +2428,10 @@ export function TimelineVideoEditor({
                           if (el.type === "cta") el.label = v;
                         });
                       }}
-                      className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                      className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>Kupon Kodu</span>
                     <input
                       disabled={selectedElement.locked}
@@ -2326,7 +2442,7 @@ export function TimelineVideoEditor({
                           if (el.type === "cta") el.couponCode = v;
                         });
                       }}
-                      className="h-8 rounded-lg border border-white/10 bg-black/30 px-2 text-xs text-white"
+                      className="h-8 rounded-lg border border-line bg-bg px-2 text-xs text-fg"
                     />
                   </label>
                 </div>
@@ -2334,7 +2450,7 @@ export function TimelineVideoEditor({
 
               {(selectedElement.type === "video" || selectedElement.type === "audio") && (
                 <div className="flex flex-col gap-2">
-                  <label className="flex items-center justify-between text-[11px] text-zinc-300">
+                  <label className="flex items-center justify-between text-[11px] text-fg-muted">
                     <span>Hız ({selectedElement.speed}x)</span>
                     <select
                       disabled={selectedElement.locked}
@@ -2345,7 +2461,7 @@ export function TimelineVideoEditor({
                           if (el.type === "video" || el.type === "audio") el.speed = sp;
                         });
                       }}
-                      className="h-7 rounded border border-white/10 bg-black/30 px-2 text-xs text-white"
+                      className="h-7 rounded border border-line bg-bg px-2 text-xs text-fg"
                     >
                       {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
                         <option key={s} value={s}>
@@ -2354,7 +2470,7 @@ export function TimelineVideoEditor({
                       ))}
                     </select>
                   </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>Ses Seviyesi: {Math.round(selectedElement.volume * 100)}%</span>
                     <input
                       type="range"
@@ -2375,8 +2491,8 @@ export function TimelineVideoEditor({
               )}
 
               {selectedElement.type !== "audio" && (
-                <div className="flex flex-col gap-2 border-t border-white/10 pt-2">
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                <div className="flex flex-col gap-2 border-t border-line pt-2">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>Ölçek: {selectedElement.transform.scale.toFixed(2)}×</span>
                     <input
                       type="range"
@@ -2393,7 +2509,7 @@ export function TimelineVideoEditor({
                       }}
                     />
                   </label>
-                  <label className="flex flex-col gap-1 text-[11px] text-zinc-300">
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-muted">
                     <span>Opaklık: {Math.round(selectedElement.transform.opacity * 100)}%</span>
                     <input
                       type="range"
@@ -2418,15 +2534,15 @@ export function TimelineVideoEditor({
       </div>
 
       {/* Alt Çok Kanallı Zaman Çizelgesi */}
-      <section className="flex flex-col border-t border-white/10 bg-[#0E1015]">
+      <section className="flex flex-col border-t border-line bg-surface">
         {/* Transport & Edit Araç Çubuğu */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#141720] px-3 py-1.5 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-bg px-3 py-1.5 text-xs">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => applyTimelineEdit((c) => splitElementAtPlayhead(c, playheadRef.current, selectedIds))}
               title="Böl (S)"
-              className="rounded-md border border-white/15 px-2 py-1 text-[11px] hover:bg-white/10"
+              className="rounded-md border border-line px-2 py-1 text-[11px] hover:bg-surface-hover"
             >
               ✂ Böl (S)
             </button>
@@ -2434,7 +2550,7 @@ export function TimelineVideoEditor({
               type="button"
               onClick={() => applyTimelineEdit((c) => splitAndDeleteSide(c, playheadRef.current, "left", selectedIds))}
               title="Sol Kısmı Kes (Q)"
-              className="rounded-md border border-white/15 px-2 py-1 text-[11px] hover:bg-white/10"
+              className="rounded-md border border-line px-2 py-1 text-[11px] hover:bg-surface-hover"
             >
               ↤ Sol (Q)
             </button>
@@ -2442,7 +2558,7 @@ export function TimelineVideoEditor({
               type="button"
               onClick={() => applyTimelineEdit((c) => splitAndDeleteSide(c, playheadRef.current, "right", selectedIds))}
               title="Sağ Kısmı Kes (W)"
-              className="rounded-md border border-white/15 px-2 py-1 text-[11px] hover:bg-white/10"
+              className="rounded-md border border-line px-2 py-1 text-[11px] hover:bg-surface-hover"
             >
               ↦ Sağ (W)
             </button>
@@ -2458,7 +2574,7 @@ export function TimelineVideoEditor({
                 }))
               }
               title="İşaret Koy (M)"
-              className="rounded-md border border-white/15 px-2 py-1 text-[11px] hover:bg-white/10"
+              className="rounded-md border border-line px-2 py-1 text-[11px] hover:bg-surface-hover"
             >
               🚩 (M)
             </button>
@@ -2468,7 +2584,7 @@ export function TimelineVideoEditor({
             <button
               type="button"
               onClick={() => seekTo(0 as Ticks)}
-              className="rounded px-1.5 py-0.5 text-zinc-400 hover:text-white"
+              className="rounded px-1.5 py-0.5 text-fg-muted hover:text-fg"
             >
               ⏮
             </button>
@@ -2493,12 +2609,12 @@ export function TimelineVideoEditor({
               type="button"
               onClick={() => setSnapEnabled((s) => !s)}
               className={`rounded-md border px-2 py-0.5 ${
-                snapEnabled ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-200" : "border-white/10 text-zinc-400"
+                snapEnabled ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-200" : "border-line text-fg-muted"
               }`}
             >
               🧲 Mıknatıs {snapEnabled ? "Açık" : "Kapalı"}
             </button>
-            <span className="text-zinc-400">Yakınlaştır:</span>
+            <span className="text-fg-muted">Yakınlaştır:</span>
             <input
               type="range"
               min={16}
@@ -2522,8 +2638,8 @@ export function TimelineVideoEditor({
           }}
         >
           {/* Sol Kanal Başlıkları */}
-          <div className="sticky left-0 z-20 flex w-36 shrink-0 flex-col border-r border-white/10 bg-[#12141C]">
-            <div className="flex h-7 items-center border-b border-white/10 px-2 text-[10px] font-medium text-zinc-500">
+          <div className="sticky left-0 z-20 flex w-36 shrink-0 flex-col border-r border-line bg-surface">
+            <div className="flex h-7 items-center border-b border-line px-2 text-[10px] font-medium text-fg-passive">
               ZAMAN CETVELİ
             </div>
             {[
@@ -2531,7 +2647,7 @@ export function TimelineVideoEditor({
               { id: timeline.tracks.main.id, name: timeline.tracks.main.name, kind: "video" },
               ...timeline.tracks.audio.map((tr) => ({ id: tr.id, name: tr.name, kind: "audio" })),
             ].map((row) => (
-              <div key={row.id} className="flex h-12 items-center border-b border-white/10 px-2.5 text-[11px] font-medium text-zinc-300">
+              <div key={row.id} className="flex h-12 items-center border-b border-line px-2.5 text-[11px] font-medium text-fg-muted">
                 <span className="truncate">{row.name}</span>
               </div>
             ))}
@@ -2556,12 +2672,12 @@ export function TimelineVideoEditor({
                 window.addEventListener("pointermove", onMove);
                 window.addEventListener("pointerup", onUp);
               }}
-              className="relative h-7 cursor-ew-resize border-b border-white/10 bg-[#101218] select-none"
+              className="relative h-7 cursor-ew-resize border-b border-line bg-[#101218] select-none"
             >
               {Array.from({ length: Math.ceil(totalSec) + 2 }).map((_, s) => (
                 <div
                   key={s}
-                  className="absolute top-0 flex h-full flex-col justify-end border-l border-white/15 pl-1 text-[9px] text-zinc-500"
+                  className="absolute top-0 flex h-full flex-col justify-end border-l border-line pl-1 text-[9px] text-fg-passive"
                   style={{ left: `${s * zoomPxPerSec}px` }}
                 >
                   {s}s
@@ -2648,9 +2764,9 @@ export function TimelineVideoEditor({
               ["M", "İşaret Noktası Ekle"],
               ["?", "Kısayollar Yardımı"],
             ].map(([k, d]) => (
-              <div key={k} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5">
-                <span className="text-zinc-300">{d}</span>
-                <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-cyan-200">{k}</kbd>
+              <div key={k} className="flex items-center justify-between rounded-lg border border-line bg-bg px-2.5 py-1.5">
+                <span className="text-fg-muted">{d}</span>
+                <kbd className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-[10px] text-cyan-200">{k}</kbd>
               </div>
             ))}
           </div>
@@ -2662,20 +2778,20 @@ export function TimelineVideoEditor({
         <ModalDialog title="Yeni Video Projesi" onClose={() => setShowNewProjectModal(false)}>
           <div className="flex flex-col gap-3 text-xs">
             <label className="flex flex-col gap-1">
-              <span className="text-zinc-300">Proje Adı</span>
+              <span className="text-fg-muted">Proje Adı</span>
               <input
                 value={newProjTitle}
                 onChange={(e) => setNewProjTitle(e.target.value)}
                 placeholder="Örn: Bahar Koleksiyonu Reels"
-                className="h-9 rounded-lg border border-white/15 bg-black/30 px-3 text-white"
+                className="h-9 rounded-lg border border-line bg-bg px-3 text-fg"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-zinc-300">Oran</span>
+              <span className="text-fg-muted">Oran</span>
               <select
                 value={newProjAspect}
                 onChange={(e) => setNewProjAspect(e.target.value as AspectPreset)}
-                className="h-9 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                className="h-9 rounded-lg border border-line bg-bg px-2 text-fg"
               >
                 <option value="9:16">9:16 Dikey (Reels / TikTok / Shorts)</option>
                 <option value="4:5">4:5 Instagram Feed</option>
@@ -2684,11 +2800,11 @@ export function TimelineVideoEditor({
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-zinc-300">Şablon (opsiyonel)</span>
+              <span className="text-fg-muted">Şablon (opsiyonel)</span>
               <select
                 value={newProjTemplate}
                 onChange={(e) => setNewProjTemplate(e.target.value)}
-                className="h-9 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                className="h-9 rounded-lg border border-line bg-bg px-2 text-fg"
               >
                 <option value="">Boş Zaman Çizelgesi</option>
                 {templates.map((t) => (
@@ -2700,11 +2816,11 @@ export function TimelineVideoEditor({
             </label>
             {campaigns.length > 0 ? (
               <label className="flex flex-col gap-1">
-                <span className="text-zinc-300">Kampanya Bağlantısı (#reklam & UTM için)</span>
+                <span className="text-fg-muted">Kampanya Bağlantısı (#reklam & UTM için)</span>
                 <select
                   value={newProjCampaign}
                   onChange={(e) => setNewProjCampaign(e.target.value)}
-                  className="h-9 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                  className="h-9 rounded-lg border border-line bg-bg px-2 text-fg"
                 >
                   <option value="">Seçili değil</option>
                   {campaigns.map((c) => (
@@ -2730,17 +2846,17 @@ export function TimelineVideoEditor({
       {showVersions ? (
         <ModalDialog title="Sürüm Geçmişi (Son 30)" onClose={() => setShowVersions(false)}>
           <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto text-xs">
-            {versions.length === 0 ? <li className="py-4 text-center text-zinc-500">Sürüm kaydı yok.</li> : null}
+            {versions.length === 0 ? <li className="py-4 text-center text-fg-passive">Sürüm kaydı yok.</li> : null}
             {versions.map((v) => (
               <li
                 key={v.id}
-                className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-xl border border-line bg-bg px-3 py-2"
               >
                 <div>
-                  <p className="font-semibold text-white">
+                  <p className="font-semibold text-fg">
                     v{v.revision} · {v.label}
                   </p>
-                  <p className="text-[10px] text-zinc-400">{new Date(v.createdAt).toLocaleString("tr-TR")}</p>
+                  <p className="text-[10px] text-fg-muted">{new Date(v.createdAt).toLocaleString("tr-TR")}</p>
                 </div>
                 <button
                   type="button"
@@ -2759,14 +2875,14 @@ export function TimelineVideoEditor({
       {/* 409 Çakışma Çözüm Modal */}
       {conflictInfo && project ? (
         <ModalDialog title="Eşzamanlı Güncelleme Çakışması" onClose={() => setConflictInfo(null)}>
-          <p className="text-xs text-zinc-300">
+          <p className="text-xs text-fg-muted">
             Bu proje başka bir oturumda güncellenmiş (Sunucu Revizyon #{conflictInfo.currentRevision}). Hangisini korumak istersiniz?
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <button
               type="button"
               onClick={() => void loadProjectById(project.id)}
-              className="flex-1 rounded-xl border border-white/15 bg-white/10 py-2 font-semibold text-white"
+              className="flex-1 rounded-xl border border-line bg-surface-hover py-2 font-semibold text-fg"
             >
               Sunucu Sürümünü Yükle
             </button>
@@ -2790,7 +2906,7 @@ export function TimelineVideoEditor({
             pendingConsentActionRef.current = null;
           }}
         >
-          <p className="text-xs leading-relaxed text-zinc-300">
+          <p className="text-xs leading-relaxed text-fg-muted">
             Ses çözümleme (<code className="text-cyan-300">fal-ai/wizper</code>) ve AI video/görsel üretimi için medya
             dosyanızın kısa süreli imzalı bağlantısı yurt dışında konumlu <strong>fal.ai</strong> altyapısına iletilir.
             KVKK md. 9 kapsamında açık rızanız onaylandıktan sonra işlem devam edecektir.
@@ -2802,7 +2918,7 @@ export function TimelineVideoEditor({
                 setConsentOpen(false);
                 pendingConsentActionRef.current = null;
               }}
-              className="rounded-lg border border-white/15 px-3 py-1.5 text-zinc-300"
+              className="rounded-lg border border-line px-3 py-1.5 text-fg-muted"
             >
               Vazgeç
             </button>
@@ -2822,11 +2938,11 @@ export function TimelineVideoEditor({
         <ModalDialog title="MP4 Dışa Aktar & Kampanya Teslimatı" onClose={() => setShowExportModal(false)}>
           <div className="flex flex-col gap-3 text-xs">
             <label className="flex flex-col gap-1">
-              <span className="text-zinc-300">Çıktı Kalitesi</span>
+              <span className="text-fg-muted">Çıktı Kalitesi</span>
               <select
                 value={exportQuality}
                 onChange={(e) => setExportQuality(e.target.value as "draft" | "standard" | "high")}
-                className="h-9 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                className="h-9 rounded-lg border border-line bg-bg px-2 text-fg"
               >
                 <option value="draft">Taslak Önizleme (720p · Hızlı)</option>
                 <option value="standard">Standart Yayın (1080p · CRF 20)</option>
@@ -2860,11 +2976,11 @@ export function TimelineVideoEditor({
 
                 {campaigns.length > 0 && !project.lockedAt ? (
                   <div className="flex flex-col gap-2 border-t border-emerald-400/20 pt-2">
-                    <span className="font-semibold text-white">Kampanyaya Taslak Olarak Teslim Et</span>
+                    <span className="font-semibold text-fg">Kampanyaya Taslak Olarak Teslim Et</span>
                     <select
                       value={submitCampaignId}
                       onChange={(e) => setSubmitCampaignId(e.target.value)}
-                      className="h-8 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                      className="h-8 rounded-lg border border-line bg-bg px-2 text-fg"
                     >
                       {campaigns.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -2876,7 +2992,7 @@ export function TimelineVideoEditor({
                       <select
                         value={submitDeliverableId}
                         onChange={(e) => setSubmitDeliverableId(e.target.value)}
-                        className="h-8 rounded-lg border border-white/15 bg-black/30 px-2 text-white"
+                        className="h-8 rounded-lg border border-line bg-bg px-2 text-fg"
                       >
                         <option value="">Kampanya Genel Taslağı</option>
                         {campaigns
@@ -2923,7 +3039,7 @@ function TrackLane({
   colorClass: string;
 }) {
   return (
-    <div className="relative h-12 border-b border-white/10 bg-[#0B0C11]">
+    <div className="relative h-12 border-b border-line bg-[#0B0C11]">
       {elements.map((el) => {
         const left = ticksToSeconds(el.startTime) * zoomPxPerSec;
         const width = Math.max(22, ticksToSeconds(el.duration) * zoomPxPerSec);
@@ -2975,13 +3091,13 @@ function ModalDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-white/15 bg-[#151822] p-5 text-white shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-5 text-fg shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-bold">{title}</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-xs text-zinc-400 hover:bg-white/10 hover:text-white"
+            className="rounded-lg px-2 py-1 text-xs text-fg-muted hover:bg-surface-hover hover:text-fg"
           >
             ✕
           </button>

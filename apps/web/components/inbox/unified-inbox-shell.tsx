@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { uploadFile } from "@/lib/creative-upload";
 import {
@@ -257,6 +258,7 @@ export function UnifiedInboxShell({
   const [templateParam2, setTemplateParam2] = useState("");
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"channels" | "canned" | "labels" | "general">("channels");
   const [channels, setChannels] = useState<ChannelItem[]>([]);
   const [igAuthorizeUrl, setIgAuthorizeUrl] = useState<string | null>(null);
@@ -747,16 +749,36 @@ export function UnifiedInboxShell({
     return items;
   }, [detail]);
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
+
   return (
-    <div className="flex min-h-[760px] flex-col overflow-hidden rounded-2xl border border-line bg-surface text-fg shadow-xl">
-      {/* Üst Başlık Çubuğu */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-bg/60 px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-bold tracking-tight text-fg">Mesaj Kutusu</h1>
-            <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-fg-muted">
-              Instagram DM + WhatsApp
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 flex h-screen w-screen flex-col overflow-hidden bg-surface text-fg"
+          : "flex min-h-[760px] flex-col overflow-hidden rounded-2xl border border-line bg-surface text-fg"
+      }
+    >
+      {/* Sadeleştirilmiş Üst Başlık & Tek Merkez Geçişi */}
+      <header className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line bg-bg/60 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center rounded-xl border border-line bg-surface p-0.5 text-xs">
+            <span className="rounded-lg bg-fg px-3 py-1 font-semibold text-bg">
+              Mesaj Kutusu
             </span>
+            <Link
+              href="/dashboard/dm-otomasyonu"
+              className="rounded-lg px-3 py-1 font-medium text-fg-muted transition hover:text-fg"
+            >
+              DM Otomasyonu
+            </Link>
           </div>
 
           {tenantOptions.length > 1 ? (
@@ -803,23 +825,22 @@ export function UnifiedInboxShell({
             ref={searchInputRef}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Kişi, @kullanıcı, telefon veya #no ara… (Ctrl+K)"
-            className="h-8 w-56 rounded-xl border border-line bg-bg px-3 text-xs text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+            placeholder="Ara… (Ctrl+K)"
+            className="h-8 w-44 rounded-lg border border-line bg-bg px-3 text-xs text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
           />
           <button
             type="button"
-            onClick={() => setShowShortcutsModal(true)}
-            title="Klavye Kısayolları (?)"
-            className="h-8 w-8 rounded-xl border border-line bg-surface text-xs font-bold text-fg-muted hover:text-fg"
+            onClick={() => void openSettingsAndLoadChannels()}
+            className="h-8 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-fg hover:border-fg/40"
           >
-            ?
+            Kanallar & Ayarlar
           </button>
           <button
             type="button"
-            onClick={() => void openSettingsAndLoadChannels()}
-            className="h-8 rounded-xl border border-line bg-surface px-3 text-xs font-medium text-fg hover:border-fg/40"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="h-8 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-fg hover:border-fg/40"
           >
-            ⚙ Ayarlar & Kanallar
+            {isFullscreen ? "Tam Ekrandan Çık" : "Tam Ekran"}
           </button>
         </div>
       </header>

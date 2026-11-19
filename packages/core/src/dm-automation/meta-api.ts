@@ -87,7 +87,13 @@ export interface DmMetaTransport {
   exchangeInstagramLoginCode(input: {
     code: string;
     redirectUri: string;
-  }): Promise<{ accessToken: string; userId: string; expiresInSeconds: number }>;
+  }): Promise<{
+    accessToken: string;
+    userId: string;
+    username?: string;
+    accountType?: "BUSINESS" | "CREATOR" | "PERSONAL";
+    expiresInSeconds: number;
+  }>;
 }
 
 let mockSeq = 1000;
@@ -350,9 +356,32 @@ export const httpDmMetaTransport: DmMetaTransport = {
       `https://graph.instagram.com/access_token?${qs.toString()}`,
       { method: "GET" },
     );
+
+    let username: string | undefined;
+    let accountType: "BUSINESS" | "CREATOR" | "PERSONAL" | undefined;
+    try {
+      const meQs = new URLSearchParams({
+        fields: "id,username,account_type",
+        access_token: longRes.access_token,
+      });
+      const me = await graphJson<{ id?: string; username?: string; account_type?: string }>(
+        `https://graph.instagram.com/me?${meQs.toString()}`,
+        { method: "GET" },
+      );
+      if (me.username) username = me.username.replace(/^@/, "");
+      const rawType = (me.account_type ?? "").toUpperCase();
+      if (rawType === "BUSINESS") accountType = "BUSINESS";
+      else if (rawType === "MEDIA_CREATOR" || rawType === "CREATOR") accountType = "CREATOR";
+      else if (rawType === "PERSONAL") accountType = "PERSONAL";
+    } catch {
+      /* profil adı alınamazsa user_id ile devam edilir */
+    }
+
     return {
       accessToken: longRes.access_token,
       userId: String(shortRes.user_id),
+      username,
+      accountType,
       expiresInSeconds: longRes.expires_in ?? 5_184_000,
     };
   },

@@ -97,6 +97,8 @@ export type DmAccountRecord = {
   igUserId: string;
   username: string;
   status: "CONNECTED" | "REAUTH_REQUIRED" | "WEBHOOK_MISSING" | "REVOKED";
+  authMode: "OWN_OAUTH" | "PLATFORM_SYNCED" | "DEMO";
+  autoLinked: boolean;
   scopes: string[];
   webhookSubscribed: boolean;
   tokenExpiresAt: string | null;
@@ -546,7 +548,138 @@ type AccountMetaMap = Record<
   }
 >;
 
+function slugifyInstagramFallback(name: string): string {
+  const cleaned = name
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ı/g, "i")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/[^a-z0-9._]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+  return cleaned || "nordvow.creator";
+}
+
+/**
+ * Marka (/marka/kanallar & Mesaj Kutusu ChannelConnection) ve Influencer (SocialAccount)
+ * üzerinde halihazırda bağlı olan Instagram hesabını DM Otomasyonu ile otomatik eşleştirir.
+ */
+async function syncConnectedInstagramAccountForDm(tenantId: string): Promise<void> {
+  const [conns, socialIg, brand] = await Promise.all([
+    prisma.channelConnection.findMany({
+      where: { tenantId, provider: "INSTAGRAM", status: { not: "REVOKED" } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.socialAccount
+      .findUnique({
+        where: { influencerId_platform: { influencerId: tenantId, platform: "INSTAGRAM" } },
+        select: { id: true, handle: true, externalId: true, tokenRef: true },
+      })
+      .catch(() => null),
+    prisma.brand
+      .findUnique({ where: { id: tenantId }, select: { name: true } })
+      .catch(() => null),
+  ]);
+
+  // 1) Influencer'ın bağlı SocialAccount (INSTAGRAM) hesabı varsa otomatik ChannelConnection'a senkronize et.
+  if (socialIg?.handle) {
+    const cleanHandle = socialIg.handle.replace(/^@/, "").trim();
+    const targetIgUserId = socialIg.externalId?.trim() || `ig_social_${socialIg.id}`;
+    const hasOwnOAuth = conns.some((c) => {
+      const ext = (c.externalIds ?? {}) as Record<string, unknown>;
+      return !c.tokenRef.startsWith("demo:") && ext.source !== "social_account";
+    });
+
+    if (!hasOwnOAuth && cleanHandle) {
+      const syncedOrDemo = conns.find((c) => {
+        const ext = (c.externalIds ?? {}) as Record<string, unknown>;
+        return c.tokenRef.startsWith("demo:") || ext.source === "social_account";
+      });
+
+      const nextExternalIds = {
+        ig_user_id: targetIgUserId,
+        ig_username: cleanHandle,
+        account_type: "CREATOR",
+        source: "social_account",
+        social_account_id: socialIg.id,
+      };
+      const nextTokenRef = socialIg.tokenRef || "env:INSTAGRAM_ACCESS_TOKEN";
+
+      if (syncedOrDemo) {
+        const ext = (syncedOrDemo.externalIds ?? {}) as Record<string, unknown>;
+        if (
+          String(ext.ig_username ?? "") !== cleanHandle ||
+          String(ext.ig_user_id ?? "") !== targetIgUserId ||
+          syncedOrDemo.tokenRef.startsWith("demo:")
+        ) {
+          await prisma.channelConnection.update({
+            where: { id: syncedOrDemo.id },
+            data: {
+              externalIds: nextExternalIds,
+              tokenRef: nextTokenRef,
+              status: "ACTIVE",
+              lastVerifiedAt: new Date(),
+            },
+          });
+        }
+      } else {
+        const created = await prisma.channelConnection.create({
+          data: {
+            tenantId,
+            provider: "INSTAGRAM",
+            externalIds: nextExternalIds,
+            tokenRef: nextTokenRef,
+            scopes: [
+              "instagram_business_basic",
+              "instagram_business_manage_messages",
+              "instagram_business_manage_comments",
+            ],
+            status: "ACTIVE",
+            connectedAt: new Date(),
+            lastVerifiedAt: new Date(),
+          },
+        });
+        const metaMap = await loadJson<AccountMetaMap>(keyAccountsMeta(tenantId), {});
+        if (!metaMap[created.id]) {
+          metaMap[created.id] = { webhookSubscribed: true, status: "CONNECTED" };
+          await saveJson(keyAccountsMeta(tenantId), metaMap);
+        }
+      }
+    }
+    return;
+  }
+
+  // 2) Marka: /marka/kanallar veya Mesaj Kutusu üzerinden bağlı ChannelConnection varsa kullanıcı adı + meta otomatik tamamlanır.
+  if (brand && conns.length > 0) {
+    const metaMap = await loadJson<AccountMetaMap>(keyAccountsMeta(tenantId), {});
+    let metaDirty = false;
+    for (const c of conns) {
+      const ext = (c.externalIds ?? {}) as Record<string, unknown>;
+      const existingName = String(ext.ig_username ?? ext.username ?? ext.handle ?? "").trim();
+      if (!existingName || existingName === "nordvow.creator") {
+        await prisma.channelConnection.update({
+          where: { id: c.id },
+          data: {
+            externalIds: {
+              ...ext,
+              ig_username: slugifyInstagramFallback(brand.name),
+            },
+          },
+        });
+      }
+      if (!metaMap[c.id]) {
+        metaMap[c.id] = { webhookSubscribed: true, status: "CONNECTED" };
+        metaDirty = true;
+      }
+    }
+    if (metaDirty) await saveJson(keyAccountsMeta(tenantId), metaMap);
+  }
+}
+
 export async function listDmInstagramAccounts(tenantId: string): Promise<DmAccountRecord[]> {
+  await syncConnectedInstagramAccountForDm(tenantId);
   await ensureInitialDmAutomationData(tenantId);
   const [conns, metaMap] = await Promise.all([
     prisma.channelConnection.findMany({
@@ -560,7 +693,7 @@ export async function listDmInstagramAccounts(tenantId: string): Promise<DmAccou
     const ext = (c.externalIds ?? {}) as Record<string, unknown>;
     const meta = metaMap[c.id] ?? {};
     const igUserId = String(ext.ig_user_id ?? ext.page_id ?? c.id);
-    const username = String(ext.ig_username ?? "nordvow.creator").replace(/^@/, "");
+    const username = String(ext.ig_username ?? ext.username ?? ext.handle ?? "nordvow.creator").replace(/^@/, "");
     const breaker = getCircuitBreakerState(igUserId);
     const status: DmAccountRecord["status"] =
       c.status === "REVOKED"
@@ -571,12 +704,23 @@ export async function listDmInstagramAccounts(tenantId: string): Promise<DmAccou
             ? "WEBHOOK_MISSING"
             : "CONNECTED";
 
+    const isDemo = c.tokenRef.startsWith("demo:");
+    const isSocialSynced = ext.source === "social_account" || c.tokenRef.startsWith("env:");
+    const authMode: DmAccountRecord["authMode"] = isDemo
+      ? "DEMO"
+      : isSocialSynced
+        ? "PLATFORM_SYNCED"
+        : "OWN_OAUTH";
+    const autoLinked = ext.source === "social_account" || (!isDemo && !meta.tokenCiphertext);
+
     return {
       id: c.id,
       tenantId,
       igUserId,
       username,
       status,
+      authMode,
+      autoLinked,
       scopes: c.scopes,
       webhookSubscribed: meta.webhookSubscribed ?? true,
       tokenExpiresAt: meta.tokenExpiresAt ?? null,
@@ -634,16 +778,28 @@ export async function connectDmInstagramAccount(input: {
 
   let token = input.accessToken ?? "";
   let igUserId = input.igUserId?.trim() ?? "";
+  let resolvedUsername = input.igUsername?.trim() ?? "";
+  let resolvedAccountType: "BUSINESS" | "CREATOR" | "PERSONAL" = input.accountType ?? "CREATOR";
   let expiresInSec = 5_184_000;
 
   if (input.code && !token) {
+    const baseUrl = (envStr("APP_URL", "") || envStr("NEXT_PUBLIC_APP_URL", "https://nordvow.com")).replace(/\/$/, "");
     const exchanged = await dmMetaTransport().exchangeInstagramLoginCode({
       code: input.code,
-      redirectUri: input.redirectUri ?? `${envStr("NEXT_PUBLIC_APP_URL", "https://nordvow.com").replace(/\/$/, "")}/dashboard/dm-otomasyonu`,
+      redirectUri: input.redirectUri ?? `${baseUrl}/dashboard/dm-otomasyonu`,
     });
     token = exchanged.accessToken;
     igUserId ||= exchanged.userId;
+    if (exchanged.username) resolvedUsername ||= exchanged.username;
+    if (exchanged.accountType) resolvedAccountType = exchanged.accountType;
     expiresInSec = exchanged.expiresInSeconds;
+  }
+
+  if (resolvedAccountType === "PERSONAL") {
+    throw new DomainError(
+      "KURAL_IHLALI",
+      "Bu özellik için profesyonel (İşletme/İçerik üretici) hesap gerekir. Instagram uygulamasında Ayarlar → Hesap türü → Profesyonel hesaba geçebilirsiniz.",
+    );
   }
 
   if (!igUserId) {
@@ -652,7 +808,11 @@ export async function connectDmInstagramAccount(input: {
 
   const sameConn = existing.find((c) => {
     const ext = (c.externalIds ?? {}) as Record<string, unknown>;
-    return String(ext.ig_user_id ?? "") === igUserId;
+    return (
+      String(ext.ig_user_id ?? "") === igUserId ||
+      c.tokenRef.startsWith("demo:") ||
+      ext.source === "social_account"
+    );
   });
 
   if (!sameConn && existing.length >= quota.igAccountLimit) {
@@ -667,7 +827,7 @@ export async function connectDmInstagramAccount(input: {
     "instagram_business_manage_messages",
     "instagram_business_manage_comments",
   ];
-  const username = (input.igUsername || `ig_${igUserId.slice(-6)}`).replace(/^@/, "");
+  const username = (resolvedUsername || `ig_${igUserId.slice(-6)}`).replace(/^@/, "");
 
   // Ortak webhook abonelik alanları (Mesaj Kutusu ile birleşik)
   let webhookSubscribed = true;
@@ -884,8 +1044,11 @@ export type CreateDmCampaignInput = {
 
 export async function createDmCampaign(input: CreateDmCampaignInput): Promise<DmCampaignRecord> {
   const accounts = await listDmInstagramAccounts(input.tenantId);
-  const account = accounts.find((a) => a.id === input.igAccountId);
-  if (!account) throw new DomainError("BULUNAMADI", "Instagram hesabı bulunamadı.");
+  const account =
+    accounts.find((a) => a.id === input.igAccountId) ??
+    accounts.find((a) => a.status === "CONNECTED") ??
+    accounts[0];
+  if (!account) throw new DomainError("BULUNAMADI", "Bağlı Instagram hesabı bulunamadı.");
 
   const dmText = input.dmText.trim();
   if (!dmText || dmText.length > 640) {

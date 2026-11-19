@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { matchKeyword, type KeywordMatchMode } from "@infulancer/core/dm-automation/matcher";
 
@@ -14,6 +15,8 @@ type AccountItem = {
   igUserId: string;
   username: string;
   status: "CONNECTED" | "REAUTH_REQUIRED" | "WEBHOOK_MISSING" | "REVOKED";
+  authMode?: "OWN_OAUTH" | "PLATFORM_SYNCED" | "DEMO";
+  autoLinked?: boolean;
   scopes: string[];
   webhookSubscribed: boolean;
   tokenExpiresAt: string | null;
@@ -189,6 +192,7 @@ export function DmAutomationShell({
   const [workerHealthy, setWorkerHealthy] = useState(true);
   const [igAuthorizeUrl, setIgAuthorizeUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [toast, setToast] = useState<{ tone: "ok" | "warn" | "error"; text: string } | null>(null);
 
   // Hesap bağlama modalı
@@ -222,9 +226,9 @@ export function DmAutomationShell({
   const [wKeywordInput, setWKeywordInput] = useState("");
   const [wKeywords, setWKeywords] = useState<string[]>(["KOD"]);
   const [wMatchMode, setWMatchMode] = useState<KeywordMatchMode>("WHOLE_WORD");
-  const [wTestInput, setWTestInput] = useState("KOD lütfen 🙏");
+  const [wTestInput, setWTestInput] = useState("KOD lütfen");
   const [wDmText, setWDmText] = useState(
-    "Merhaba @{username}! ✨ İstediğin indirim kodun: {kupon}\n\nHemen kullanmak için butona dokunabilirsin: {link}",
+    "Merhaba @{username}, istediğin indirim kodun: {kupon}\n\nHemen kullanmak için butona dokunabilirsin: {link}",
   );
   const [wDmFooter, setWDmFooter] = useState(DEFAULT_DM_FOOTER);
   const [wButtons, setWButtons] = useState<{ label: string; url: string }[]>([
@@ -233,13 +237,13 @@ export function DmAutomationShell({
   const [wCouponId, setWCouponId] = useState("");
   const [wCouponCode, setWCouponCode] = useState("NORDVOW25");
   const [wOpeningDmEnabled, setWOpeningDmEnabled] = useState(false);
-  const [wOpeningDmText, setWOpeningDmText] = useState("Merhaba! Kodunu göndermem için aşağıdaki butona dokunabilirsin ✨");
+  const [wOpeningDmText, setWOpeningDmText] = useState("Merhaba! Kodunu göndermem için aşağıdaki butona dokunabilirsin.");
   const [wOpeningDmBtnLabel, setWOpeningDmBtnLabel] = useState("Kodu göster");
   const [wPublicReplyEnabled, setWPublicReplyEnabled] = useState(true);
   const [wPublicReplies, setWPublicReplies] = useState<string[]>([
-    "DM'den gönderdik 💌",
-    "Mesaj kutunu kontrol et ✨",
-    "Gönderildi, keyfini çıkar!",
+    "DM'den gönderdik.",
+    "Mesaj kutunu kontrol edebilirsin.",
+    "Kodun DM olarak iletildi.",
   ]);
   const [wPublicReplyDraft, setWPublicReplyDraft] = useState("");
   const [wRepeatPolicy, setWRepeatPolicy] = useState<RepeatPolicy>("DAILY");
@@ -256,6 +260,15 @@ export function DmAutomationShell({
   const notify = useCallback((tone: "ok" | "warn" | "error", text: string) => {
     setToast({ tone, text });
   }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFullscreen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -291,7 +304,11 @@ export function DmAutomationShell({
         setAccounts(list);
         setHasBreakerOpen(list.some((a) => Boolean(a.breakerOpenUntil && new Date(a.breakerOpenUntil).getTime() > nowTs)));
         setIgAuthorizeUrl(accData.igAuthorizeUrl ?? null);
-        if (!wAccountId && list[0]) setWAccountId(list[0].id);
+        // Marka veya influencer'ın bağlı Instagram hesabını her zaman otomatik seç (tenant değişiminde eski ID kalmasın).
+        const preferred = list.find((a) => a.status === "CONNECTED") ?? list[0];
+        if (preferred && !list.some((a) => a.id === wAccountId)) {
+          setWAccountId(preferred.id);
+        }
       }
     } catch (err) {
       notify("error", err instanceof Error ? err.message : "Veriler yüklenemedi.");
@@ -306,6 +323,41 @@ export function DmAutomationShell({
     }, 0);
     return () => clearTimeout(timer);
   }, [fetchOverview]);
+
+  // Instagram Business Login OAuth dönüşünde (?code=...&state=...) kullanıcının kendi hesabını otomatik bağla.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code")?.trim();
+    const state = params.get("state")?.trim();
+    if (!code) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/dm-automation/accounts?tenantId=${encodeURIComponent(tenantId)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code, ...(state ? { state } : {}) }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message ?? "Instagram yetkilendirmesi tamamlanamadı.");
+        if (!cancelled) {
+          const cleanUrl = `${window.location.pathname}`;
+          window.history.replaceState({}, "", cleanUrl);
+          await fetchOverview();
+          notify("ok", `@${data.account.username} kendi Instagram hesabınızla bağlandı. DM'ler doğrudan hesabınızdan gönderilecek.`);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          notify("error", err instanceof Error ? err.message : "Instagram OAuth bağlantısı başarısız.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, fetchOverview, notify]);
 
   const fetchMedia = useCallback(
     async (accId: string) => {
@@ -613,7 +665,13 @@ export function DmAutomationShell({
   }
 
   return (
-    <div className="space-y-5">
+    <div
+      className={
+        isFullscreen
+          ? "fixed inset-0 z-50 space-y-4 overflow-y-auto bg-canvas p-4 sm:p-6"
+          : "space-y-4"
+      }
+    >
       {toast ? (
         <div
           role="status"
@@ -629,27 +687,26 @@ export function DmAutomationShell({
         </div>
       ) : null}
 
-      {/* Üst Başlık */}
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-surface p-5">
-        <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-fg">DM Otomasyonu</h1>
-            <span className="rounded-full border border-neon-cyan/30 bg-neon-cyan/10 px-2.5 py-0.5 text-[11px] font-medium text-neon-cyan">
-              Resmî Instagram Private Replies
+      {/* Sadeleştirilmiş Üst Başlık & Tek Merkez Geçişi */}
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center rounded-xl border border-line bg-bg p-0.5 text-xs">
+            <Link
+              href="/dashboard/mesaj-kutusu"
+              className="rounded-lg px-3 py-1.5 font-medium text-fg-muted transition hover:text-fg"
+            >
+              Mesaj Kutusu
+            </Link>
+            <span className="rounded-lg bg-fg px-3 py-1.5 font-semibold text-bg">
+              DM Otomasyonu
             </span>
           </div>
-          <p className="mt-1 text-sm text-fg-muted">
-            Instagram&apos;da yorum yazanlara istedikleri bilgiyi otomatik DM ile gönder.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
           {tenantOptions.length > 1 ? (
             <select
               aria-label="Çalışma Alanı"
               value={tenantId}
               onChange={(e) => setTenantId(e.target.value)}
-              className="h-9 rounded-xl border border-line bg-bg px-3 text-xs text-fg"
+              className="h-8 rounded-lg border border-line bg-bg px-2.5 text-xs text-fg"
             >
               {tenantOptions.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -658,7 +715,9 @@ export function DmAutomationShell({
               ))}
             </select>
           ) : null}
+        </div>
 
+        <div className="flex flex-wrap items-center gap-2">
           {view !== "list" ? (
             <button
               type="button"
@@ -667,26 +726,26 @@ export function DmAutomationShell({
                 setSelectedCampaignId(null);
                 router.push("/dashboard/dm-otomasyonu");
               }}
-              className="h-9 rounded-xl border border-line bg-bg px-3.5 text-xs font-medium text-fg hover:bg-surface-hover"
+              className="h-8 rounded-lg border border-line bg-bg px-3 text-xs font-medium text-fg hover:bg-surface-hover"
             >
-              ← Tüm otomasyonlar
+              Liste
             </button>
           ) : null}
 
           <button
             type="button"
-            onClick={() => setView("opt-outs")}
-            className="h-9 rounded-xl border border-line bg-bg px-3.5 text-xs font-medium text-fg-muted hover:text-fg"
+            onClick={() => setShowConnectModal(true)}
+            className="h-8 rounded-lg border border-line bg-bg px-3 text-xs font-medium text-fg hover:bg-surface-hover"
           >
-            Abonelikten çıkanlar
+            Hesap Bağla
           </button>
 
           <button
             type="button"
-            onClick={() => setShowConnectModal(true)}
-            className="h-9 rounded-xl border border-line bg-bg px-3.5 text-xs font-medium text-fg hover:bg-surface-hover"
+            onClick={() => setIsFullscreen((v) => !v)}
+            className="h-8 rounded-lg border border-line bg-bg px-3 text-xs font-medium text-fg hover:bg-surface-hover"
           >
-            Instagram Hesapları ({accounts.length})
+            {isFullscreen ? "Tam Ekrandan Çık" : "Tam Ekran"}
           </button>
 
           <button
@@ -695,9 +754,9 @@ export function DmAutomationShell({
               setWizardStep(1);
               setView("new");
             }}
-            className="h-9 rounded-xl bg-fg px-4 text-xs font-semibold text-bg transition hover:opacity-90"
+            className="h-8 rounded-lg bg-fg px-3.5 text-xs font-semibold text-bg transition hover:opacity-90"
           >
-            + Yeni otomasyon
+            + Yeni Otomasyon
           </button>
         </div>
       </header>
@@ -720,6 +779,33 @@ export function DmAutomationShell({
               >
                 ● {primaryAccount.status === "CONNECTED" ? "Bağlı" : "Yeniden yetkilendir"}
               </span>
+            ) : null}
+            {primaryAccount?.authMode === "OWN_OAUTH" ? (
+              <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+                Kendi hesabınla DM gönderimi aktif
+              </span>
+            ) : primaryAccount ? (
+              <span className="inline-flex items-center rounded-full border border-line bg-bg px-2 py-0.5 text-[11px] text-fg-muted">
+                Otomatik bağlı hesap
+              </span>
+            ) : null}
+            {primaryAccount?.authMode !== "OWN_OAUTH" ? (
+              igAuthorizeUrl ? (
+                <a
+                  href={igAuthorizeUrl}
+                  className="inline-flex items-center gap-1 rounded-lg bg-neon-pink px-2.5 py-1 text-[11px] font-semibold text-white transition hover:opacity-90"
+                >
+                  Kendi hesabınla DM gönder ↗
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowConnectModal(true)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-neon-pink/50 bg-neon-pink/15 px-2.5 py-1 text-[11px] font-semibold text-fg transition hover:bg-neon-pink/25"
+                >
+                  Kendi hesabınla DM gönder
+                </button>
+              )
             ) : null}
           </div>
           <div className="text-fg-muted">
@@ -1990,54 +2076,62 @@ export function DmAutomationShell({
             {igAuthorizeUrl ? (
               <a
                 href={igAuthorizeUrl}
-                className="block w-full rounded-xl bg-neon-pink py-2.5 text-center text-xs font-semibold text-white"
+                className="block w-full rounded-xl bg-fg py-3 text-center text-xs font-semibold text-bg transition hover:opacity-90"
               >
-                Instagram Login ile Yetkilendir ↗
+                Instagram ile Tek Tıkla Bağlan
               </a>
-            ) : null}
+            ) : (
+              <div className="rounded-xl border border-line bg-bg p-3 text-xs text-fg-muted">
+                Otomatik Instagram girişi için Meta Uygulama anahtarları (INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET) AWS Secrets Manager üzerinden aktif edildiğinde tek tıkla bağlanabilirsiniz.
+              </div>
+            )}
 
-            <div className="space-y-3 rounded-xl border border-line bg-bg/60 p-4 text-xs">
-              <div className="font-semibold">Hesap Bağla / Güncelle</div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                  value={connectIgUserId}
-                  onChange={(e) => setConnectIgUserId(e.target.value)}
-                  placeholder="IG User ID (ör. 17841400999)"
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5"
-                />
-                <input
-                  value={connectIgUsername}
-                  onChange={(e) => setConnectIgUsername(e.target.value)}
-                  placeholder="Kullanıcı adı (@marka)"
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5"
-                />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <select
-                  value={connectAccountType}
-                  onChange={(e) => setConnectAccountType(e.target.value as "CREATOR" | "BUSINESS" | "PERSONAL")}
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5"
+            <details className="rounded-xl border border-line bg-bg/60 p-3 text-xs">
+              <summary className="cursor-pointer font-medium text-fg-muted hover:text-fg">
+                Gelişmiş / Manuel Hesap Bağlantısı
+              </summary>
+              <div className="mt-3 space-y-2.5">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input
+                    value={connectIgUserId}
+                    onChange={(e) => setConnectIgUserId(e.target.value)}
+                    placeholder="IG User ID (ör. 17841400999)"
+                    className="h-9 rounded-lg border border-line bg-surface px-2.5"
+                  />
+                  <input
+                    value={connectIgUsername}
+                    onChange={(e) => setConnectIgUsername(e.target.value)}
+                    placeholder="Kullanıcı adı (@marka)"
+                    className="h-9 rounded-lg border border-line bg-surface px-2.5"
+                  />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <select
+                    value={connectAccountType}
+                    onChange={(e) => setConnectAccountType(e.target.value as "CREATOR" | "BUSINESS" | "PERSONAL")}
+                    className="h-9 rounded-lg border border-line bg-surface px-2.5"
+                  >
+                    <option value="CREATOR">İçerik Üretici (Creator)</option>
+                    <option value="BUSINESS">İşletme (Business)</option>
+                    <option value="PERSONAL">Kişisel Hesap (Desteklenmez)</option>
+                  </select>
+                  <input
+                    value={connectCode}
+                    onChange={(e) => setConnectCode(e.target.value)}
+                    placeholder="OAuth Kodu (opsiyonel)"
+                    className="h-9 rounded-lg border border-line bg-surface px-2.5"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void handleConnectAccount()}
+                  className="w-full rounded-xl bg-fg py-2 font-semibold text-bg disabled:opacity-50"
                 >
-                  <option value="CREATOR">İçerik Üretici (Creator)</option>
-                  <option value="BUSINESS">İşletme (Business)</option>
-                  <option value="PERSONAL">Kişisel Hesap (Desteklenmez)</option>
-                </select>
-                <input
-                  value={connectCode}
-                  onChange={(e) => setConnectCode(e.target.value)}
-                  placeholder="OAuth Kodu (opsiyonel)"
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5"
-                />
+                  Kaydet ve Bağla
+                </button>
               </div>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void handleConnectAccount()}
-                className="w-full rounded-xl bg-fg py-2 font-semibold text-bg disabled:opacity-50"
-              >
-                Hesabı Bağla
-              </button>
-            </div>
+            </details>
 
             {accounts.length > 0 ? (
               <div className="space-y-2">
