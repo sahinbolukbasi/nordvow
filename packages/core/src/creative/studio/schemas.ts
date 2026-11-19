@@ -34,6 +34,9 @@ export const storyboardSchema = z.object({
 export type StoryboardScene = z.infer<typeof storyboardSceneSchema>;
 export type Storyboard = z.infer<typeof storyboardSchema>;
 
+export const subtitleStyleSchema = z.enum(["classic", "bold-yellow", "box"]).default("bold-yellow");
+export type SubtitleStyle = z.infer<typeof subtitleStyleSchema>;
+
 export const editPlanSchema = z.object({
   summary: z.array(z.string().max(160)).min(1).max(10),
   trim: z
@@ -43,11 +46,28 @@ export const editPlanSchema = z.object({
       targetDurationSec: z.number().min(2).max(180).nullable().default(null),
     })
     .optional(),
+  removeSilences: z
+    .object({
+      enabled: z.boolean().default(false),
+      thresholdDb: z.number().min(-60).max(-10).default(-35),
+      minSilenceSec: z.number().min(0.2).max(3).default(0.45),
+    })
+    .optional(),
   speed: z.number().min(0.5).max(2.5).default(1),
   aspect: z.enum(["orijinal", "9:16", "1:1", "16:9"]).default("orijinal"),
-  colorLook: z.enum(["orijinal", "canli", "siyah-beyaz", "sicak", "soguk"]).default("orijinal"),
+  colorLook: z.enum(["orijinal", "canli", "sinematik", "siyah-beyaz", "sicak", "soguk"]).default("orijinal"),
   transition: transitionTypeSchema.default("fade"),
   reorder: z.array(z.number().int().min(0)).optional(),
+  autoTranscribe: z.boolean().optional().default(false),
+  subtitleStyle: subtitleStyleSchema.optional().default("bold-yellow"),
+  hookTitle: z
+    .object({
+      enabled: z.boolean().default(false),
+      text: z.string().max(90).default(""),
+      durationSec: z.number().min(1).max(8).default(3),
+      position: z.enum(["top", "center"]).default("top"),
+    })
+    .optional(),
   subtitles: z
     .object({
       enabled: z.boolean().default(false),
@@ -59,7 +79,7 @@ export const editPlanSchema = z.object({
             text: z.string().min(1).max(140),
           }),
         )
-        .max(40)
+        .max(120)
         .default([]),
     })
     .optional(),
@@ -68,7 +88,8 @@ export const editPlanSchema = z.object({
       muteOriginal: z.boolean().default(false),
       musicPrompt: z.string().max(200).nullable().default(null),
       voiceoverText: z.string().max(1200).nullable().default(null),
-      musicVolume: z.number().min(0.05).max(1).default(0.28),
+      musicVolume: z.number().min(0.05).max(1).default(0.22),
+      normalizeAudio: z.boolean().optional().default(true),
     })
     .optional(),
   regenerateScene: z
@@ -78,6 +99,7 @@ export const editPlanSchema = z.object({
       prompt: z.string().max(600).default(""),
       durationSec: z.number().int().min(3).max(10).default(5),
       insertAtSec: z.number().min(0).default(0),
+      position: z.enum(["intro", "outro"]).optional().default("intro"),
     })
     .optional(),
 });

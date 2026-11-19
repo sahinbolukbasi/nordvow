@@ -741,10 +741,10 @@ export function UnifiedInboxShell({
       | { kind: "note"; ts: string; data: PrivateNoteItem }
       | { kind: "activity"; ts: string; data: ActivityItem }
     )[] = [
-      ...detail.conversation.messages.map((m) => ({ kind: "message" as const, ts: m.createdAt, data: m })),
-      ...detail.conversation.notes.map((n) => ({ kind: "note" as const, ts: n.createdAt, data: n })),
-      ...detail.conversation.activities.map((a) => ({ kind: "activity" as const, ts: a.createdAt, data: a })),
-    ];
+        ...detail.conversation.messages.map((m) => ({ kind: "message" as const, ts: m.createdAt, data: m })),
+        ...detail.conversation.notes.map((n) => ({ kind: "note" as const, ts: n.createdAt, data: n })),
+        ...detail.conversation.activities.map((a) => ({ kind: "activity" as const, ts: a.createdAt, data: a })),
+      ];
     items.sort((a, b) => a.ts.localeCompare(b.ts));
     return items;
   }, [detail]);
@@ -774,7 +774,7 @@ export function UnifiedInboxShell({
               Mesaj Kutusu
             </span>
             <Link
-              href="/dashboard/dm-otomasyonu"
+              href="/dashboard/iletisim?sekme=otomasyon"
               className="rounded-lg px-3 py-1 font-medium text-fg-muted transition hover:text-fg"
             >
               DM Otomasyonu
@@ -809,9 +809,8 @@ export function UnifiedInboxShell({
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
-                  tab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
-                }`}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${tab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
+                  }`}
               >
                 <span>{t.label}</span>
                 <span className="rounded-full bg-black/15 px-1.5 text-[10px] tabular-nums">{t.count}</span>
@@ -849,13 +848,12 @@ export function UnifiedInboxShell({
       {toast ? (
         <div
           role="status"
-          className={`border-b px-4 py-1.5 text-xs font-medium ${
-            toast.tone === "error"
+          className={`border-b px-4 py-1.5 text-xs font-medium ${toast.tone === "error"
               ? "border-red-500/30 bg-red-500/15 text-red-500"
               : toast.tone === "warn"
                 ? "border-amber-500/30 bg-amber-500/15 text-amber-600"
                 : "border-emerald-500/30 bg-emerald-500/15 text-emerald-600"
-          }`}
+            }`}
         >
           {toast.text}
         </div>
@@ -975,9 +973,8 @@ export function UnifiedInboxShell({
                     role="option"
                     aria-selected={active}
                     onClick={() => setSelectedConvId(c.id)}
-                    className={`flex cursor-pointer items-start gap-2.5 px-3 py-3 transition ${
-                      active ? "bg-fg/10" : "hover:bg-surface-hover"
-                    }`}
+                    className={`flex cursor-pointer items-start gap-2.5 px-3 py-3 transition ${active ? "bg-fg/10" : "hover:bg-surface-hover"
+                      }`}
                   >
                     <input
                       type="checkbox"
@@ -995,11 +992,10 @@ export function UnifiedInboxShell({
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${
-                              c.channel === "INSTAGRAM"
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${c.channel === "INSTAGRAM"
                                 ? "bg-gradient-to-r from-pink-500 to-purple-600"
                                 : "bg-emerald-600"
-                            }`}
+                              }`}
                           >
                             {c.channel === "INSTAGRAM" ? "IG" : "WA"}
                           </span>
@@ -1039,9 +1035,8 @@ export function UnifiedInboxShell({
                           })}
                           {c.priority ? (
                             <span
-                              className={`rounded border px-1 py-0.5 text-[9px] font-semibold ${
-                                PRIORITY_LABELS[c.priority].color
-                              }`}
+                              className={`rounded border px-1 py-0.5 text-[9px] font-semibold ${PRIORITY_LABELS[c.priority].color
+                                }`}
                             >
                               {PRIORITY_LABELS[c.priority].label}
                             </span>
@@ -1077,11 +1072,10 @@ export function UnifiedInboxShell({
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${
-                      detail.conversation.channel === "INSTAGRAM"
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${detail.conversation.channel === "INSTAGRAM"
                         ? "bg-gradient-to-r from-pink-500 to-purple-600"
                         : "bg-emerald-600"
-                    }`}
+                      }`}
                   >
                     {detail.conversation.channel}
                   </span>
@@ -1105,11 +1099,10 @@ export function UnifiedInboxShell({
                         status: detail.conversation.status === "resolved" ? "open" : "resolved",
                       })
                     }
-                    className={`h-8 rounded-xl px-3 font-semibold transition ${
-                      detail.conversation.status === "resolved"
+                    className={`h-8 rounded-xl px-3 font-semibold transition ${detail.conversation.status === "resolved"
                         ? "border border-line bg-surface text-fg"
                         : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-                    }`}
+                      }`}
                   >
                     {detail.conversation.status === "resolved" ? "Yeniden Aç" : "✓ Çözüldü olarak işaretle"}
                   </button>
@@ -1260,11 +1253,10 @@ export function UnifiedInboxShell({
                       className={`flex max-w-[82%] flex-col ${isOut ? "self-end items-end" : "self-start items-start"}`}
                     >
                       <div
-                        className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                          isOut
+                        className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${isOut
                             ? "bg-fg text-bg"
                             : "border border-line bg-surface text-fg"
-                        }`}
+                          }`}
                       >
                         <p className="whitespace-pre-wrap">{m.body}</p>
                         {m.mediaUrl ? (
@@ -1337,15 +1329,14 @@ export function UnifiedInboxShell({
               {/* 24 Saat Mesajlaşma Penceresi Bandı */}
               {windowState ? (
                 <div
-                  className={`flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-1.5 text-xs ${
-                    windowState.reason === "open"
+                  className={`flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-1.5 text-xs ${windowState.reason === "open"
                       ? windowState.closingSoon
                         ? "bg-amber-500/15 text-amber-500"
                         : "bg-emerald-500/10 text-emerald-500"
                       : windowState.reason === "human_agent"
                         ? "bg-indigo-500/15 text-indigo-400"
                         : "bg-red-500/15 text-red-400"
-                  }`}
+                    }`}
                 >
                   <span>
                     {windowState.reason === "open"
@@ -1445,20 +1436,18 @@ export function UnifiedInboxShell({
                     <button
                       type="button"
                       onClick={() => setComposerMode("reply")}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                        composerMode === "reply" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
-                      }`}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${composerMode === "reply" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
+                        }`}
                     >
                       Yanıtla
                     </button>
                     <button
                       type="button"
                       onClick={() => setComposerMode("note")}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                        composerMode === "note"
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${composerMode === "note"
                           ? "bg-amber-400 text-slate-950"
                           : "text-fg-muted hover:text-fg"
-                      }`}
+                        }`}
                     >
                       🟨 Dahili Not
                     </button>
@@ -1522,11 +1511,10 @@ export function UnifiedInboxShell({
                         ? "Sadece ekip görür. (@ ile ekip üyesinden bahsedebilirsiniz)…"
                         : "Mesajınızı yazın… (Hazır yanıtlar için / yazın)"
                   }
-                  className={`w-full rounded-xl border p-2.5 text-xs focus:outline-none disabled:opacity-50 ${
-                    composerMode === "note"
+                  className={`w-full rounded-xl border p-2.5 text-xs focus:outline-none disabled:opacity-50 ${composerMode === "note"
                       ? "border-amber-400/50 bg-amber-500/10 text-fg"
                       : "border-line bg-bg text-fg"
-                  }`}
+                    }`}
                 />
 
                 <div className="flex items-center justify-between">
@@ -1562,11 +1550,10 @@ export function UnifiedInboxShell({
                     type="button"
                     disabled={sending || isReplyLocked || (!composerText.trim() && pendingAttachments.length === 0)}
                     onClick={() => void handleSend()}
-                    className={`h-8 rounded-xl px-4 text-xs font-bold transition disabled:opacity-40 ${
-                      composerMode === "note"
+                    className={`h-8 rounded-xl px-4 text-xs font-bold transition disabled:opacity-40 ${composerMode === "note"
                         ? "bg-amber-400 text-slate-950"
                         : "bg-fg text-bg hover:opacity-90"
-                    }`}
+                      }`}
                   >
                     {sending ? "Gönderiliyor…" : composerMode === "note" ? "Notu Kaydet ⏎" : "Gönder ⏎"}
                   </button>
@@ -1578,9 +1565,8 @@ export function UnifiedInboxShell({
 
         {/* 3. SÜTUN: Kişi Profili, NordVow Creator Eşleşmesi, İletişim Onayı (Opt-in) & KVKK */}
         <aside
-          className={`${
-            showMobileContact ? "flex" : "hidden lg:flex"
-          } flex-col gap-3 border-t border-line bg-bg/30 p-3.5 text-xs lg:border-l lg:border-t-0`}
+          className={`${showMobileContact ? "flex" : "hidden lg:flex"
+            } flex-col gap-3 border-t border-line bg-bg/30 p-3.5 text-xs lg:border-l lg:border-t-0`}
         >
           {!detail ? (
             <p className="py-8 text-center text-fg-muted">Kişi detayları için bir konuşma seçin.</p>
@@ -1641,13 +1627,12 @@ export function UnifiedInboxShell({
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-fg">İletişim Onayı (Opt-in)</span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      detail.contact.consent?.state === "GRANTED"
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${detail.contact.consent?.state === "GRANTED"
                         ? "bg-emerald-500/20 text-emerald-400"
                         : detail.contact.consent?.state === "WITHDRAWN"
                           ? "bg-red-500/20 text-red-400"
                           : "bg-zinc-500/20 text-fg-muted"
-                    }`}
+                      }`}
                   >
                     {detail.contact.consent?.state === "GRANTED"
                       ? "Onay Var"
@@ -1844,9 +1829,8 @@ export function UnifiedInboxShell({
                   key={t.id}
                   type="button"
                   onClick={() => setSettingsTab(t.id)}
-                  className={`rounded-lg px-2.5 py-1 font-semibold ${
-                    settingsTab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
-                  }`}
+                  className={`rounded-lg px-2.5 py-1 font-semibold ${settingsTab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
+                    }`}
                 >
                   {t.label}
                 </button>

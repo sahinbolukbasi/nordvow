@@ -501,12 +501,12 @@ export function TimelineVideoEditor({
           prev.map((p) =>
             p.id === updated.id
               ? {
-                  ...p,
-                  title: updated.title,
-                  revision: updated.revision,
-                  updatedAt: updated.updatedAt,
-                  aspectPreset: updated.timeline.settings.aspectPreset,
-                }
+                ...p,
+                title: updated.title,
+                revision: updated.revision,
+                updatedAt: updated.updatedAt,
+                aspectPreset: updated.timeline.settings.aspectPreset,
+              }
               : p,
           ),
         );
@@ -636,7 +636,7 @@ export function TimelineVideoEditor({
             vid.muted = timeline.tracks.main.muted || !el.sourceAudio;
             vid.volume = Math.min(1, el.volume);
             vid.playbackRate = Math.min(4, Math.max(0.25, speed));
-            if (isPlaying && vid.paused) void vid.play().catch(() => {});
+            if (isPlaying && vid.paused) void vid.play().catch(() => { });
 
             if (vid.readyState >= 2 && vid.videoWidth > 0) {
               const fit = Math.max(W / vid.videoWidth, H / vid.videoHeight);
@@ -680,7 +680,7 @@ export function TimelineVideoEditor({
             if (Math.abs(aud.currentTime - srcSec) > 0.25) aud.currentTime = Math.max(0, srcSec);
             aud.volume = Math.min(1, aEl.volume);
             aud.playbackRate = Math.min(4, Math.max(0.25, aEl.speed));
-            if (aud.paused) void aud.play().catch(() => {});
+            if (aud.paused) void aud.play().catch(() => { });
           } else if (!aud.paused) {
             aud.pause();
           }
@@ -948,8 +948,34 @@ export function TimelineVideoEditor({
         cur,
         asset.kind === "audio"
           ? {
+            id: newId,
+            type: "audio",
+            name: asset.name.slice(0, 80),
+            assetId: asset.id,
+            startTime: roundTicks(startAt),
+            duration: durTicks,
+            trimStart: 0 as Ticks,
+            trimEnd: 0 as Ticks,
+            sourceDuration: durTicks,
+            transform: defaultTransform(),
+            volume: 0.85,
+            speed: 1,
+          }
+          : asset.kind === "image"
+            ? {
               id: newId,
-              type: "audio",
+              type: "image",
+              name: asset.name.slice(0, 80),
+              assetId: asset.id,
+              startTime: roundTicks(startAt),
+              duration: durTicks,
+              trimStart: 0 as Ticks,
+              trimEnd: 0 as Ticks,
+              transform: defaultTransform(),
+            }
+            : {
+              id: newId,
+              type: "video",
               name: asset.name.slice(0, 80),
               assetId: asset.id,
               startTime: roundTicks(startAt),
@@ -958,36 +984,10 @@ export function TimelineVideoEditor({
               trimEnd: 0 as Ticks,
               sourceDuration: durTicks,
               transform: defaultTransform(),
-              volume: 0.85,
+              volume: 1,
+              sourceAudio: true,
               speed: 1,
-            }
-          : asset.kind === "image"
-            ? {
-                id: newId,
-                type: "image",
-                name: asset.name.slice(0, 80),
-                assetId: asset.id,
-                startTime: roundTicks(startAt),
-                duration: durTicks,
-                trimStart: 0 as Ticks,
-                trimEnd: 0 as Ticks,
-                transform: defaultTransform(),
-              }
-            : {
-                id: newId,
-                type: "video",
-                name: asset.name.slice(0, 80),
-                assetId: asset.id,
-                startTime: roundTicks(startAt),
-                duration: durTicks,
-                trimStart: 0 as Ticks,
-                trimEnd: 0 as Ticks,
-                sourceDuration: durTicks,
-                transform: defaultTransform(),
-                volume: 1,
-                sourceAudio: true,
-                speed: 1,
-              },
+            },
       ),
     );
     setSelectedIds([newId]);
@@ -1179,13 +1179,13 @@ export function TimelineVideoEditor({
         lastTranscriptSegments.length > 0
           ? lastTranscriptSegments
           : allElements
-              .filter((e): e is CaptionEl => e.type === "caption")
-              .map((c) => ({
-                id: c.id,
-                startSec: ticksToSeconds(c.startTime),
-                endSec: ticksToSeconds(c.startTime + c.duration),
-                text: c.text,
-              }));
+            .filter((e): e is CaptionEl => e.type === "caption")
+            .map((c) => ({
+              id: c.id,
+              startSec: ticksToSeconds(c.startTime),
+              endSec: ticksToSeconds(c.startTime + c.duration),
+              text: c.text,
+            }));
       const res = await fetch("/api/studio/ai/assist", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1697,9 +1697,8 @@ export function TimelineVideoEditor({
                 key={ratio}
                 type="button"
                 onClick={() => applyTimelineEdit((cur) => applyReframeToTimeline(cur, ratio, "blur"))}
-                className={`px-2 py-1 font-medium transition ${
-                  timeline.settings.aspectPreset === ratio ? "bg-cyan-500 text-slate-950" : "text-fg-muted hover:bg-surface-hover"
-                }`}
+                className={`px-2 py-1 font-medium transition ${timeline.settings.aspectPreset === ratio ? "bg-cyan-500 text-slate-950" : "text-fg-muted hover:bg-surface-hover"
+                  }`}
               >
                 {ratio}
               </button>
@@ -1728,15 +1727,14 @@ export function TimelineVideoEditor({
           <button
             type="button"
             onClick={() => void saveNow({ createSnapshot: true })}
-            className={`h-8 rounded-lg border px-2.5 text-[11px] font-medium ${
-              saveState === "conflict"
+            className={`h-8 rounded-lg border px-2.5 text-[11px] font-medium ${saveState === "conflict"
                 ? "border-red-400/50 bg-red-500/20 text-red-200"
                 : saveState === "saving"
                   ? "border-cyan-400/40 bg-cyan-500/15 text-cyan-200"
                   : saveState === "dirty" || saveState === "offline"
                     ? "border-amber-400/40 bg-amber-500/15 text-amber-200"
                     : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
-            }`}
+              }`}
           >
             {saveState === "saving"
               ? "Kaydediliyor…"
@@ -1863,15 +1861,14 @@ export function TimelineVideoEditor({
       {toast ? (
         <div
           role="status"
-          className={`border-b px-4 py-1.5 text-xs font-medium ${
-            toast.tone === "error"
+          className={`border-b px-4 py-1.5 text-xs font-medium ${toast.tone === "error"
               ? "border-red-500/30 bg-red-500/15 text-red-200"
               : toast.tone === "warn"
                 ? "border-amber-500/30 bg-amber-500/15 text-amber-200"
                 : toast.tone === "ok"
                   ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
                   : "border-cyan-500/30 bg-cyan-500/15 text-cyan-200"
-          }`}
+            }`}
         >
           {toast.text}
         </div>
@@ -1896,9 +1893,8 @@ export function TimelineVideoEditor({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveDrawer(t.id)}
-                className={`rounded-lg px-2 py-2 text-left text-[11px] font-medium transition ${
-                  activeDrawer === t.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"
-                }`}
+                className={`rounded-lg px-2 py-2 text-left text-[11px] font-medium transition ${activeDrawer === t.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface-hover hover:text-fg"
+                  }`}
               >
                 {t.label}
               </button>
@@ -2054,11 +2050,10 @@ export function TimelineVideoEditor({
                         key={p.id}
                         type="button"
                         onClick={() => applyPresetToAllCaptions(p.id)}
-                        className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium ${
-                          captionPreset === p.id
+                        className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium ${captionPreset === p.id
                             ? "border-cyan-400 bg-cyan-500/20 text-cyan-200"
                             : "border-line bg-bg text-fg-muted hover:bg-surface-hover"
-                        }`}
+                          }`}
                       >
                         {p.label}
                       </button>
@@ -2296,9 +2291,8 @@ export function TimelineVideoEditor({
             <button
               type="button"
               onClick={() => setSafeAreaVisible((v) => !v)}
-              className={`rounded-md border px-2 py-0.5 ${
-                safeAreaVisible ? "border-cyan-400/50 text-cyan-300" : "border-line text-fg-muted"
-              }`}
+              className={`rounded-md border px-2 py-0.5 ${safeAreaVisible ? "border-cyan-400/50 text-cyan-300" : "border-line text-fg-muted"
+                }`}
             >
               {safeAreaVisible ? "Güvenli Alan Açık" : "Güvenli Alan Kapalı"}
             </button>
@@ -2608,9 +2602,8 @@ export function TimelineVideoEditor({
             <button
               type="button"
               onClick={() => setSnapEnabled((s) => !s)}
-              className={`rounded-md border px-2 py-0.5 ${
-                snapEnabled ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-200" : "border-line text-fg-muted"
-              }`}
+              className={`rounded-md border px-2 py-0.5 ${snapEnabled ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-200" : "border-line text-fg-muted"
+                }`}
             >
               🧲 Mıknatıs {snapEnabled ? "Açık" : "Kapalı"}
             </button>
@@ -3052,9 +3045,8 @@ function TrackLane({
               onStartDrag(e, el, "move");
             }}
             style={{ left: `${left}px`, width: `${width}px` }}
-            className={`group absolute top-1.5 bottom-1.5 flex cursor-grab items-center justify-between overflow-hidden rounded-lg border px-1.5 text-[11px] font-medium select-none active:cursor-grabbing ${colorClass} ${
-              selected ? "ring-2 ring-white" : ""
-            } ${el.lockedBy === "brand" ? "border-amber-400 bg-amber-500/30" : ""}`}
+            className={`group absolute top-1.5 bottom-1.5 flex cursor-grab items-center justify-between overflow-hidden rounded-lg border px-1.5 text-[11px] font-medium select-none active:cursor-grabbing ${colorClass} ${selected ? "ring-2 ring-white" : ""
+              } ${el.lockedBy === "brand" ? "border-amber-400 bg-amber-500/30" : ""}`}
           >
             {!el.locked ? (
               <div

@@ -183,7 +183,7 @@ const inviteView: Record<string, { label: string; tone: PillTone }> = {
   RED: { label: "Katılmıyor", tone: "red" },
   IPTAL: { label: "İptal", tone: "gray" },
 };
-/** Etkinlik yönetim sayfası (Luma "manage event"): genel bakış, misafirler, giriş, paylaş. */
+/** Etkinlik yönetim sayfası (Luma "manage event"): genel bakış, misafirler, paylaş. */
 export async function EventManage({ id, basePath, tenantId, tab }: { id: string; basePath: string; tenantId?: string; tab?: string }) {
   const e = await prisma.event.findUnique({
     where: { id },
@@ -278,19 +278,6 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
       </section>
     </div>
   );
-  const checkin = (
-    <TicketScannerPanel
-      eventId={e.id}
-      capacity={e.capacity}
-      initialTickets={e.tickets.map((t) => ({
-        id: t.id,
-        code: t.code,
-        holderName: t.holderName,
-        status: t.status,
-        checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
-      }))}
-    />
-  );
   const share = (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
@@ -327,7 +314,7 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link href={publicPath} target="_blank" className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] text-fg hover:border-border-strong">Etkinlik sayfası ↗</Link>
-          <Link href={`${basePath}/${e.id}?tab=giris`} className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong">QR Giriş &amp; Biletler</Link>
+          <Link href={`${basePath}/${e.id}/qr`} className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong">QR Giriş &amp; Biletler</Link>
           {e.status === "TASLAK" ? <EventStatusButton id={e.id} to="YAYINDA" label="Yayınla" variant="primary" /> : null}
           {e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="TAMAMLANDI" label="Tamamlandı" /> : null}
           {e.status === "TASLAK" || e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="IPTAL" label="İptal et" variant="ghost" /> : null}
@@ -391,9 +378,50 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
         defaultTab={tab}
         tabs={[
           { id: "misafirler", label: `Misafirler (${e.invites.length})`, content: guests },
-          { id: "giris", label: `Biletler & QR Giriş (${checkedIn.length}/${liveTickets.length})`, content: checkin },
           { id: "paylas", label: "Paylaş", content: share },
         ]}
+      />
+    </div>
+  );
+}
+
+/** Etkinlik QR okuma ve kapı giriş sayfası (ayrı sayfa). */
+export async function EventQrManage({ id, basePath, tenantId }: { id: string; basePath: string; tenantId?: string }) {
+  const e = await prisma.event.findUnique({
+    where: { id },
+    include: { tickets: { orderBy: { checkedInAt: "desc" } } },
+  });
+  if (!e || (tenantId && !(await canBrandManageEvent(e, tenantId)))) notFound();
+  const st = eventStatusView[e.status] ?? { label: e.status, tone: "gray" as PillTone };
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <BackLink href={`${basePath}/${e.id}`}>{e.title}</BackLink>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone={st.tone}>{st.label}</Pill>
+            <span className="text-[12px] text-fg-muted">{rangeLabel(e.startsAt, e.endsAt)}</span>
+            {e.venueName ? <span className="text-[12px] text-fg-muted">· {e.venueName}</span> : null}
+          </div>
+          <h1 className="text-title text-fg">{e.title} — QR Giriş</h1>
+        </div>
+        <Link
+          href={`${basePath}/${e.id}`}
+          className="inline-flex h-8 w-fit items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong"
+        >
+          Etkinlik Yönetimi
+        </Link>
+      </header>
+      <TicketScannerPanel
+        eventId={e.id}
+        capacity={e.capacity}
+        initialTickets={e.tickets.map((t) => ({
+          id: t.id,
+          code: t.code,
+          holderName: t.holderName,
+          status: t.status,
+          checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
+        }))}
       />
     </div>
   );

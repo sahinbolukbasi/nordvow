@@ -675,13 +675,12 @@ export function DmAutomationShell({
       {toast ? (
         <div
           role="status"
-          className={`fixed right-5 bottom-5 z-50 rounded-xl border px-4 py-3 text-sm font-medium shadow-xl backdrop-blur ${
-            toast.tone === "ok"
+          className={`fixed right-5 bottom-5 z-50 rounded-xl border px-4 py-3 text-sm font-medium shadow-xl backdrop-blur ${toast.tone === "ok"
               ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-200"
               : toast.tone === "warn"
                 ? "border-amber-500/40 bg-amber-950/90 text-amber-200"
                 : "border-red-500/40 bg-red-950/90 text-red-200"
-          }`}
+            }`}
         >
           {toast.text}
         </div>
@@ -692,7 +691,7 @@ export function DmAutomationShell({
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center rounded-xl border border-line bg-bg p-0.5 text-xs">
             <Link
-              href="/dashboard/mesaj-kutusu"
+              href="/dashboard/iletisim?sekme=mesajlar"
               className="rounded-lg px-3 py-1.5 font-medium text-fg-muted transition hover:text-fg"
             >
               Mesaj Kutusu
@@ -771,11 +770,10 @@ export function DmAutomationShell({
             </span>
             {primaryAccount ? (
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  primaryAccount.status === "CONNECTED"
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${primaryAccount.status === "CONNECTED"
                     ? "bg-emerald-500/15 text-emerald-300"
                     : "bg-red-500/15 text-red-300"
-                }`}
+                  }`}
               >
                 ● {primaryAccount.status === "CONNECTED" ? "Bağlı" : "Yeniden yetkilendir"}
               </span>
@@ -874,9 +872,8 @@ export function DmAutomationShell({
                   key={t.id}
                   type="button"
                   onClick={() => setStatusTab(t.id)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${
-                    statusTab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
-                  }`}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition ${statusTab === t.id ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
+                    }`}
                 >
                   <span>{t.label}</span>
                   <span className="rounded-full bg-black/15 px-1.5 text-[10px] tabular-nums">{t.count}</span>
@@ -1054,9 +1051,8 @@ export function DmAutomationShell({
                   key={num}
                   type="button"
                   onClick={() => setWizardStep(Number(num))}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
-                    wizardStep === num ? "bg-fg text-bg" : "bg-bg text-fg-muted hover:text-fg"
-                  }`}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${wizardStep === num ? "bg-fg text-bg" : "bg-bg text-fg-muted hover:text-fg"
+                    }`}
                 >
                   {label}
                 </button>
@@ -1120,11 +1116,10 @@ export function DmAutomationShell({
                       key={mode}
                       type="button"
                       onClick={() => setWTriggerMode(mode)}
-                      className={`rounded-xl border p-3 text-left transition ${
-                        wTriggerMode === mode
+                      className={`rounded-xl border p-3 text-left transition ${wTriggerMode === mode
                           ? "border-neon-cyan bg-neon-cyan/10 text-fg"
                           : "border-line bg-bg text-fg-muted hover:text-fg"
-                      }`}
+                        }`}
                     >
                       <div className="text-xs font-semibold">{title}</div>
                       <div className="mt-1 text-[11px] opacity-80">{desc}</div>
@@ -1145,11 +1140,10 @@ export function DmAutomationShell({
                         key={m.id}
                         type="button"
                         onClick={() => setWSelectedMedia(m)}
-                        className={`rounded-xl border p-3 text-left transition ${
-                          wSelectedMedia?.id === m.id
+                        className={`rounded-xl border p-3 text-left transition ${wSelectedMedia?.id === m.id
                             ? "border-neon-pink bg-neon-pink/10"
                             : "border-line bg-bg hover:bg-surface-hover"
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="rounded bg-surface px-1.5 py-0.5 font-medium text-fg">
@@ -1241,9 +1235,8 @@ export function DmAutomationShell({
                       key={m}
                       type="button"
                       onClick={() => setWMatchMode(m)}
-                      className={`rounded-xl border px-3 py-2 text-xs font-medium ${
-                        wMatchMode === m ? "border-neon-cyan bg-neon-cyan/10 text-fg" : "border-line bg-bg text-fg-muted"
-                      }`}
+                      className={`rounded-xl border px-3 py-2 text-xs font-medium ${wMatchMode === m ? "border-neon-cyan bg-neon-cyan/10 text-fg" : "border-line bg-bg text-fg-muted"
+                        }`}
                     >
                       {lbl}
                     </button>
@@ -1267,11 +1260,10 @@ export function DmAutomationShell({
                       className="h-9 flex-1 rounded-lg border border-line bg-surface px-3 text-xs text-fg"
                     />
                     <span
-                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                        liveMatchPreview.matched
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${liveMatchPreview.matched
                           ? "bg-emerald-500/15 text-emerald-300"
                           : "bg-zinc-500/15 text-fg-muted"
-                      }`}
+                        }`}
                     >
                       {liveMatchPreview.matched ? `Eşleşir ✓ (${liveMatchPreview.matchedKeyword})` : "Eşleşmez"}
                     </span>
@@ -1753,9 +1745,8 @@ export function DmAutomationShell({
                 key={t}
                 type="button"
                 onClick={() => setDetailTab(t)}
-                className={`rounded-lg px-3.5 py-1.5 font-medium ${
-                  detailTab === t ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
-                }`}
+                className={`rounded-lg px-3.5 py-1.5 font-medium ${detailTab === t ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"
+                  }`}
               >
                 {label}
               </button>
@@ -1915,9 +1906,8 @@ export function DmAutomationShell({
                         <td className="py-2.5 pr-3">{l.matchedKeyword ?? "—"}</td>
                         <td className="py-2.5 pr-3" title={l.errorMessage ?? statusLabels[l.status]}>
                           <span
-                            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                              LOG_BADGES[l.status] ?? "border-zinc-500/30 bg-zinc-500/10 text-zinc-300"
-                            }`}
+                            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${LOG_BADGES[l.status] ?? "border-zinc-500/30 bg-zinc-500/10 text-zinc-300"
+                              }`}
                           >
                             {statusLabels[l.status] ?? l.status}
                           </span>

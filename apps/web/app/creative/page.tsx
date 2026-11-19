@@ -24,11 +24,10 @@ import { getConfig } from "@infulancer/core/config/store";
 import { withUnverified } from "@infulancer/core/unverified";
 import { CreativeComposer, type ChatHistoryItem, type ComposerModel } from "@/components/creative/creative-composer";
 import {
-  TimelineVideoEditor,
-  type EditorCampaignOption,
-  type EditorMediaAsset,
-  type EditorModelOption,
-} from "@/components/creative/timeline-video-editor";
+  AiVideoStudio,
+  type AiStudioMediaItem,
+  type InitialPipelineJob,
+} from "@/components/creative/ai-video-studio";
 import { KindIcon } from "@/components/creative/kind-icon";
 import { ActionForm } from "@/components/forms/action-form";
 import { TopUpForm } from "@/components/forms/operations-forms";
@@ -216,79 +215,44 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
   const tabs = [
     { id: "uret", label: "Nordvow Creative AI", href: "/creative" },
-    ...(editorEnabled ? [{ id: "editor", label: "Video Editörü", href: "/creative?sekme=editor" }] : []),
+    ...(editorEnabled ? [{ id: "editor", label: "AI Video Stüdyosu", href: "/creative?sekme=editor" }] : []),
     { id: "galeri", label: "Kitaplık", href: "/creative?sekme=galeri", count: uniqueLibraryCount },
     ...(isAdmin ? [{ id: "yonetim", label: "Yönetim", href: "/creative?sekme=yonetim" }] : []),
   ];
 
-  // Video Editör sekmesinde aktif kampanya & teslimat listesi
-  let editorCampaigns: EditorCampaignOption[] = [];
+  // AI Video Stüdyosu sekmesinde son arka plan işlerini ve sürümleri yükle
+  let initialPipelineJobs: InitialPipelineJob[] = [];
   if (tab === "editor") {
-    if (isAdmin) {
-      const camps = await prisma.campaign.findMany({
-        where: { status: { in: ["AKTIF", "TASLAK"] } },
-        orderBy: { createdAt: "desc" },
-        take: 25,
-        select: {
-          id: true,
-          name: true,
-          brand: { select: { name: true } },
-          assignments: {
-            select: {
-              deliverables: { select: { id: true, platform: true, contentType: true } },
-            },
-          },
-        },
-      });
-      editorCampaigns = camps.map((c) => ({
-        id: c.id,
-        name: c.name,
-        brandName: c.brand.name,
-        deliverables: c.assignments.flatMap((a) =>
-          a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
-        ),
-      }));
-    } else if (actor.role === "BRAND" && actor.brandId) {
-      const camps = await prisma.campaign.findMany({
-        where: { brandId: actor.brandId },
-        orderBy: { createdAt: "desc" },
-        take: 25,
-        select: {
-          id: true,
-          name: true,
-          brand: { select: { name: true } },
-          assignments: {
-            select: {
-              deliverables: { select: { id: true, platform: true, contentType: true } },
-            },
-          },
-        },
-      });
-      editorCampaigns = camps.map((c) => ({
-        id: c.id,
-        name: c.name,
-        brandName: c.brand.name,
-        deliverables: c.assignments.flatMap((a) =>
-          a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
-        ),
-      }));
-    } else if (actor.role === "INFLUENCER" && actor.influencerId) {
-      const assigns = await prisma.assignment.findMany({
-        where: { influencerId: actor.influencerId, contractStatus: { not: "RED" } },
-        orderBy: { createdAt: "desc" },
-        take: 25,
-        select: {
-          campaign: { select: { id: true, name: true, brand: { select: { name: true } } } },
-          deliverables: { select: { id: true, platform: true, contentType: true } },
-        },
-      });
-      editorCampaigns = assigns.map((a) => ({
-        id: a.campaign.id,
-        name: a.campaign.name,
-        brandName: a.campaign.brand.name,
-        deliverables: a.deliverables.map((d) => ({ id: d.id, label: `${d.platform} · ${d.contentType}` })),
-      }));
-    }
+    const rawPipelineJobs = await prisma.videoPipelineJob.findMany({
+      where: { tenantId: own },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+      include: {
+        versions: { orderBy: { versionNumber: "desc" }, take: 15 },
+      },
+    });
+    initialPipelineJobs = rawPipelineJobs.map((j) => ({
+      id: j.id,
+      kind: j.kind === "photo_to_video" ? "photo_to_video" : "ai_video_edit",
+      status: j.status as InitialPipelineJob["status"],
+      progress: j.progress,
+      sourceUploadIds: Array.isArray(j.sourceUploadIds) ? (j.sourceUploadIds as string[]) : [],
+      outputUploadId: j.outputUploadId,
+      rootJobId: j.rootJobId,
+      versionNumber: j.versionNumber,
+      editPlan: (j.editPlan as InitialPipelineJob["editPlan"]) ?? null,
+      costUsd: Number(j.costUsd),
+      durationMs: j.durationMs,
+      error: j.error,
+      createdAt: j.createdAt.toISOString(),
+      versions: j.versions.map((v) => ({
+        id: v.id,
+        versionNumber: v.versionNumber,
+        uploadId: v.uploadId,
+        editCommand: v.editCommand,
+        createdAt: v.createdAt.toISOString(),
+      })),
+    }));
   }
 
   const initialKind: CreativeKind | undefined =
@@ -388,12 +352,12 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
         />
       ) : null}
 
-      {/* 2. Sekme: Tarayıcı Tabanlı Video Editörü */}
+      {/* 2. Sekme: Tam Otomatik Arka Plan AI Video Stüdyosu (Bedrock + fal.ai + FFmpeg) */}
       {tab === "editor" && editorEnabled ? (
-        <TimelineVideoEditor
+        <AiVideoStudio
           mediaAssets={(() => {
             const seen = new Set(library.map((u) => u.s3Key));
-            const items: EditorMediaAsset[] = library.map((u) => ({
+            const items: AiStudioMediaItem[] = library.map((u) => ({
               id: u.id,
               kind: u.kind === "video" ? "video" : u.kind === "audio" ? "audio" : "image",
               name: u.name ?? `${u.kind.toUpperCase()} · ${u.id.slice(-6)}`,
@@ -413,17 +377,8 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
             }
             return items;
           })()}
-          models={usable.map(
-            (m): EditorModelOption => ({
-              key: m.key,
-              label: modelName(m.key),
-              kind: m.kind,
-              credits: Math.max(1, Math.round(m.creditsPerUnit)),
-            }),
-          )}
-          campaigns={editorCampaigns}
           initialAssetId={sp.asset}
-          currency={currency}
+          initialJobs={initialPipelineJobs}
         />
       ) : null}
 

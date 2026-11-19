@@ -14,6 +14,9 @@ import {
   submitSceneVideoToFal,
 } from "./falVideoService";
 import { probeVideoDuration, renderAiVideoEdit, renderStoryboardMontage } from "./ffmpegRenderer";
+import { detectAssetSilence, transcribeAssetWithAi } from "../timeline-editor/compile-ffmpeg";
+import { computeSilenceKeepIntervals } from "../timeline-editor/ops";
+import { ticksToSeconds } from "../timeline-editor/time";
 import {
   aspectSchema,
   editPlanSchema,
@@ -278,8 +281,28 @@ async function runAiVideoEditPipeline(
   if (!job) return;
 
   try {
-    const planned = await planAiVideoEdit({ command, videoDurationSec: durationSec });
+    // 1. Ham videonun süre & sessizlik analizini yap (Bedrock planlamasını güçlendirir)
+    const silenceInfo = await detectAssetSilence(job.tenantId, sourceUploadId, {
+      thresholdDb: -35,
+      minSilenceSec: 0.45,
+    }).catch(() => null);
+
+    const detectedDuration = silenceInfo?.durationSec ?? durationSec;
+    const silences = silenceInfo?.silences ?? [];
+    const silenceTotalSec = silences.reduce((s, x) => s + Math.max(0, x.endSec - x.startSec), 0);
+
+    const planned = await planAiVideoEdit({
+      command,
+      videoDurationSec: detectedDuration,
+      silenceCount: silences.length,
+      silenceTotalSec,
+    });
     const plan: EditPlan = planned.plan;
+
+    const keepIntervals =
+      plan.removeSilences?.enabled && detectedDuration && silences.length > 0
+        ? computeSilenceKeepIntervals(detectedDuration, silences, 0.12)
+        : null;
 
     await prisma.videoPipelineJob.update({
       where: { id: jobId },
@@ -291,56 +314,111 @@ async function runAiVideoEditPipeline(
     let regenClipKey: string | null = null;
     let costUsd = 0;
 
-    if (plan.audioMix?.voiceoverText) {
-      const v = await generateVoiceoverAsset(job.tenantId, plan.audioMix.voiceoverText);
-      voiceKey = v.s3Key;
-      costUsd += v.costUsd;
-    }
-    if (plan.audioMix?.musicPrompt) {
-      const m = await generateBackgroundMusicAsset(job.tenantId, plan.audioMix.musicPrompt, durationSec ?? 20);
-      musicKey = m.s3Key;
-      costUsd += m.costUsd;
-    }
-    if (plan.regenerateScene?.enabled && plan.regenerateScene.prompt) {
-      const modelChoice = videoModelChoiceSchema.parse(job.modelKey);
-      const sub = await submitSceneVideoToFal({
-        tenantId: job.tenantId,
-        modelChoice,
-        prompt: plan.regenerateScene.prompt,
-        aspect: plan.aspect === "orijinal" ? "9:16" : plan.aspect,
-        durationSec: plan.regenerateScene.durationSec,
-        maxRetries: 2,
-      });
-      costUsd += sub.estimatedCostUsd;
-      if (sub.immediateS3Key) {
-        regenClipKey = sub.immediateS3Key;
-      } else {
-        // Küçük sahne yeniden üretiminde webhook veya kısa polling bekle
-        const spec = FAL_VIDEO_ADAPTERS[modelChoice];
-        for (let i = 0; i < 40; i++) {
-          await new Promise((r) => setTimeout(r, 3000));
-          const p = await pollFalSceneResult(spec.t2vEndpoint, sub.requestId);
-          if (p.status === "COMPLETED" && p.videoUrl) {
-            const dl = await fal().download(p.videoUrl);
-            const k = `pipeline/${job.tenantId}/clips/${sub.requestId}.mp4`;
-            await objectStore().put(k, dl.bytes, "video/mp4");
-            regenClipKey = k;
-            break;
-          }
-          if (p.status === "FAILED") break;
-        }
+    // 2. fal.ai + Bedrock tabanlı yardımcı üretimleri paralel çalıştır
+    const needAutoTranscribe = !!(plan.autoTranscribe || (plan.subtitles?.enabled && plan.subtitles.lines.length === 0));
+
+    const [transcribeRes, voiceRes, musicRes, regenRes] = await Promise.all([
+      needAutoTranscribe
+        ? transcribeAssetWithAi(job.tenantId, sourceUploadId, {
+            language: "tr",
+            fixWithLlm: true,
+          }).catch((e) => {
+            console.warn("[jobQueue] otomatik transkripsiyon yedeğe düştü:", (e as Error).message);
+            return null;
+          })
+        : Promise.resolve(null),
+      plan.audioMix?.voiceoverText
+        ? generateVoiceoverAsset(job.tenantId, plan.audioMix.voiceoverText).catch((e) => {
+            console.warn("[jobQueue] seslendirme üretilemedi:", (e as Error).message);
+            return null;
+          })
+        : Promise.resolve(null),
+      plan.audioMix?.musicPrompt
+        ? generateBackgroundMusicAsset(job.tenantId, plan.audioMix.musicPrompt, detectedDuration ?? 20).catch((e) => {
+            console.warn("[jobQueue] fon müziği üretilemedi:", (e as Error).message);
+            return null;
+          })
+        : Promise.resolve(null),
+      plan.regenerateScene?.enabled && plan.regenerateScene.prompt
+        ? (async () => {
+            const modelChoice = videoModelChoiceSchema.parse(job.modelKey);
+            const sub = await submitSceneVideoToFal({
+              tenantId: job.tenantId,
+              modelChoice,
+              prompt: plan.regenerateScene!.prompt,
+              aspect: plan.aspect === "orijinal" ? "9:16" : plan.aspect,
+              durationSec: plan.regenerateScene!.durationSec,
+              maxRetries: 2,
+            });
+            let clipKey: string | null = sub.immediateS3Key ?? null;
+            if (!clipKey) {
+              const spec = FAL_VIDEO_ADAPTERS[modelChoice];
+              for (let i = 0; i < 40; i++) {
+                await new Promise((r) => setTimeout(r, 3000));
+                const p = await pollFalSceneResult(spec.t2vEndpoint, sub.requestId);
+                if (p.status === "COMPLETED" && p.videoUrl) {
+                  const dl = await fal().download(p.videoUrl);
+                  const k = `pipeline/${job.tenantId}/clips/${sub.requestId}.mp4`;
+                  await objectStore().put(k, dl.bytes, "video/mp4");
+                  clipKey = k;
+                  break;
+                }
+                if (p.status === "FAILED") break;
+              }
+            }
+            return { clipKey, costUsd: sub.estimatedCostUsd };
+          })().catch((e) => {
+            console.warn("[jobQueue] B-roll sahne üretilemedi:", (e as Error).message);
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
+
+    if (transcribeRes) {
+      const capLines =
+        transcribeRes.captions.length > 0
+          ? transcribeRes.captions.map((c) => {
+              const startSec = ticksToSeconds(c.startTime);
+              return {
+                startSec,
+                endSec: startSec + ticksToSeconds(c.duration),
+                text: c.text,
+              };
+            })
+          : transcribeRes.segments.map((s) => ({
+              startSec: s.startSec,
+              endSec: s.endSec,
+              text: s.text,
+            }));
+      if (capLines.length > 0) {
+        plan.subtitles = { enabled: true, lines: capLines.slice(0, 120) };
       }
+      if (transcribeRes.provider === "fal") costUsd += 0.01;
+    }
+
+    if (voiceRes) {
+      voiceKey = voiceRes.s3Key;
+      costUsd += voiceRes.costUsd;
+    }
+    if (musicRes) {
+      musicKey = musicRes.s3Key;
+      costUsd += musicRes.costUsd;
+    }
+    if (regenRes) {
+      regenClipKey = regenRes.clipKey;
+      costUsd += regenRes.costUsd;
     }
 
     await prisma.videoPipelineJob.update({
       where: { id: jobId },
-      data: { status: "rendering", progress: 75, costUsd, voiceoverAudio: voiceKey, musicAudio: musicKey },
+      data: { editPlan: plan, status: "rendering", progress: 75, costUsd, voiceoverAudio: voiceKey, musicAudio: musicKey },
     });
 
     const rendered = await renderAiVideoEdit({
       tenantId: job.tenantId,
       sourceUploadId,
       plan,
+      keepIntervals,
       voiceoverS3Key: voiceKey,
       musicS3Key: musicKey,
       regeneratedClipS3Key: regenClipKey,
@@ -502,10 +580,18 @@ export async function getPipelineJobWithReconcile(tenantId: string, jobId: strin
     }
   }
 
-  return prisma.videoPipelineJob.findUnique({
+  const fresh = await prisma.videoPipelineJob.findUnique({
     where: { id: jobId },
     include: { versions: { orderBy: { versionNumber: "desc" } } },
   });
+  if (!fresh) return null;
+  const rootId = fresh.rootJobId ?? fresh.id;
+  const allVersions = await prisma.videoVersion.findMany({
+    where: { tenantId, rootJobId: rootId },
+    orderBy: { versionNumber: "desc" },
+    take: 25,
+  });
+  return { ...fresh, versions: allVersions.length ? allVersions : fresh.versions };
 }
 
 /** Önceki bir versiyona geri döner (yeni aktif versiyon olarak kaydeder). */
