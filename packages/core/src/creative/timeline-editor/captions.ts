@@ -281,3 +281,4 @@ export function compileTimelineAss(timeline: StudioTimeline): string {
 
   return lines.join("\n") + "\n";
 }
+

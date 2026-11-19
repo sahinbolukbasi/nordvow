@@ -19,3 +19,4 @@
 ## Doğrulanan Modeller (19 Kasım 2026)
 - **fal.ai Transkripsiyon:** `fal-ai/wizper` (`language: "tr"`, `chunk_level: "segment"`)
 - **AWS Bedrock (AB):** `eu.anthropic.claude-haiku-4-5-20251001-v1:0`, `eu.amazon.nova-lite-v1:0`
+

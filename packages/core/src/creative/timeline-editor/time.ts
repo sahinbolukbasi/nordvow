@@ -47,3 +47,4 @@ export function formatTimecode(ticks: Ticks, fps: SupportedFps = 30): string {
   const frames = Math.floor(remTicks / ticksPerFrame(fps));
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(frames).padStart(2, "0")}`;
 }
+

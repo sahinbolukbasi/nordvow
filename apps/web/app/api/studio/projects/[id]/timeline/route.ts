@@ -48,3 +48,4 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return studioErrorResponse(err);
   }
 }
+

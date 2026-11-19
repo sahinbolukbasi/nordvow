@@ -8,3 +8,4 @@
    - Çok uzun render işleri için ileride ayrı ECS Worker (`studio-media-jobs` SQS kuyruğu + DLQ) ayrıştırılabilir; `compileTimelineFfmpeg` saf fonksiyon olarak ayrı servislere taşınmaya hazırdır.
 3. **CSP & Güvenlik:**
    - `next.config.ts` içinde `X-Frame-Options: DENY` aktiftir; önizleme `blob:`, S3 presigned URL ve CloudFront kaynaklarıyla çalışır.
+

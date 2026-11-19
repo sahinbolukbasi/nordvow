@@ -36,3 +36,4 @@
 | **S3 & Dosya Erişimi** | `packages/core/src/storage/s3.ts` + `packages/core/src/creative/uploads.ts` | Private bucket, presigned URL ve `getOwnedUpload` koruması |
 | **Editör Çekirdeği** | `packages/core/src/creative/timeline-editor/*` (`time.ts`, `timeline-schema.ts`, `ops.ts`, `captions.ts`, `compile-ffmpeg.ts`, `store.ts`) | OpenCut-classic referans alınarak sade ve saf TS olarak sıfırdan yazıldı |
 | **UI Giriş Noktası** | `/creative?sekme=editor` (`CREATIVE_STUDIO_EDITOR_ENABLED`) + `apps/web/components/creative/timeline-video-editor.tsx` | Mevcut sohbet/kitaplık akışını bozmadan yeni sekme olarak entegre edildi |
+

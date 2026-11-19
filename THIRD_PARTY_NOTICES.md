@@ -15,3 +15,4 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## Fonts (Render Worker / Subtitles)
 - Inter, Montserrat, Poppins, Bebas Neue — SIL Open Font License 1.1 (OFL-1.1).
+

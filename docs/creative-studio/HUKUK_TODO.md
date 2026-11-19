@@ -13,3 +13,4 @@
 5. **FFmpeg & Font Lisansları:**
    - FFmpeg yalnızca sunucu ortamında çalıştırılır ve son kullanıcıya ikili dosya olarak dağıtılmaz (`LGPL/GPL` derleme durumu imaj bakımında izlenmelidir).
    - Kullanılan yazı tipleri (`Inter`, `Montserrat`, `Poppins`, `Bebas Neue`) SIL OFL lisanslıdır.
+

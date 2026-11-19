@@ -36,3 +36,4 @@ export function studioErrorResponse(err: unknown): Response {
   console.error("[studio-api]", err);
   return jsonError(500, "Beklenmeyen bir stüdyo hatası oluştu.");
 }
+

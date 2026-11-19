@@ -16,6 +16,7 @@ import { onInbound } from "../messaging/windows";
 import { fetchIgSenderProfile, showTyping } from "./meta-client";
 import { vault } from "./vault";
 import { firstSeen, rawBodies } from "./webhook";
+import { applyInboundOptOutIfMatched, publishInboxEvent } from "../inbox/store";
 
 /**
  * Webhook işlemcisi: external_ids → tenant_id çözümleme, dedupe, olay türüne göre dağıtım.
@@ -284,9 +285,19 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     data: { tenantId, conversationId: conv.id, externalId: input.externalMessageId, direction: "INBOUND", body: input.text, mediaUrl: input.mediaUrl ?? null, createdAt: input.at },
   });
   await bumpDailyStat(prisma, tenantId, channel, "INBOUND", input.at, 1);
+  publishInboxEvent(tenantId, "message.created", conv.id, { channel, externalId: input.externalMessageId });
 
-  if (input.text && OPT_OUT_RE.test(input.text) && contact.phoneE164) {
-    await captureOptOut(tenantId, contact.phoneE164, "MESAJ", `${channel.toLowerCase()}_opt_out`, input.at).catch(() => undefined);
+  const optOutCheck = await applyInboundOptOutIfMatched({
+    tenantId,
+    contactId: contact.id,
+    conversationId: conv.id,
+    inboundText: input.text,
+  }).catch(() => ({ isOptOut: false, matchedKeyword: null }));
+
+  if (optOutCheck.isOptOut || (input.text && OPT_OUT_RE.test(input.text))) {
+    if (contact.phoneE164) {
+      await captureOptOut(tenantId, contact.phoneE164, "MESAJ", `${channel.toLowerCase()}_opt_out`, input.at).catch(() => undefined);
+    }
     return { conversationId: conv.id, optOut: true };
   }
   if (input.text) {

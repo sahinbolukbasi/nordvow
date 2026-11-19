@@ -568,3 +568,4 @@ export function resolveSnapTarget(
   }
   return best === null ? null : roundTicks(best);
 }
+
