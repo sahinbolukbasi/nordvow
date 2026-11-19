@@ -6,6 +6,7 @@ import { canBrandManageEvent, getEventIdsForBrand, getEventPartnerIds, getEvents
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { mapLinks } from "@infulancer/core/wallet/maps";
 import { EventPartnersForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { EventQrSelector } from "@/components/events/event-qr-selector";
 import { TicketScannerPanel } from "@/components/events/ticket-scanner";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
@@ -416,6 +417,102 @@ export async function EventQrManage({ id, basePath, tenantId }: { id: string; ba
         eventId={e.id}
         capacity={e.capacity}
         initialTickets={e.tickets.map((t) => ({
+          id: t.id,
+          code: t.code,
+          holderName: t.holderName,
+          status: t.status,
+          checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
+        }))}
+      />
+    </div>
+  );
+}
+
+/** Menüden erişilen bağımsız QR Giriş & Biletler hub sayfası (etkinlik seçmeli). */
+export async function EventQrHub({
+  qrPath,
+  tenantId,
+  selectedEventId,
+}: {
+  qrPath: string;
+  tenantId?: string;
+  selectedEventId?: string;
+}) {
+  const partnerEventIds = tenantId ? await getEventIdsForBrand(tenantId) : [];
+  const where = tenantId
+    ? { OR: [{ tenantId }, ...(partnerEventIds.length ? [{ id: { in: partnerEventIds } }] : [])] }
+    : {};
+  const events = await prisma.event.findMany({
+    where,
+    orderBy: { startsAt: "asc" },
+    take: 200,
+    select: {
+      id: true,
+      title: true,
+      startsAt: true,
+      endsAt: true,
+      venueName: true,
+      status: true,
+      capacity: true,
+    },
+  });
+
+  if (events.length === 0) {
+    return (
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+          <p className="text-[14px] text-fg-muted">Etkinlik kapısında QR kod okutun ve katılımcı biletlerini yönetin.</p>
+        </header>
+        <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-6 py-14 text-center">
+          <span className="text-fg-muted"><CalIcon /></span>
+          <p className="font-medium text-fg">Henüz etkinlik bulunmuyor</p>
+          <p className="max-w-sm text-[13px] text-fg-muted">Etkinlik oluşturulduğunda QR kod okuma ve kapı giriş listesi burada görünür.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const now = new Date();
+  const activeEvent =
+    events.find((ev) => ev.id === selectedEventId) ??
+    events.find((ev) => (ev.endsAt ?? ev.startsAt) >= now && ev.status !== "IPTAL" && ev.status !== "TAMAMLANDI") ??
+    events.at(-1)!;
+
+  const tickets = await prisma.eventTicket.findMany({
+    where: { eventId: activeEvent.id },
+    orderBy: { checkedInAt: "desc" },
+  });
+
+  const st = eventStatusView[activeEvent.status] ?? { label: activeEvent.status, tone: "gray" as PillTone };
+
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone={st.tone}>{st.label}</Pill>
+          <span className="text-[12px] text-fg-muted">{rangeLabel(activeEvent.startsAt, activeEvent.endsAt)}</span>
+          {activeEvent.venueName ? <span className="text-[12px] text-fg-muted">· {activeEvent.venueName}</span> : null}
+        </div>
+        <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+        <p className="text-[14px] text-fg-muted">Etkinlik seçip kamerayla QR okutabilir veya bilet kodunu doğrulayabilirsiniz.</p>
+      </header>
+
+      <EventQrSelector
+        basePath={qrPath}
+        selectedId={activeEvent.id}
+        events={events.map((ev) => ({
+          id: ev.id,
+          title: ev.title,
+          dateLabel: rangeLabel(ev.startsAt, ev.endsAt),
+          statusLabel: (eventStatusView[ev.status] ?? { label: ev.status }).label,
+        }))}
+      />
+
+      <TicketScannerPanel
+        eventId={activeEvent.id}
+        capacity={activeEvent.capacity}
+        initialTickets={tickets.map((t) => ({
           id: t.id,
           code: t.code,
           holderName: t.holderName,

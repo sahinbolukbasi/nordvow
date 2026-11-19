@@ -593,66 +593,135 @@ export async function fetchVerifiedInstagramViaSdk(input: {
     };
   }
 
-  let lastErr: { code: number | null; subcode: number | null; message: string } | null = oauthExpiredError;
-  const fields = `business_discovery.username(${cleanHandle}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(50){id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count}}`;
+  type BusinessDiscoveryPayload = {
+    id?: string;
+    username?: string;
+    name?: string;
+    biography?: string;
+    followers_count?: number;
+    follows_count?: number;
+    media_count?: number;
+    profile_picture_url?: string;
+    media?: { data?: RawMetaMedia[] };
+  };
 
-  for (const igId of creds.igUserIds) {
+  let lastErr: { code: number | null; subcode: number | null; message: string } | null = oauthExpiredError;
+
+  // Meta Business Discovery bazen media.limit(50) için "reduce the amount of data" (code 1/2) dönebilir.
+  // Önce tam sorgu, olmazsa hafif medya sorgusu, o da olmazsa profil-yalnız sorgu denenir.
+  const fieldVariants = [
+    `business_discovery.username(${cleanHandle}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(50){id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count}}`,
+    `business_discovery.username(${cleanHandle}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,media.limit(20){id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,permalink,like_count,comments_count}}`,
+    `business_discovery.username(${cleanHandle}){id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url}`,
+  ];
+
+  const toDiscoveryResult = (bd: BusinessDiscoveryPayload): VerifiedInstagramResult => {
+    const mapped = mapMediaList(bd.media?.data ?? [], cleanHandle, false);
+    return {
+      ok: true,
+      sdkVersion,
+      usedOAuth: false,
+      fallbackFromExpiredOAuth: Boolean(oauthExpiredError),
+      source: "meta_sdk_business_discovery",
+      errorCode: null,
+      errorSubcode: null,
+      errorMessage: null,
+      externalId: bd.id ?? input.oauthExternalId ?? null,
+      username: bd.username ?? cleanHandle,
+      fullName: bd.name ?? null,
+      biography: bd.biography ?? null,
+      avatarUrl: bd.profile_picture_url ?? null,
+      followers: Number(bd.followers_count ?? 0),
+      followsCount: Number(bd.follows_count ?? 0),
+      postsCount: Number(bd.media_count ?? 0),
+      accountInsights: null,
+      demographics: null,
+      media: mapped.media,
+      stories: [],
+      comments: mapped.comments,
+      durationMs: Date.now() - start,
+    };
+  };
+
+  const fetchDiscoveryDirect = async (
+    igId: string,
+    token: string,
+    fields: string,
+  ): Promise<{ bd?: BusinessDiscoveryPayload; err?: { code: number | null; subcode: number | null; message: string } }> => {
+    try {
+      const qs = new URLSearchParams({ fields, access_token: token });
+      const proof = computeAppSecretProof(token);
+      if (proof) qs.set("appsecret_proof", proof);
+      const r = await fetch(`https://graph.facebook.com/v24.0/${encodeURIComponent(igId)}?${qs.toString()}`, {
+        signal: AbortSignal.timeout(15_000),
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        business_discovery?: BusinessDiscoveryPayload;
+        error?: { code?: number; error_subcode?: number; message?: string; error_user_msg?: string };
+      };
+      if (j.business_discovery) return { bd: j.business_discovery };
+      if (j.error) {
+        return {
+          err: {
+            code: j.error.code ?? null,
+            subcode: j.error.error_subcode ?? null,
+            message: j.error.error_user_msg ?? j.error.message ?? `HTTP ${r.status}`,
+          },
+        };
+      }
+      return {};
+    } catch (e) {
+      return { err: { code: null, subcode: null, message: e instanceof Error ? e.message : "Graph API isteği başarısız." } };
+    }
+  };
+
+  let notBusinessAccount = false;
+  outerLoop: for (const igId of creds.igUserIds) {
     for (const token of creds.tokens) {
       if (!token.startsWith("EAA")) continue;
-      try {
-        const api = createMetaSdkApi(token);
-        const res = (await api.call("GET", [igId], withProof(token, { fields }))) as {
-          business_discovery?: {
-            id?: string;
-            username?: string;
-            name?: string;
-            biography?: string;
-            followers_count?: number;
-            follows_count?: number;
-            media_count?: number;
-            profile_picture_url?: string;
-            media?: { data?: RawMetaMedia[] };
+      for (const fields of fieldVariants) {
+        try {
+          const api = createMetaSdkApi(token);
+          const res = (await api.call("GET", [igId], withProof(token, { fields }))) as {
+            business_discovery?: BusinessDiscoveryPayload;
           };
-        };
-
-        const bd = res?.business_discovery;
-        if (bd) {
-          const mapped = mapMediaList(bd.media?.data ?? [], cleanHandle, false);
-          return {
-            ok: true,
-            sdkVersion,
-            usedOAuth: false,
-            fallbackFromExpiredOAuth: Boolean(oauthExpiredError),
-            source: "meta_sdk_business_discovery",
-            errorCode: null,
-            errorSubcode: null,
-            errorMessage: null,
-            externalId: bd.id ?? input.oauthExternalId ?? null,
-            username: bd.username ?? cleanHandle,
-            fullName: bd.name ?? null,
-            biography: bd.biography ?? null,
-            avatarUrl: bd.profile_picture_url ?? null,
-            followers: Number(bd.followers_count ?? 0),
-            followsCount: Number(bd.follows_count ?? 0),
-            postsCount: Number(bd.media_count ?? 0),
-            accountInsights: null,
-            demographics: null,
-            media: mapped.media,
-            stories: [],
-            comments: mapped.comments,
-            durationMs: Date.now() - start,
-          };
-        }
-      } catch (err) {
-        const info = extractSdkErrorInfo(err);
-        lastErr = info;
-        // Token geçersiz (190) ise sıradaki token'ı dene; Business hesabı değilse (110 / 2207013) erken çık
-        if (info.subcode === 2207013 || info.code === 110) {
-          break;
+          if (res?.business_discovery) {
+            return toDiscoveryResult(res.business_discovery);
+          }
+        } catch (err) {
+          const info = extractSdkErrorInfo(err);
+          lastErr = info;
+          // Business/Creator hesabı değil veya kullanıcı adı bulunamadı (110 / 2207013):
+          // Doğrudan Graph API ile tek doğrulama yapıp kesinleşirse tüm döngüden çık.
+          if (info.subcode === 2207013 || info.code === 110) {
+            const directCheck = await fetchDiscoveryDirect(igId, token, fieldVariants[2]!);
+            if (directCheck.bd) return toDiscoveryResult(directCheck.bd);
+            if (directCheck.err) lastErr = directCheck.err;
+            notBusinessAccount = true;
+            break outerLoop;
+          }
+          // Token geçersiz (190) veya yetkisiz (10/200) ise sıradaki token'a geç
+          if (info.code === 190 || info.code === 10 || info.code === 200) {
+            break;
+          }
+          // Diğer hatalarda (örn. code 1/2 veri boyutu sınırı veya SDK serileştirme) doğrudan Graph API dene
+          const direct = await fetchDiscoveryDirect(igId, token, fields);
+          if (direct.bd) return toDiscoveryResult(direct.bd);
+          if (direct.err) {
+            lastErr = direct.err;
+            if (direct.err.subcode === 2207013 || direct.err.code === 110) {
+              notBusinessAccount = true;
+              break outerLoop;
+            }
+          }
         }
       }
     }
   }
+
+  const finalErrorMessage = notBusinessAccount
+    ? `@${cleanHandle} Meta Business Discovery'de bulunamadı (Kod ${lastErr?.code ?? 110}/${lastErr?.subcode ?? 2207013}). Alt çizgi (_) karakteri geçerlidir; bu hata genellikle hesabın Kişisel/Gizli hesap olmasından (Business veya Creator hesabına geçirilmemiş) ya da kullanıcı adının değişmiş olmasından kaynaklanır. Kişisel hesaplar için Instagram OAuth bağlantısı gerekir.`
+    : (lastErr?.message ?? "Meta Business SDK üzerinden hesap verisi alınamadı.");
 
   return {
     ok: false,
@@ -662,7 +731,7 @@ export async function fetchVerifiedInstagramViaSdk(input: {
     source: "none",
     errorCode: lastErr?.code ?? null,
     errorSubcode: lastErr?.subcode ?? null,
-    errorMessage: lastErr?.message ?? "Meta Business SDK üzerinden hesap verisi alınamadı.",
+    errorMessage: finalErrorMessage,
     externalId: input.oauthExternalId ?? null,
     username: cleanHandle,
     fullName: null,

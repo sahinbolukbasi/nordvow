@@ -10,6 +10,7 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import { platformLabels } from "@infulancer/core/domain/labels";
 import { publish } from "@infulancer/core/events";
 import { setInfluencerCategories } from "@infulancer/core/domain/categories";
+import { cleanSocialHandle } from "@infulancer/core/social/handle";
 import { readCategorySelection } from "@/lib/categories";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, intOrNull, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
@@ -87,8 +88,9 @@ function parseAccounts(fd: FormData): AccountInput[] {
     const p = `acc_${platform}_`;
     if (!bool(fd, `${p}enabled`)) continue;
     const label = platformLabels[platform];
-    const handle = str(fd, `${p}handle`);
-    if (!/^@?[\w.\-]{2,60}$/u.test(handle)) throw new DomainError("DOGRULAMA", `${label}: geçerli bir kullanıcı adı girin.`);
+    const rawHandle = str(fd, `${p}handle`);
+    const handle = cleanSocialHandle(rawHandle, platform);
+    if (!/^[a-z0-9._-]{2,60}$/.test(handle)) throw new DomainError("DOGRULAMA", `${label}: geçerli bir kullanıcı adı girin.`);
     const followers = intOrNull(str(fd, `${p}followers`));
     if (followers == null || Number.isNaN(followers) || followers < 0) {
       throw new DomainError("DOGRULAMA", `${label}: takipçi sayısı pozitif tam sayı olmalı.`);

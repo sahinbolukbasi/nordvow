@@ -16,15 +16,18 @@ const TR_CHAR_MAP: Record<string, string> = {
 
 /**
  * Sosyal medya kullanıcı adını temizler:
- * - Görünmez Unicode karakterleri ve boşlukları kaldırır
- * - URL ön eklerini (https://instagram.com/...) ve ? / # parametrelerini temizler
+ * - Görünmez Unicode / yönlendirme karakterlerini (ZWSP, LRM, RLM, NBSP) kaldırır
+ * - Tam genişlikli / Unicode alt çizgileri (＿, ﹍, ﹎, ﹏) standart ASCII `_` karakterine çevirir
+ * - URL ön eklerini (https://(www.|m.)instagram.com/...) ve ? / # parametrelerini temizler
  * - Türkçe karakterleri ve aksanları ASCII'ye dönüştürür (ör. İ -> i\u0307 hatasını önler)
+ * - Sondaki veya ortadaki `_` karakterlerini korur (ör. `buketakdag_`)
  */
 export function cleanSocialHandle(raw: string, platform?: "INSTAGRAM" | "TIKTOK" | "YOUTUBE"): string {
   const cleaned = raw
-    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, "")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u00A0]/g, "")
+    .replace(/[\uFF3F\uFE4D-\uFE4F\u203F\u2040]/g, "_")
     .trim()
-    .replace(/^(?:https?:\/\/)?(?:www\.)?(?:instagram\.com|instagr\.am|tiktok\.com|youtube\.com)\/@?/i, "")
+    .replace(/^(?:https?:\/\/)?(?:(?:www|m)\.)?(?:instagram\.com|instagr\.am|tiktok\.com|youtube\.com)\/@?/i, "")
     .replace(/[/?#].*$/, "")
     .replace(/^@+/, "")
     .replace(/[İIıĞğÜüŞşÖöÇç]/g, (ch) => TR_CHAR_MAP[ch] ?? ch)
@@ -36,4 +39,3 @@ export function cleanSocialHandle(raw: string, platform?: "INSTAGRAM" | "TIKTOK"
   if (platform === "INSTAGRAM") return cleaned.replace(/[^a-z0-9._]/g, "");
   return cleaned.replace(/[^a-z0-9._-]/g, "");
 }
-

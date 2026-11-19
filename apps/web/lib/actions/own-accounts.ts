@@ -3,6 +3,7 @@ import { z } from "zod";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
+import { cleanSocialHandle } from "@infulancer/core/social/handle";
 import { syncInfluencer, syncSocialAccount } from "@infulancer/core/social/sync";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, parseInput, revalidateAll, str } from "@/lib/action-utils";
@@ -12,9 +13,8 @@ const schema = z.object({
   platform: z.enum(["INSTAGRAM", "YOUTUBE"]),
   handle: z
     .string()
-    .trim()
-    .transform((v) => v.replace(/^https?:\/\/(www\.)?(instagram\.com|youtube\.com)\/@?/i, "").replace(/^@/, "").replace(/\/.*$/, ""))
-    .pipe(z.string().regex(/^[A-Za-z0-9._-]{2,40}$/, { error: "Geçerli bir kullanıcı adı girin (ör. @kullanici)." })),
+    .transform((v) => cleanSocialHandle(v))
+    .pipe(z.string().regex(/^[a-z0-9._-]{2,40}$/, { error: "Geçerli bir kullanıcı adı girin (ör. @kullanici)." })),
 });
 
 /**

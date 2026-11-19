@@ -48,6 +48,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Pazarlama ve Araçlar", order: 200 },
     { href: "/admin/reklam", label: "Reklam", icon: MegaphoneIcon, section: "Pazarlama ve Araçlar", order: 210 },
     { href: "/admin/etkinlikler", label: "Etkinlikler", icon: CalendarIcon, section: "Pazarlama ve Araçlar", order: 220 },
+    { href: "/admin/qr-giris", label: "QR Giriş & Biletler", icon: GridIcon, section: "Pazarlama ve Araçlar", order: 225 },
     { href: "/admin/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 230 },
     { href: "/admin/linkler", label: "Linkler", icon: LinkIcon, section: "Pazarlama ve Araçlar", order: 240 },
     { href: "/dashboard/voice-assistant", label: "Sesli asistan", icon: BellIcon, section: "Pazarlama ve Araçlar", order: 250 },
@@ -80,6 +81,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Pazarlama ve Araçlar", order: 100 },
     { href: "/marka/reklam", label: "Reklam", icon: MegaphoneIcon, section: "Pazarlama ve Araçlar", order: 110 },
     { href: "/marka/etkinlikler", label: "Etkinlikler", icon: CalendarIcon, section: "Pazarlama ve Araçlar", order: 120 },
+    { href: "/marka/qr-giris", label: "QR Giriş & Biletler", icon: GridIcon, section: "Pazarlama ve Araçlar", order: 125 },
     { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 130 },
 
     { href: "/dashboard/iletisim", label: "İletişim Merkezi", icon: BellIcon, section: "İletişim", order: 195 },
