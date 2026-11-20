@@ -4,32 +4,16 @@ import { authConfig } from "./auth.config";
 import { detectRegion } from "@infulancer/core/i18n/regions";
 import { isAdminOnlyPath, requiredRoleForPath, roleHome } from "./lib/roles";
 import { clearAuthCookies } from "./lib/auth-cookies";
+import { isPublicPath } from "./lib/public-paths";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set([
-  "/gizlilik",
-  "/kullanim-kosullari",
-  "/kullanim-sartlari",
-  "/kvkk",
-  "/kvkk-aydinlatma",
-  "/acik-riza",
-  "/cerez-politikasi",
-  "/veri-silme",
-  "/influencer-sozlesmesi",
-  "/marka-sozlesmesi",
-  "/mesafeli-satis",
-  "/iade-iptal",
-  "/ileti-izni",
-  "/destek",
-  "/health",
-]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";
 
 /**
  * Oturum ve rol öneki kontrolü. Herkese açık: /giris, /api/auth/*, yasal sayfalar (/gizlilik,
  * /kullanim-kosullari, /kullanim-sartlari, /veri-silme — App Review için girişsiz erişilebilir olmalı), /kvkk,
- * /cerez-politikasi, /api/meta/data-deletion ve imzayla doğrulanan webhook uçları (/api/webhooks/*).
+ * /cerez-politikasi, /health, /api/health (ALB, tam eşleşme), /api/meta/data-deletion ve imzayla doğrulanan webhook uçları (/api/webhooks/*).
  * Her sayfa/aksiyon ayrıca lib/auth-guard ile rolü yeniden doğrular (derinlemesine savunma).
  */
 function withPath(res: NextResponse, pathname: string): NextResponse {
@@ -55,7 +39,7 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
   const { pathname, search } = req.nextUrl;
   const user = req.auth?.user;
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/") || pathname === "/api/meta/data-deletion") return NextResponse.next();
+  if (isPublicPath(pathname) || pathname.startsWith("/api/webhooks/") || pathname === "/api/meta/data-deletion") return NextResponse.next();
   // Herkese açık bilet/kupon kartları ve görsel uçları (davetlilere gönderilen bağlantılar).
   if (pathname.startsWith("/bilet/") || pathname.startsWith("/kupon/") || pathname.startsWith("/etkinlik/") || pathname.startsWith("/api/media/") || pathname.startsWith("/api/bilet/") || pathname.startsWith("/api/kupon/") || pathname.startsWith("/api/etkinlik/") || pathname.startsWith("/api/wallet/") || pathname.startsWith("/l/") || pathname.startsWith("/brand/") || pathname === "/opengraph-image" || pathname === "/icon.svg" || pathname === "/apple-icon") return NextResponse.next();
   if (pathname === LANDING && !user?.role) return NextResponse.next();
