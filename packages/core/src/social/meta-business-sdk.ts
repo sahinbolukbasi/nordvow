@@ -89,6 +89,8 @@ function withProof(accessToken: string, params: Record<string, unknown> = {}): R
   return proof ? { ...params, appsecret_proof: proof } : params;
 }
 
+export type MetaCredentialPair = { igId: string; token: string };
+
 /**
  * Tek bir belirtece bağımlı kalmamak için çoklu Meta erişim kimliği çözümleyicisi:
  * 1) DB `config_values` (`meta.igBusinessAccountId`, `meta.systemUserToken`, `instagram.accessToken`)
@@ -98,6 +100,7 @@ function withProof(accessToken: string, params: Record<string, unknown> = {}): R
 export async function resolveMetaSdkCredentials(): Promise<{
   igUserIds: string[];
   tokens: string[];
+  pairs: MetaCredentialPair[];
 }> {
   const envIgIds = [envStr("IG_BUSINESS_ACCOUNT_ID", ""), envStr("INSTAGRAM_IG_USER_ID", "")].filter(Boolean);
   const envTokens = [
@@ -134,6 +137,7 @@ export async function resolveMetaSdkCredentials(): Promise<{
 
   const connTokens: string[] = [];
   const connIgIds: string[] = [];
+  const connPairs: MetaCredentialPair[] = [];
   try {
     const activeConns = await prisma.channelConnection.findMany({
       where: { provider: "INSTAGRAM", status: "ACTIVE" },
@@ -143,18 +147,50 @@ export async function resolveMetaSdkCredentials(): Promise<{
     });
     for (const c of activeConns) {
       const token = await vault().get(c.tokenRef).catch(() => null);
-      if (token) connTokens.push(token);
       const ext = c.externalIds as Record<string, unknown> | null;
-      const igId = typeof ext?.igUserId === "string" ? ext.igUserId : typeof ext?.instagramId === "string" ? ext.instagramId : null;
+      const igId =
+        typeof ext?.igUserId === "string"
+          ? ext.igUserId
+          : typeof ext?.ig_user_id === "string"
+            ? ext.ig_user_id
+            : typeof ext?.instagramId === "string"
+              ? ext.instagramId
+              : null;
+      if (token && token.startsWith("EAA")) {
+        connTokens.push(token);
+        if (igId) connPairs.push({ igId, token });
+      }
       if (igId) connIgIds.push(igId);
     }
   } catch {
     // non-fatal
   }
 
+  const primaryIgIds = [...new Set([...cfgIgIds, ...envIgIds])];
+  const primaryTokens = [...new Set([...cfgTokens, ...envTokens])].filter((t) => t.startsWith("EAA"));
+
+  const seenPairs = new Set<string>();
+  const pairs: MetaCredentialPair[] = [];
+  const addPair = (igId: string, token: string) => {
+    if (!igId || !token.startsWith("EAA")) return;
+    const key = `${igId}:${token}`;
+    if (seenPairs.has(key)) return;
+    seenPairs.add(key);
+    pairs.push({ igId, token });
+  };
+
+  for (const igId of primaryIgIds) {
+    for (const token of primaryTokens) addPair(igId, token);
+  }
+  for (const p of connPairs) addPair(p.igId, p.token);
+  for (const igId of primaryIgIds) {
+    for (const token of connTokens) addPair(igId, token);
+  }
+
   return {
     igUserIds: [...new Set([...cfgIgIds, ...envIgIds, ...connIgIds])],
     tokens: [...new Set([...cfgTokens, ...envTokens, ...connTokens])],
+    pairs,
   };
 }
 
@@ -564,7 +600,7 @@ export async function fetchVerifiedInstagramViaSdk(input: {
 
   // 2. Resmî SDK Business Discovery (Ajans IG Business Hesabı + çoklu token havuzu ile doğrulanmış veri çekimi)
   const creds = await resolveMetaSdkCredentials();
-  if (!cleanHandle || creds.igUserIds.length === 0 || creds.tokens.length === 0) {
+  if (!cleanHandle || creds.pairs.length === 0) {
     return {
       ok: false,
       sdkVersion,
@@ -675,53 +711,63 @@ export async function fetchVerifiedInstagramViaSdk(input: {
     }
   };
 
-  let notBusinessAccount = false;
-  outerLoop: for (const igId of creds.igUserIds) {
-    for (const token of creds.tokens) {
-      if (!token.startsWith("EAA")) continue;
-      for (const fields of fieldVariants) {
-        try {
-          const api = createMetaSdkApi(token);
-          const res = (await api.call("GET", [igId], withProof(token, { fields }))) as {
-            business_discovery?: BusinessDiscoveryPayload;
-          };
-          if (res?.business_discovery) {
-            return toDiscoveryResult(res.business_discovery);
+  const isAuthError = (code: number | null) => code === 190 || code === 10 || code === 200;
+  let lastNotBusinessErr: { code: number | null; subcode: number | null; message: string } | null = null;
+
+  for (const { igId, token } of creds.pairs) {
+    for (const fields of fieldVariants) {
+      try {
+        const api = createMetaSdkApi(token);
+        const res = (await api.call("GET", [igId], withProof(token, { fields }))) as {
+          business_discovery?: BusinessDiscoveryPayload;
+        };
+        if (res?.business_discovery) {
+          return toDiscoveryResult(res.business_discovery);
+        }
+      } catch (err) {
+        const info = extractSdkErrorInfo(err);
+        lastErr = info;
+        // Token geçersiz (190) veya yetkisiz (10/200) ise sıradaki (igId, token) çiftine geç
+        if (isAuthError(info.code)) {
+          break;
+        }
+        // Business/Creator hesabı değil, kısıtlı veya kullanıcı adı bulunamadı (110 / 2207013):
+        // Doğrudan Graph API ile tek doğrulama yap; başarısızsa sıradaki (igId, token) çiftini dene.
+        if (info.subcode === 2207013 || info.code === 110) {
+          const directCheck = await fetchDiscoveryDirect(igId, token, fieldVariants[2]!);
+          if (directCheck.bd) return toDiscoveryResult(directCheck.bd);
+          if (directCheck.err) {
+            lastErr = directCheck.err;
+            if (!isAuthError(directCheck.err.code) && (directCheck.err.subcode === 2207013 || directCheck.err.code === 110)) {
+              lastNotBusinessErr = directCheck.err;
+            }
+          } else {
+            lastNotBusinessErr = info;
           }
-        } catch (err) {
-          const info = extractSdkErrorInfo(err);
-          lastErr = info;
-          // Business/Creator hesabı değil veya kullanıcı adı bulunamadı (110 / 2207013):
-          // Doğrudan Graph API ile tek doğrulama yapıp kesinleşirse tüm döngüden çık.
-          if (info.subcode === 2207013 || info.code === 110) {
-            const directCheck = await fetchDiscoveryDirect(igId, token, fieldVariants[2]!);
-            if (directCheck.bd) return toDiscoveryResult(directCheck.bd);
-            if (directCheck.err) lastErr = directCheck.err;
-            notBusinessAccount = true;
-            break outerLoop;
-          }
-          // Token geçersiz (190) veya yetkisiz (10/200) ise sıradaki token'a geç
-          if (info.code === 190 || info.code === 10 || info.code === 200) {
+          break;
+        }
+        // Diğer hatalarda (örn. code 1/2 veri boyutu sınırı veya SDK serileştirme) doğrudan Graph API dene
+        const direct = await fetchDiscoveryDirect(igId, token, fields);
+        if (direct.bd) return toDiscoveryResult(direct.bd);
+        if (direct.err) {
+          lastErr = direct.err;
+          if (isAuthError(direct.err.code)) {
             break;
           }
-          // Diğer hatalarda (örn. code 1/2 veri boyutu sınırı veya SDK serileştirme) doğrudan Graph API dene
-          const direct = await fetchDiscoveryDirect(igId, token, fields);
-          if (direct.bd) return toDiscoveryResult(direct.bd);
-          if (direct.err) {
-            lastErr = direct.err;
-            if (direct.err.subcode === 2207013 || direct.err.code === 110) {
-              notBusinessAccount = true;
-              break outerLoop;
-            }
+          if (direct.err.subcode === 2207013 || direct.err.code === 110) {
+            lastNotBusinessErr = direct.err;
+            break;
           }
         }
       }
     }
   }
 
+  const effectiveErr = lastNotBusinessErr ?? lastErr;
+  const notBusinessAccount = Boolean(lastNotBusinessErr);
   const finalErrorMessage = notBusinessAccount
-    ? `@${cleanHandle} Meta Business Discovery'de bulunamadı (Kod ${lastErr?.code ?? 110}/${lastErr?.subcode ?? 2207013}). Alt çizgi (_) karakteri geçerlidir; bu hata genellikle hesabın Kişisel/Gizli hesap olmasından (Business veya Creator hesabına geçirilmemiş) ya da kullanıcı adının değişmiş olmasından kaynaklanır. Kişisel hesaplar için Instagram OAuth bağlantısı gerekir.`
-    : (lastErr?.message ?? "Meta Business SDK üzerinden hesap verisi alınamadı.");
+    ? `@${cleanHandle} Meta Business Discovery'de bulunamadı (Kod ${effectiveErr?.code ?? 110}/${effectiveErr?.subcode ?? 2207013}). Hesap Kişisel/Gizli olabilir, yaş/bölge kısıtı içerebilir veya kullanıcı adı değişmiş olabilir; herkese açık Business/Creator hesapları sorgulanabilir (kişisel/kısıtlı hesaplar için Instagram OAuth gerekir).`
+    : (effectiveErr?.message ?? "Meta Business SDK üzerinden hesap verisi alınamadı.");
 
   return {
     ok: false,
@@ -729,8 +775,8 @@ export async function fetchVerifiedInstagramViaSdk(input: {
     usedOAuth: false,
     fallbackFromExpiredOAuth: Boolean(oauthExpiredError),
     source: "none",
-    errorCode: lastErr?.code ?? null,
-    errorSubcode: lastErr?.subcode ?? null,
+    errorCode: effectiveErr?.code ?? null,
+    errorSubcode: effectiveErr?.subcode ?? null,
     errorMessage: finalErrorMessage,
     externalId: input.oauthExternalId ?? null,
     username: cleanHandle,

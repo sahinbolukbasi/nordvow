@@ -4,6 +4,8 @@ import type { Actor } from "@infulancer/core/access/actor";
 import {
   createDraft,
   saveDraftBrief,
+  saveDraftOnly,
+  sendConfirmedCampaignOffers,
   submitDraft,
   updateAudience,
   updateBasics,
@@ -37,8 +39,13 @@ async function finish(a: Actor, id: string, step: WizardStepKey, fd: FormData, r
   if (!res.ok) return res;
   revalidateAll();
   if (str(fd, "intent") === "stay") return { ok: true, message: "Taslak kaydedildi." };
-  const c = await prisma.campaign.findUnique({ where: { id }, select: { objective: true } });
-  const includeShipping = c?.objective === "urun_gonderimi";
+  const c = await prisma.campaign
+    .findUnique({
+      where: { id },
+      select: { objective: true, shippingConfig: { select: { requiresProductShipment: true } } },
+    })
+    .catch(() => null);
+  const includeShipping = c?.objective === "urun_gonderimi" || Boolean(c?.shippingConfig?.requiresProductShipment);
   const next = nextStepFor(step, includeShipping);
   redirect(`${wizardBase(a.role, id)}?adim=${next ?? "ozet"}`);
 }
@@ -47,7 +54,12 @@ export async function wizardBasicsAction(_p: ActionState, fd: FormData): Promise
   const a = await actor();
   let id = optStr(fd, "id");
   const res = await attempt(async () => {
-    const input = { name: str(fd, "name"), objective: str(fd, "objective"), description: optStr(fd, "description") };
+    const input = {
+      name: str(fd, "name"),
+      objective: str(fd, "objective"),
+      secondaryObjective: optStr(fd, "secondaryObjective"),
+      description: optStr(fd, "description"),
+    };
     if (id) await updateBasics(a, id, input);
     else id = (await createDraft(a, { ...input, brandId: optStr(fd, "brandId") })).id;
     return { ok: true };
@@ -64,13 +76,16 @@ export async function wizardAudienceAction(_p: ActionState, fd: FormData): Promi
     return n == null || Number.isNaN(n) ? null : n;
   };
   const res = await attempt(async () => {
+    const selectedTags = fd.getAll("audienceInterestTags").map(String).filter(Boolean);
+    const freeTags = tags(str(fd, "audienceInterests").replace(/#/g, ""));
+    const combinedInterests = [...new Set([...selectedTags, ...freeTags])].slice(0, 15);
     await updateAudience(a, id, {
       targetCountries: fd.getAll("targetCountries").map(String),
       platforms: fd.getAll("platforms").map(String),
       audienceAgeMin: age("audienceAgeMin"),
       audienceAgeMax: age("audienceAgeMax"),
       audienceGender: optStr(fd, "audienceGender"),
-      audienceInterests: tags(str(fd, "audienceInterests").replace(/#/g, "")).slice(0, 15),
+      audienceInterests: combinedInterests,
     });
     return { ok: true };
   });
@@ -95,15 +110,34 @@ export async function wizardScheduleAction(_p: ActionState, fd: FormData): Promi
   return finish(a, id, "butce", fd, res);
 }
 
+/**
+ * İçerik planı kaydı: AWS WAF false-positive (CloudFront 403) riskini ortadan kaldırmak için
+ * ham JSON dizgisi yerine standart tekrarlı form alanları (planPlatform, planContentType, planCount, planNotes)
+ * okunur; eski istemciler için `plan` JSON alanı geriye dönük uyumlu tutulur.
+ */
 export async function wizardContentPlanAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const a = await actor();
   const id = str(fd, "id");
   const res = await attempt(async () => {
+    const platforms = fd.getAll("planPlatform").map(String);
+    const contentTypes = fd.getAll("planContentType").map(String);
+    const counts = fd.getAll("planCount").map(String);
+    const notes = fd.getAll("planNotes").map(String);
+
     let plan: unknown;
-    try {
-      plan = JSON.parse(str(fd, "plan") || "[]");
-    } catch {
-      throw new DomainError("DOGRULAMA", "İçerik planı okunamadı.");
+    if (platforms.length > 0) {
+      plan = platforms.map((platform, idx) => ({
+        platform: platform.trim(),
+        contentType: (contentTypes[idx] ?? "").trim(),
+        count: Number(counts[idx] ?? "0") || 0,
+        notes: (notes[idx] ?? "").trim().slice(0, 500),
+      }));
+    } else {
+      try {
+        plan = JSON.parse(str(fd, "plan") || "[]");
+      } catch {
+        throw new DomainError("DOGRULAMA", "İçerik planı okunamadı.");
+      }
     }
     await updateContentPlan(a, id, plan);
     return { ok: true };
@@ -168,20 +202,54 @@ export async function wizardInfluencersAction(_p: ActionState, fd: FormData): Pr
   return finish(a, id, "influencer", fd, res);
 }
 
-/** Son adım: marka → ajansa gönder; ajans → kuruluma (bedel, atama, yayın kontrolü) geç. */
+/**
+ * Son adım:
+ *  - intent="save_draft": yalnız taslak olarak kaydeder; kampanyayı yayınlamaz ve teklif GÖNDERMEZ.
+ *  - intent="publish_only": kampanyayı yayınlar; teklif GÖNDERMEZ.
+ *  - intent="publish_and_send_offers": açık onay (confirmed="1") ile kampanyayı yayınlar ve seçilen kişilere teklif gönderir.
+ */
 export async function wizardSubmitAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const a = await actor();
   const id = str(fd, "id");
+  const intent = str(fd, "intent") || "publish_only";
+
+  if (intent === "save_draft") {
+    const res = await attempt(async () => {
+      await saveDraftOnly(a, id);
+      return { ok: true, message: "Kampanya taslak olarak kaydedildi. Hiçbir influencer'a teklif gönderilmedi." };
+    });
+    if (res.ok) revalidateAll();
+    return res;
+  }
+
   const res = await attempt(async () => {
     const r = await submitDraft(a, id);
-    return { ok: true, data: { mode: r.mode } };
+    let sentCount = 0;
+    if (intent === "publish_and_send_offers") {
+      if (str(fd, "confirmed") !== "1") {
+        throw new DomainError("DOGRULAMA", "Teklif göndermek için onay penceresinden açıkça onay vermelisiniz.");
+      }
+      const influencerIds = fd.getAll("influencerIds").map(String).filter(Boolean);
+      const offerRes = await sendConfirmedCampaignOffers(a, id, {
+        confirmed: true,
+        influencerIds: influencerIds.length > 0 ? influencerIds : undefined,
+        customMessage: optStr(fd, "offerMessage"),
+      });
+      sentCount = offerRes.sentCount;
+    }
+    return { ok: true, data: { mode: String(r.mode), sentCount: String(sentCount) } };
   });
   if (!res.ok) return res;
   revalidateAll();
-  const mode = (res.data as { mode?: string } | undefined)?.mode;
+  const data = res.data as { mode?: string; sentCount?: string } | undefined;
+  const mode = data?.mode;
+  const sent = Number(data?.sentCount ?? "0");
   if (a.role === "BRAND") {
-    // SELF: marka kendi kurulumuna geçer; AJANS: ajansa gönderildi onayı.
-    redirect(mode === "SELF" ? `/marka/kampanyalar/${id}/kurulum?adim=influencerlar` : `/marka/kampanyalar/${id}?gonderildi=1`);
+    redirect(
+      mode === "SELF"
+        ? `/marka/kampanyalar/${id}?yayinlandi=1${sent > 0 ? `&teklif=${sent}` : ""}`
+        : `/marka/kampanyalar/${id}?gonderildi=1${sent > 0 ? `&teklif=${sent}` : ""}`,
+    );
   }
-  redirect(`/admin/kampanyalar/${id}/kurulum?adim=influencerlar`);
+  redirect(`/admin/kampanyalar/${id}?yayinlandi=1${sent > 0 ? `&teklif=${sent}` : ""}`);
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
 import { EventQrHub } from "@/components/luma/event-views";
 import { requireActor } from "@/lib/auth-guard";
 
@@ -10,8 +11,17 @@ export default async function AdminQrHubPage({
 }: {
   searchParams: Promise<{ etkinlik?: string }>;
 }) {
-  await requireActor("ADMIN");
-  const { etkinlik } = await searchParams;
-  return <EventQrHub qrPath="/admin/qr-giris" selectedEventId={etkinlik} />;
+  const actor = await requireActor("ADMIN");
+  const [{ etkinlik }, restriction] = await Promise.all([
+    searchParams,
+    getQrScannerRestriction(actor.userId),
+  ]);
+  return (
+    <EventQrHub
+      qrPath="/admin/qr-giris"
+      selectedEventId={etkinlik}
+      allowedEventIds={restriction?.allowedEventIds}
+    />
+  );
 }
 

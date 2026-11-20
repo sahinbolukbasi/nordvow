@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { etiketle } from "@/lib/iletisim/etiketler";
 
 export interface BrandOption {
   id: string;
@@ -292,7 +293,11 @@ export function VoiceAssistantAdminPanel({
     if (res.ok) {
       const data = await res.json();
       setSimSessionId(data.sessionId);
-      setSimMessages((prev) => [...prev, { role: "assistant", text: data.reply }]);
+      const sourceNote = Array.isArray(data.sources) && data.sources.length
+        ? `\n[Kaynak: ${data.sources.map((s: { title: string }) => s.title).join(", ")}]`
+        : "";
+      const metaNote = data.intentLabel ? `(${data.intentLabel}${data.handoff ? " · Temsilciye aktarıldı" : ""}) ` : "";
+      setSimMessages((prev) => [...prev, { role: "assistant", text: `${metaNote}${data.reply}${sourceNote}` }]);
       void loadAll();
     }
   };
@@ -371,11 +376,10 @@ export function VoiceAssistantAdminPanel({
                 settings.enabled ? "Sesli asistan duraklatıldı." : "Sesli asistan aktif edildi.",
               )
             }
-            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-              settings.enabled
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${settings.enabled
                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                 : "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-            }`}
+              }`}
           >
             {settings.enabled ? "● Asistan Açık" : "○ Asistan Kapalı"}
           </button>
@@ -413,9 +417,8 @@ export function VoiceAssistantAdminPanel({
             key={v.id}
             type="button"
             onClick={() => handleViewChange(v.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-              mainView === v.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface hover:text-fg"
-            }`}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${mainView === v.id ? "bg-fg text-bg" : "text-fg-muted hover:bg-surface hover:text-fg"
+              }`}
           >
             {v.label}
           </button>
@@ -434,13 +437,12 @@ export function VoiceAssistantAdminPanel({
                   <button
                     type="button"
                     onClick={() => setStep(s.id)}
-                    className={`flex w-full flex-col gap-0.5 rounded-2xl border p-3.5 text-left transition ${
-                      active
+                    className={`flex w-full flex-col gap-0.5 rounded-2xl border p-3.5 text-left transition ${active
                         ? "border-fg bg-fg text-bg"
                         : s.done
                           ? "border-emerald-500/40 bg-emerald-500/5 text-fg hover:border-emerald-500"
                           : "border-border bg-surface text-fg-muted hover:border-border-strong"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold">{s.title}</span>
@@ -990,9 +992,8 @@ export function VoiceAssistantAdminPanel({
                     simMessages.map((m, i) => (
                       <div
                         key={i}
-                        className={`max-w-[85%] rounded-xl px-3 py-2 ${
-                          m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
-                        }`}
+                        className={`max-w-[85%] rounded-xl px-3 py-2 ${m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
+                          }`}
                       >
                         {m.text}
                       </div>
@@ -1043,7 +1044,7 @@ export function VoiceAssistantAdminPanel({
                       <div>
                         <span className="font-medium text-fg">{c.extractedDetails?.callerName || c.callerPhone}</span>
                         <span className="block text-xs text-fg-muted">
-                          {c.extractedDetails?.intent || c.status} · {c.durationSeconds} sn
+                          {etiketle(c.extractedDetails?.intent || c.status, c.extractedDetails?.intent || c.status)} · {c.durationSeconds} sn
                         </span>
                       </div>
                       <span className="text-xs text-fg-passive">{new Date(c.startedAt).toLocaleString("tr-TR")}</span>
@@ -1116,9 +1117,8 @@ export function VoiceAssistantAdminPanel({
               simMessages.map((m, i) => (
                 <div
                   key={i}
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                    m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
-                  }`}
+                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${m.role === "user" ? "self-end bg-fg text-bg" : "self-start border border-border bg-surface text-fg"
+                    }`}
                 >
                   {m.text}
                 </div>

@@ -5,7 +5,19 @@ import { CheckIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 
 /** Kampanya kurulum adımları — sihirbazda ve kampanya detayında aynı bileşen. */
-export async function SetupSteps({ campaignId, steps, active, compact = false }: { campaignId: string; steps: SetupStep[]; active?: string; compact?: boolean }) {
+export async function SetupSteps({
+  campaignId,
+  steps,
+  active,
+  compact = false,
+  basePath = "/admin/kampanyalar",
+}: {
+  campaignId: string;
+  steps: SetupStep[];
+  active?: string;
+  compact?: boolean;
+  basePath?: "/admin/kampanyalar" | "/marka/kampanyalar";
+}) {
   const tt = await getTT();
   return (
     <nav aria-label={tt("Kampanya kurulum adımları")}>
@@ -13,7 +25,7 @@ export async function SetupSteps({ campaignId, steps, active, compact = false }:
         {steps.map((s, i) => (
           <li key={s.key}>
             <Link
-              href={`/admin/kampanyalar/${campaignId}/kurulum?adim=${s.key}`}
+              href={`${basePath}/${campaignId}/kurulum?adim=${s.key}`}
               aria-current={active === s.key ? "step" : undefined}
               className={cn(
                 "flex h-full flex-col gap-1 rounded-[8px] border px-3 py-2 transition-colors",

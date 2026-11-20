@@ -144,8 +144,7 @@ export async function registerWithInvite(input: RegisterInput) {
 }
 
 function cleanHandle(h: string) {
-  const t = h.trim().replace(/^https?:\/\/[^/]+\//, "").replace(/^@/, "");
-  return `@${t}`;
+  return h.trim().replace(/^https?:\/\/[^/]+\//, "").replace(/^@+/, "");
 }
 
 /** Onay: profil oluşturulur, kullanıcı ACTIVE olur, başvuran ve davet eden bilgilendirilir. */

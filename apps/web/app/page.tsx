@@ -3,15 +3,19 @@ import { unstable_cache } from "next/cache";
 import { BRAND_NAME } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
 import { LandingPage, type LandingStats } from "@/components/landing/landing-page";
 import { getActor, getUserStatus } from "@/lib/auth-guard";
-import { getLandingContent, toReferences, toVideos } from "@/lib/landing-store";
+import { getLandingContent, resolveLandingCreators, toReferences, toVideos } from "@/lib/landing-store";
 import { roleHome } from "@/lib/roles";
+import { getPreferences } from "@/lib/i18n/server";
+import { buildLocalizedMetadata } from "@/lib/i18n/seo";
 import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
-export const metadata: Metadata = {
-  title: { absolute: `${BRAND_NAME} · Influencer marketing platformu` },
-  description: "Influencer kampanyalarını brief'ten ödemeye kadar tek panelden yönetin: doğru içerik üreticisi, ölçülebilir sonuç.",
-};
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale } = await getPreferences();
+  return buildLocalizedMetadata({ pathname: "/", locale });
+}
 export const dynamic = "force-dynamic";
 
 /** Tanıtım istatistikleri, içerik ve ziyaretçi duyuruları 60 sn önbelleklenir (her ziyarette 6 DB sorgusu yerine <20ms). */
@@ -25,6 +29,7 @@ const getCachedLandingPayload = unstable_cache(
       getLandingContent(),
       prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null),
     ]);
+    const creators = await resolveLandingCreators(content);
     const stats: LandingStats = {
       influencers,
       followers: f._sum.followers ?? 0,
@@ -33,7 +38,7 @@ const getCachedLandingPayload = unstable_cache(
     };
     const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
     const visitorPopups = allPopups.filter((p) => p.audience === "visitors" || p.audience === "all");
-    return { stats, content, visitorPopups };
+    return { stats, content, creators, visitorPopups };
   },
   ["landing-page-payload-v1"],
   { revalidate: 60, tags: ["landing-content", "system-popups"] },
@@ -55,12 +60,16 @@ export default async function RootPage({
     if ((actor.role === "BRAND" && !st.brandId) || (actor.role === "INFLUENCER" && !st.influencerId)) {
       redirect("/api/auth/clear-session?hata=hesap");
     }
+    const scannerRestriction = await getQrScannerRestriction(actor.userId);
+    if (scannerRestriction) {
+      redirect(st.brandId ? "/marka/qr-giris" : "/admin/qr-giris");
+    }
     redirect(roleHome[actor.role]);
   }
-  const { stats, content, visitorPopups } = await getCachedLandingPayload();
+  const { stats, content, creators, visitorPopups } = await getCachedLandingPayload();
   return (
     <>
-      <LandingPage stats={stats} data={{ videos: toVideos(content), references: toReferences(content), creators: content.creators }} />
+      <LandingPage stats={stats} data={{ videos: toVideos(content), references: toReferences(content), creators }} />
       <AnnouncementPopup items={visitorPopups} userId="visitor" />
     </>
   );

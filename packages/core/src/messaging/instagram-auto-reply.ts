@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { normalizeTurkish } from "../dm-automation/matcher";
 
 export type InstagramMatchMode = "contains" | "exact" | "always";
 
@@ -80,31 +81,35 @@ export async function saveInstagramAutoReplies(
 
 /**
  * Gelen Instagram mesajı için Nordvow tarafında tanımlı hazır cevap kurallarını eşleştirir.
+ * Türkçe karakter normalizasyonu uygulanır (ör. "ücret" ↔ "ucret", "bütçe" ↔ "butce").
  * Öncelik sırası: exact -> contains -> always.
  */
 export async function matchInstagramAutoReply(
   tenantId: string,
   inboundText: string,
 ): Promise<InstagramAutoReplyRule | null> {
-  const text = inboundText.trim().toLocaleLowerCase("tr-TR");
+  const text = normalizeTurkish(inboundText.trim());
   if (!text) return null;
 
   const rules = (await getInstagramAutoReplies(tenantId)).filter((r) => r.enabled && r.reply.trim().length > 0);
   if (rules.length === 0) return null;
 
   for (const r of rules) {
-    if (r.matchMode === "exact" && r.keywords.some((kw) => kw === text)) {
+    if (r.matchMode === "exact" && r.keywords.some((kw) => normalizeTurkish(kw) === text)) {
       return r;
     }
   }
   for (const r of rules) {
-    if (r.matchMode === "contains" && r.keywords.some((kw) => text.includes(kw))) {
+    if (r.matchMode === "contains" && r.keywords.some((kw) => {
+      const nkw = normalizeTurkish(kw);
+      return nkw.length > 0 && text.includes(nkw);
+    })) {
       return r;
     }
   }
   for (const r of rules) {
     if (r.matchMode === "always") {
-      if (r.keywords.length === 0 || r.keywords.some((kw) => text.includes(kw))) {
+      if (r.keywords.length === 0 || r.keywords.some((kw) => text.includes(normalizeTurkish(kw)))) {
         return r;
       }
       return r;

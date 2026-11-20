@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { LandingEditor } from "@/components/landing/landing-editor";
 import { PageHeader } from "@/components/ui/layout";
 import { requireAdmin } from "@/lib/auth-guard";
-import { CREATOR_TONES, getLandingContent, LANDING_TONES } from "@/lib/landing-store";
+import { CREATOR_TONES, getAutoLandingCreators, getLandingContent, LANDING_TONES } from "@/lib/landing-store";
 import { getLegalEntity } from "@/lib/legal";
 import { LegalEntityForm } from "@/components/legal/legal-entity-form";
 export const metadata: Metadata = { title: "Tanıtım sayfası" };
@@ -12,14 +12,14 @@ export const dynamic = "force-dynamic";
 export default async function LandingAdminPage() {
   const tt = await getTT();
   await requireAdmin();
-  const [content, legal] = await Promise.all([getLandingContent(), getLegalEntity()]);
+  const [content, legal, autoCreators] = await Promise.all([getLandingContent(), getLegalEntity(), getAutoLandingCreators()]);
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title={tt("Tanıtım sayfası")}
         description={tt("Ana sayfada görünen video ve reklam kartlarını, referansları ve içerik üreticisi şeridini buradan yönetin. Kaydettiğinizde site hemen güncellenir.")}
       />
-      <LandingEditor initial={content} tones={LANDING_TONES} creatorTones={CREATOR_TONES} />
+      <LandingEditor initial={content} autoCreators={autoCreators} tones={LANDING_TONES} creatorTones={CREATOR_TONES} />
       <details className="rounded-3xl border border-line bg-glass px-5 py-4">
         <summary className="cursor-pointer text-sm font-medium">{tt("Şirket bilgileri (Gizlilik, KVKK, Çerez, Kullanım koşulları)")}</summary>
         <div className="mt-4">

@@ -40,7 +40,8 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/markalar", label: "Markalar", icon: BuildingIcon, section: "Taraflar ve İletişim", order: 110 },
     { href: "/admin/kullanicilar", label: "Kullanıcılar", icon: UsersIcon, section: "Taraflar ve İletişim", order: 120 },
     { href: "/admin/davetler", label: "Davetler", icon: UserIcon, section: "Taraflar ve İletişim", order: 130 },
-    { href: "/dashboard/iletisim", label: "İletişim Merkezi", icon: BellIcon, section: "Taraflar ve İletişim", order: 138 },
+    { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim Merkezi", icon: BellIcon, section: "Taraflar ve İletişim", order: 138 },
+    { href: "/admin/iletisim", label: "Admin İletişim", icon: SettingsIcon, section: "Taraflar ve İletişim", order: 140 },
     { href: "/admin/whatsapp-ai", label: "WhatsApp AI Takip", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 145 },
     { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Taraflar ve İletişim", order: 150 },
 
@@ -66,6 +67,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kategoriler", label: "Kategoriler", icon: GridIcon, section: "Sistem ve İçerik", order: 440 },
     { href: "/admin/bildirimler", label: "Bildirimler", icon: BellIcon, section: "Sistem ve İçerik", order: 450 },
     { href: "/admin/blog", label: "Blog & SEO", icon: NewspaperIcon, section: "Sistem ve İçerik", order: 460 },
+    { href: "/admin/global", label: "Global & Çeviriler", icon: SettingsIcon, section: "Sistem ve İçerik", order: 465 },
     { href: "/admin/tanitim", label: "Tanıtım sayfası", icon: GridIcon, section: "Sistem ve İçerik", order: 470 },
     { href: "/docs", label: "Dokümantasyon", icon: BookOpenIcon, section: "Sistem ve İçerik", order: 480 },
   ],
@@ -76,6 +78,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka/kampanyalar", label: "Kampanyalar", icon: MegaphoneIcon, section: "Kampanya ve İş Akışı", order: 20 },
     { href: "/marka/kesfet", label: "Influencer bul", icon: UsersIcon, section: "Kampanya ve İş Akışı", order: 30 },
     { href: "/marka/teklifler", label: "Teklifler", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 40 },
+    { href: "/marka/odemeler", label: "Ödemeler & Faturalar", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 45 },
     { href: "/marka/takvim", label: "Takvim", icon: CalendarIcon, section: "Kampanya ve İş Akışı", order: 50 },
 
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Pazarlama ve Araçlar", order: 100 },
@@ -84,7 +87,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka/qr-giris", label: "QR Giriş & Biletler", icon: GridIcon, section: "Pazarlama ve Araçlar", order: 125 },
     { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 130 },
 
-    { href: "/dashboard/iletisim", label: "İletişim Merkezi", icon: BellIcon, section: "İletişim", order: 195 },
+    { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim", icon: BellIcon, section: "İletişim", order: 195 },
 
     { href: "/profil", label: "Profilim", icon: UserIcon, section: "Hesap ve Yardım", order: 300 },
     { href: "/docs", label: "Yardım", icon: BookOpenIcon, section: "Hesap ve Yardım", order: 310 },
@@ -98,7 +101,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/influencer/davetlerim", label: "Davetlerim", icon: CalendarIcon, section: "İş Akışım", order: 40 },
 
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Üretim ve Kazanç", order: 100 },
-    { href: "/dashboard/iletisim", label: "İletişim Merkezi", icon: BellIcon, section: "Üretim ve Kazanç", order: 105 },
+    { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim", icon: BellIcon, section: "Üretim ve Kazanç", order: 105 },
     { href: "/influencer/odemeler", label: "Ödemeler", icon: WalletIcon, section: "Üretim ve Kazanç", order: 110 },
 
     { href: "/profil", label: "Profilim", icon: UserIcon, section: "Hesap ve Rehber", order: 200 },

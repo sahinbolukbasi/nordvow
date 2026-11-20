@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@infulancer/core/db";
 import { canBrandManageEvent } from "@infulancer/core/events/partners";
-import { checkInTicket, issueQuickTicket, undoCheckInTicket } from "@infulancer/core/events/service";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
+import { checkInTicket, undoCheckInTicket } from "@infulancer/core/events/service";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { requireApiActor } from "@/lib/auth-guard";
 
@@ -26,6 +27,16 @@ export async function POST(req: Request) {
     };
 
     const eventId = body.eventId?.trim();
+    const scannerRestriction = await getQrScannerRestriction(actor.userId);
+    if (scannerRestriction) {
+      if (!scannerRestriction.active) {
+        return NextResponse.json({ ok: false, error: "QR okuyucu hesabınız pasif durumda." }, { status: 403 });
+      }
+      if (eventId && !scannerRestriction.allowedEventIds.includes(eventId)) {
+        return NextResponse.json({ ok: false, error: "Bu etkinliğin biletlerini tarama yetkiniz yok." }, { status: 403 });
+      }
+    }
+
     if (actor.role === "BRAND" && eventId) {
       const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
       if (!ev || !(await canBrandManageEvent(ev, actor.brandId!))) {
@@ -34,8 +45,11 @@ export async function POST(req: Request) {
     }
 
     if (body.action === "undo" && body.ticketId) {
-      const t = await prisma.eventTicket.findUnique({ where: { id: body.ticketId }, select: { event: { select: { id: true, tenantId: true } } } });
+      const t = await prisma.eventTicket.findUnique({ where: { id: body.ticketId }, select: { eventId: true, event: { select: { id: true, tenantId: true } } } });
       if (!t) return NextResponse.json({ ok: false, error: "Bilet bulunamadı." }, { status: 404 });
+      if (scannerRestriction && !scannerRestriction.allowedEventIds.includes(t.eventId)) {
+        return NextResponse.json({ ok: false, error: "Bu etkinliğin biletini geri alma yetkiniz yok." }, { status: 403 });
+      }
       if (actor.role === "BRAND" && !(await canBrandManageEvent(t.event, actor.brandId!))) {
         return NextResponse.json({ ok: false, error: "Bu bilet sizin etkinliğinize ait değil." }, { status: 403 });
       }
@@ -53,24 +67,10 @@ export async function POST(req: Request) {
     }
 
     if (body.action === "quickAdd") {
-      if (!eventId || !body.holderName?.trim()) {
-        return NextResponse.json({ ok: false, error: "Etkinlik ve katılımcı adı gerekli." }, { status: 400 });
-      }
-      const created = await issueQuickTicket({
-        eventId,
-        holderName: body.holderName,
-        guestEmail: body.guestEmail,
-      });
-      return NextResponse.json({
-        ok: true,
-        ticket: {
-          id: created.id,
-          code: created.code,
-          holderName: created.holderName,
-          status: created.status,
-          checkedInAt: created.checkedInAt?.toISOString() ?? null,
-        },
-      });
+      return NextResponse.json(
+        { ok: false, error: "QR tarama ekranından katılımcı eklenemez; yalnızca etkinlik yöneticisi davet edebilir." },
+        { status: 403 },
+      );
     }
 
     const code = body.code?.trim();
@@ -78,11 +78,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Bilet kodu gerekli." }, { status: 400 });
     }
 
-    if (actor.role === "BRAND" && !eventId) {
+    if (scannerRestriction || (actor.role === "BRAND" && !eventId)) {
       const tktMatch = code.match(/TKT-[A-Z0-9]+/i);
       const norm = (tktMatch ? tktMatch[0] : code).toUpperCase();
-      const found = await prisma.eventTicket.findUnique({ where: { code: norm }, select: { event: { select: { id: true, tenantId: true } } } });
-      if (found && !(await canBrandManageEvent(found.event, actor.brandId!))) {
+      const found = await prisma.eventTicket.findUnique({ where: { code: norm }, select: { eventId: true, event: { select: { id: true, tenantId: true } } } });
+      if (scannerRestriction && (!found || !scannerRestriction.allowedEventIds.includes(found.eventId))) {
+        return NextResponse.json({ ok: false, error: "Bu etkinliğin biletini tarama yetkiniz yok." }, { status: 403 });
+      }
+      if (actor.role === "BRAND" && !eventId && found && !(await canBrandManageEvent(found.event, actor.brandId!))) {
         return NextResponse.json({ ok: false, error: "Bu bilet sizin etkinliğinize ait değil." }, { status: 403 });
       }
     }

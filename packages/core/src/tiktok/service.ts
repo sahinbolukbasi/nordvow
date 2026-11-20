@@ -96,7 +96,7 @@ export async function completeTikTokOAuth(params: {
     create: {
       influencerId: params.influencerId,
       platform: "TIKTOK",
-      handle: "@tiktok",
+      handle: "tiktok",
       followers: 0,
       engagementRate: 0,
       demographics: {},

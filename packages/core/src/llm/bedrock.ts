@@ -167,20 +167,32 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
 export const bedrockProvider: LlmProvider = {
   name: "bedrock",
   async completeText(req: TextRequest) {
-    const modelId = requireEnv("BEDROCK_TEXT_MODEL_ID");
-    const res = await bedrock().send(
-      new ConverseCommand({
-        modelId,
-        system: req.system ? [{ text: req.system }] : undefined,
-        messages: [{ role: "user", content: [{ text: req.prompt }] }],
-        inferenceConfig: { maxTokens: 800, temperature: 0.2 },
-      }),
-    );
-    return { text: textOf(res.output), model: modelId };
+    const modelId = envStr("BEDROCK_TEXT_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0");
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const t0 = Date.now();
+        const res = await bedrock().send(
+          new ConverseCommand({
+            modelId,
+            system: req.system ? [{ text: req.system }] : undefined,
+            messages: [{ role: "user", content: [{ text: req.prompt }] }],
+            inferenceConfig: { maxTokens: 800, temperature: 0.2 },
+          }),
+          { abortSignal: AbortSignal.timeout(15_000) },
+        );
+        logBedrockUsage(modelId, req.promptVersion || "complete_text", res.usage, Date.now() - t0);
+        return { text: textOf(res.output), model: modelId };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("Bedrock metin üretimi başarısız oldu");
   },
   async readScreenshotNumbers(req: VisionRequest) {
-    const modelId = requireEnv("BEDROCK_VISION_MODEL_ID");
+    const modelId = envStr("BEDROCK_VISION_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0");
     const fields = Object.keys(req.expectedFields);
+    const t0 = Date.now();
     const res = await bedrock().send(
       new ConverseCommand({
         modelId,
@@ -196,7 +208,9 @@ export const bedrockProvider: LlmProvider = {
         ],
         inferenceConfig: { maxTokens: 400, temperature: 0 },
       }),
+      { abortSignal: AbortSignal.timeout(20_000) },
     );
+    logBedrockUsage(modelId, "vision_metrics", res.usage, Date.now() - t0);
     const parsed = parseJsonObject(textOf(res.output)) ?? {};
     const values: Record<string, number | null> = {};
     for (const f of fields) {

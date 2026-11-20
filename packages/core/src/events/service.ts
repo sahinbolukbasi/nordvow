@@ -15,6 +15,11 @@ export type CreateEventInput = {
   venueName?: string | null;
   address?: string | null;
   city?: string | null;
+  countryId?: string | null;
+  cityId?: string | null;
+  timezone?: string | null;
+  priceMinor?: number | null;
+  currency?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   startsAt: Date;
@@ -36,6 +41,11 @@ export async function createEvent(input: CreateEventInput) {
       venueName: input.venueName ?? null,
       address: input.address ?? null,
       city: input.city ?? null,
+      countryId: input.countryId ?? null,
+      cityId: input.cityId ?? null,
+      timezone: input.timezone ?? null,
+      priceMinor: input.priceMinor ?? null,
+      currency: input.currency ?? null,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       startsAt: input.startsAt,

@@ -1,6 +1,6 @@
 "use client";
 import { useActionState, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LOCALE_LABEL, LOCALES, REGIONS, regionOf, type Locale } from "@infulancer/core/i18n/regions";
 import { setRegionAction } from "@/lib/actions/region";
 import { idleState } from "@/lib/action-state";
@@ -8,32 +8,114 @@ import { usePrefs, useT } from "@/lib/i18n/client";
 import { useDismiss } from "@/lib/use-dismiss";
 import { cn } from "@/lib/cn";
 
+const STORAGE_LOCALE_KEY = "nv_locale_pref";
+
+function writeClientPreference(locale: Locale, country: string) {
+  const maxAge = 60 * 60 * 24 * 365;
+  const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? ";secure" : "";
+  document.cookie = `nv_locale=${encodeURIComponent(locale)};path=/;max-age=${maxAge};samesite=lax${secure}`;
+  document.cookie = `nv_country=${encodeURIComponent(country)};path=/;max-age=${maxAge};samesite=lax${secure}`;
+  document.cookie = `nv_locale_manual=1;path=/;max-age=${maxAge};samesite=lax${secure}`;
+  try {
+    localStorage.setItem(STORAGE_LOCALE_KEY, JSON.stringify({ locale, country, manual: true }));
+  } catch {
+    // depolama kapalı olabilir
+  }
+}
+
+/** URL /tr/... veya /en/... önekli ise hedef dile çevirir; değilse null döner. */
+function targetLocalizedUrl(pathname: string, nextLocale: Locale): string | null {
+  if (nextLocale !== "tr" && nextLocale !== "en") return null;
+  if (/^\/(tr|en)(?=\/|$)/.test(pathname)) {
+    const rest = pathname.replace(/^\/(tr|en)(?=\/|$)/, "") || "";
+    const qs = typeof window !== "undefined" ? window.location.search : "";
+    return `/${nextLocale}${rest}${qs}`;
+  }
+  return null;
+}
+
 /**
- * Dil + ülke seçici. Mobilde taşmayan kompakt modal, masaüstünde sağa hizalı küçük popover.
+ * Her sayfada görünür Dil (TR / EN) ve Ülke seçici.
+ * Kullanıcı elle değiştirdiğinde tercih cookie + localStorage + (varsa) hesap ayarlarına yazılır
+ * ve konum algısını her zaman ezer.
  */
 export function RegionSwitcher({ compact = false }: { compact?: boolean }) {
   const { locale, country } = usePrefs();
   const t = useT();
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [loc, setLoc] = useState<Locale>(locale);
   const [cty, setCty] = useState(country);
   const [state, action, pending] = useActionState(setRegionAction, idleState);
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, open, () => setOpen(false));
+
+  useEffect(() => {
+    setLoc(locale);
+    setCty(country);
+  }, [locale, country]);
+
   useEffect(() => {
     if (state.ok) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- kayıttan sonra menüyü kapat
+      writeClientPreference(loc, cty);
       setOpen(false);
+      const nextUrl = targetLocalizedUrl(pathname, loc);
+      if (nextUrl) {
+        router.push(nextUrl);
+      } else {
+        router.refresh();
+      }
+    }
+  }, [state, router, pathname, loc, cty]);
+
+  const quickSwitch = (nextLocale: "tr" | "en") => {
+    if (nextLocale === locale) return;
+    writeClientPreference(nextLocale, country);
+    setLoc(nextLocale);
+    const nextUrl = targetLocalizedUrl(pathname, nextLocale);
+    if (nextUrl) {
+      window.location.assign(nextUrl);
+    } else {
       router.refresh();
     }
-  }, [state, router]);
+  };
 
   const r = regionOf(country);
-  const showCountry = r.code.toUpperCase() !== locale.toUpperCase();
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative inline-flex items-center gap-1">
+      {/* Hızlı TR / EN dil seçici — her sayfada görünür */}
+      <div
+        role="group"
+        aria-label={t("region.language", "Dil")}
+        className="inline-flex h-8 items-center rounded-lg border border-border bg-bg/60 p-0.5 text-[11px]"
+      >
+        <button
+          type="button"
+          onClick={() => quickSwitch("tr")}
+          aria-pressed={locale === "tr"}
+          className={cn(
+            "rounded-md px-2 py-1 font-semibold transition-standard",
+            locale === "tr" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
+          )}
+        >
+          TR
+        </button>
+        <button
+          type="button"
+          onClick={() => quickSwitch("en")}
+          aria-pressed={locale === "en"}
+          className={cn(
+            "rounded-md px-2 py-1 font-semibold transition-standard",
+            locale === "en" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
+          )}
+        >
+          EN
+        </button>
+      </div>
+
+      {/* Ülke / gelişmiş bölge seçici */}
       <button
         type="button"
         aria-haspopup="dialog"
@@ -46,10 +128,9 @@ export function RegionSwitcher({ compact = false }: { compact?: boolean }) {
         aria-label={`${t("region.title", "Dil ve bölge")}: ${LOCALE_LABEL[locale]}, ${r.nativeName}, ${r.currency}`}
       >
         <span aria-hidden className="text-[13px]">🌐</span>
-        <span className="font-medium uppercase">{locale}</span>
         {!compact ? (
           <span className="text-fg-passive">
-            {showCountry ? `· ${r.code} ` : ""}· {r.currency}
+            {r.code} · {r.currency}
           </span>
         ) : null}
       </button>
@@ -103,13 +184,13 @@ export function RegionSwitcher({ compact = false }: { compact?: boolean }) {
               >
                 {REGIONS.map((x) => (
                   <option key={x.code} value={x.code}>
-                    {x.nativeName} · {x.currency}
+                    {x.nativeName} ({x.code}) · {x.currency}
                   </option>
                 ))}
               </select>
             </label>
             <p className="text-[10px] leading-snug text-fg-passive">
-              {t("region.note", "Tutarlar hesabın kendi para biriminde gösterilir.")}
+              {t("region.note", "Tutarlar ülkenin para birimiyle gösterilir. Ham IP saklanmaz.")}
             </p>
             {state.error ? (
               <p role="alert" className="text-[11px] text-critical">

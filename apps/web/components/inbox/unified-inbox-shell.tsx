@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { uploadFile } from "@/lib/creative-upload";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import {
   formatRemainingWindow,
   type InboxChannelType,
@@ -710,7 +711,12 @@ export function UnifiedInboxShell({
 
   const handleDeleteContactKvkk = async () => {
     if (!detail) return;
-    if (!window.confirm(`${detail.contact.name} kişisini ve tüm mesaj geçmişini KVKK kapsamında kalıcı olarak silmek istediğinize emin misiniz?`)) {
+    const expected = detail.contact.name.trim();
+    const typed = window.prompt(
+      `KVKK kapsamında "${expected}" kişisini ve tüm mesaj geçmişini kalıcı olarak silmek için kişinin adını yazın:\n(${expected})`,
+    );
+    if (typed === null || typed.trim().toLowerCase() !== expected.toLowerCase()) {
+      if (typed !== null) notify("error", "Girilen ad eşleşmedi; silme işlemi iptal edildi.");
       return;
     }
     try {
@@ -849,10 +855,10 @@ export function UnifiedInboxShell({
         <div
           role="status"
           className={`border-b px-4 py-1.5 text-xs font-medium ${toast.tone === "error"
-              ? "border-red-500/30 bg-red-500/15 text-red-500"
-              : toast.tone === "warn"
-                ? "border-amber-500/30 bg-amber-500/15 text-amber-600"
-                : "border-emerald-500/30 bg-emerald-500/15 text-emerald-600"
+            ? "border-red-500/30 bg-red-500/15 text-red-500"
+            : toast.tone === "warn"
+              ? "border-amber-500/30 bg-amber-500/15 text-amber-600"
+              : "border-emerald-500/30 bg-emerald-500/15 text-emerald-600"
             }`}
         >
           {toast.text}
@@ -993,8 +999,8 @@ export function UnifiedInboxShell({
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${c.channel === "INSTAGRAM"
-                                ? "bg-gradient-to-r from-pink-500 to-purple-600"
-                                : "bg-emerald-600"
+                              ? "bg-gradient-to-r from-pink-500 to-purple-600"
+                              : "bg-emerald-600"
                               }`}
                           >
                             {c.channel === "INSTAGRAM" ? "IG" : "WA"}
@@ -1073,8 +1079,8 @@ export function UnifiedInboxShell({
                 <div className="flex items-center gap-2">
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white ${detail.conversation.channel === "INSTAGRAM"
-                        ? "bg-gradient-to-r from-pink-500 to-purple-600"
-                        : "bg-emerald-600"
+                      ? "bg-gradient-to-r from-pink-500 to-purple-600"
+                      : "bg-emerald-600"
                       }`}
                   >
                     {detail.conversation.channel}
@@ -1085,7 +1091,7 @@ export function UnifiedInboxShell({
                       <span className="text-xs text-fg-passive">#{detail.conversation.displayId}</span>
                     </div>
                     <p className="text-[11px] text-fg-muted">
-                      {detail.contact.username ? `@${detail.contact.username}` : detail.contact.phoneE164}
+                      {detail.contact.username ? `@${detail.contact.username.replace(/^@+/, "")}` : detail.contact.phoneE164}
                     </p>
                   </div>
                 </div>
@@ -1100,8 +1106,8 @@ export function UnifiedInboxShell({
                       })
                     }
                     className={`h-8 rounded-xl px-3 font-semibold transition ${detail.conversation.status === "resolved"
-                        ? "border border-line bg-surface text-fg"
-                        : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
+                      ? "border border-line bg-surface text-fg"
+                      : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                       }`}
                   >
                     {detail.conversation.status === "resolved" ? "Yeniden Aç" : "✓ Çözüldü olarak işaretle"}
@@ -1254,8 +1260,8 @@ export function UnifiedInboxShell({
                     >
                       <div
                         className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${isOut
-                            ? "bg-fg text-bg"
-                            : "border border-line bg-surface text-fg"
+                          ? "bg-fg text-bg"
+                          : "border border-line bg-surface text-fg"
                           }`}
                       >
                         <p className="whitespace-pre-wrap">{m.body}</p>
@@ -1330,12 +1336,12 @@ export function UnifiedInboxShell({
               {windowState ? (
                 <div
                   className={`flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-1.5 text-xs ${windowState.reason === "open"
-                      ? windowState.closingSoon
-                        ? "bg-amber-500/15 text-amber-500"
-                        : "bg-emerald-500/10 text-emerald-500"
-                      : windowState.reason === "human_agent"
-                        ? "bg-indigo-500/15 text-indigo-400"
-                        : "bg-red-500/15 text-red-400"
+                    ? windowState.closingSoon
+                      ? "bg-amber-500/15 text-amber-500"
+                      : "bg-emerald-500/10 text-emerald-500"
+                    : windowState.reason === "human_agent"
+                      ? "bg-indigo-500/15 text-indigo-400"
+                      : "bg-red-500/15 text-red-400"
                     }`}
                 >
                   <span>
@@ -1445,8 +1451,8 @@ export function UnifiedInboxShell({
                       type="button"
                       onClick={() => setComposerMode("note")}
                       className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${composerMode === "note"
-                          ? "bg-amber-400 text-slate-950"
-                          : "text-fg-muted hover:text-fg"
+                        ? "bg-amber-400 text-slate-950"
+                        : "text-fg-muted hover:text-fg"
                         }`}
                     >
                       🟨 Dahili Not
@@ -1512,8 +1518,8 @@ export function UnifiedInboxShell({
                         : "Mesajınızı yazın… (Hazır yanıtlar için / yazın)"
                   }
                   className={`w-full rounded-xl border p-2.5 text-xs focus:outline-none disabled:opacity-50 ${composerMode === "note"
-                      ? "border-amber-400/50 bg-amber-500/10 text-fg"
-                      : "border-line bg-bg text-fg"
+                    ? "border-amber-400/50 bg-amber-500/10 text-fg"
+                    : "border-line bg-bg text-fg"
                     }`}
                 />
 
@@ -1551,8 +1557,8 @@ export function UnifiedInboxShell({
                     disabled={sending || isReplyLocked || (!composerText.trim() && pendingAttachments.length === 0)}
                     onClick={() => void handleSend()}
                     className={`h-8 rounded-xl px-4 text-xs font-bold transition disabled:opacity-40 ${composerMode === "note"
-                        ? "bg-amber-400 text-slate-950"
-                        : "bg-fg text-bg hover:opacity-90"
+                      ? "bg-amber-400 text-slate-950"
+                      : "bg-fg text-bg hover:opacity-90"
                       }`}
                   >
                     {sending ? "Gönderiliyor…" : composerMode === "note" ? "Notu Kaydet ⏎" : "Gönder ⏎"}
@@ -1582,7 +1588,7 @@ export function UnifiedInboxShell({
                   ) : null}
                 </div>
                 {detail.contact.username ? (
-                  <p className="text-fg-muted">@{detail.contact.username}</p>
+                  <p className="text-fg-muted">@{detail.contact.username.replace(/^@+/, "")}</p>
                 ) : null}
                 {detail.contact.phoneE164 ? (
                   <p className="text-fg-muted">{detail.contact.phoneE164}</p>
@@ -1608,7 +1614,7 @@ export function UnifiedInboxShell({
                 {detail.contact.matchedCreator ? (
                   <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
                     <p className="font-semibold text-emerald-400">
-                      ✓ {detail.contact.matchedCreator.name} (@{detail.contact.matchedCreator.handle})
+                      ✓ {detail.contact.matchedCreator.name} (@{detail.contact.matchedCreator.handle.replace(/^@+/, "")})
                     </p>
                     <p className="text-[11px] text-fg-muted">
                       {detail.contact.matchedCreator.category} ·{" "}
@@ -1628,10 +1634,10 @@ export function UnifiedInboxShell({
                   <span className="font-semibold text-fg">İletişim Onayı (Opt-in)</span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${detail.contact.consent?.state === "GRANTED"
-                        ? "bg-emerald-500/20 text-emerald-400"
-                        : detail.contact.consent?.state === "WITHDRAWN"
-                          ? "bg-red-500/20 text-red-400"
-                          : "bg-zinc-500/20 text-fg-muted"
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : detail.contact.consent?.state === "WITHDRAWN"
+                        ? "bg-red-500/20 text-red-400"
+                        : "bg-zinc-500/20 text-fg-muted"
                       }`}
                   >
                     {detail.contact.consent?.state === "GRANTED"
@@ -1718,38 +1724,43 @@ export function UnifiedInboxShell({
                 </button>
               </div>
 
-              {/* KVKK & Engelleme İşlemleri */}
-              <div className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-3">
-                <span className="font-semibold text-fg">KVKK & Güvenlik</span>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => void handleExportContactKvkk()}
-                    className="flex-1 rounded-lg border border-line py-1.5 text-[11px] font-medium hover:border-fg/40"
-                  >
-                    Verilerini Dışa Aktar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void saveContactPatch(
-                        { blocked: !detail.contact.blocked },
-                        detail.contact.blocked ? "Kişi engeli kaldırıldı." : "Kişi engellendi.",
-                      )
-                    }
-                    className="rounded-lg border border-amber-500/40 px-2.5 py-1.5 text-[11px] text-amber-500"
-                  >
-                    {detail.contact.blocked ? "Engeli Kaldır" : "Engelle"}
-                  </button>
+              {/* KVKK & Engelleme İşlemleri (katlanır + Diğer işlemler menüsü) */}
+              <details className="rounded-xl border border-line bg-surface p-3">
+                <summary className="cursor-pointer font-semibold text-fg">Gizlilik &amp; KVKK</summary>
+                <div className="mt-2.5 flex flex-col gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void handleExportContactKvkk()}
+                      className="flex-1 rounded-lg border border-line py-1.5 text-[11px] font-medium hover:border-fg/40"
+                    >
+                      Verilerini Dışa Aktar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveContactPatch(
+                          { blocked: !detail.contact.blocked },
+                          detail.contact.blocked ? "Kişi engeli kaldırıldı." : "Kişi engellendi.",
+                        )
+                      }
+                      className="rounded-lg border border-amber-500/40 px-2.5 py-1.5 text-[11px] text-amber-500"
+                    >
+                      {detail.contact.blocked ? "Engeli Kaldır" : "Engelle"}
+                    </button>
+                  </div>
+                  <details className="mt-1 rounded-lg border border-line/60 bg-bg/40 p-2">
+                    <summary className="cursor-pointer text-[11px] text-fg-muted hover:text-fg">Diğer işlemler ⋯</summary>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteContactKvkk()}
+                      className="mt-2 w-full rounded-lg border border-red-500/40 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10"
+                    >
+                      KVKK Kapsamında Verilerini Sil
+                    </button>
+                  </details>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteContactKvkk()}
-                  className="mt-1 rounded-lg border border-red-500/40 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10"
-                >
-                  KVKK Kapsamında Verilerini Sil
-                </button>
-              </div>
+              </details>
             </>
           )}
         </aside>
@@ -1757,7 +1768,7 @@ export function UnifiedInboxShell({
 
       {/* WhatsApp Onaylı Şablon Seçici Modal */}
       {showTemplateModal && detail ? (
-        <ModalDialog title="Onaylı WhatsApp Şablonu Gönder (UTILITY)" onClose={() => setShowTemplateModal(false)}>
+        <ModalDialog title="Onaylı WhatsApp Şablonu Gönder (Bilgilendirme)" onClose={() => setShowTemplateModal(false)}>
           <div className="flex flex-col gap-3 text-xs">
             {detail.contact.consent?.state !== "GRANTED" ? (
               <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-red-400">
@@ -1854,7 +1865,7 @@ export function UnifiedInboxShell({
                             <p className="font-semibold text-fg">
                               {ch.provider} · {ch.displayName}
                             </p>
-                            <p className="text-[10px] text-fg-muted">Durum: {ch.status}</p>
+                            <p className="text-[10px] text-fg-muted">Durum: {etiketle(ch.status)}</p>
                           </div>
                           <button
                             type="button"
@@ -2151,7 +2162,7 @@ export function UnifiedInboxShell({
             {settingsTab === "general" ? (
               <div className="flex flex-col gap-3">
                 <label className="flex items-center justify-between">
-                  <span>AWS Bedrock AI Yanıt Önerileri (İnsan Onaylı)</span>
+                  <span>AI yanıt önerileri (gönderim her zaman sizde)</span>
                   <input
                     type="checkbox"
                     checked={settings.aiSuggestionsEnabled}

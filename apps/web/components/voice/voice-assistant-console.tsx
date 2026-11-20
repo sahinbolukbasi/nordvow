@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import { VOICE_TTS_MODELS, VOICE_TTS_VOICES, type VoiceBusinessHours, type VoiceRoutingRule } from "@infulancer/core/voice/types";
 
 type BrandOption = { id: string; name: string };
@@ -672,7 +673,7 @@ export function VoiceAssistantConsole({
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-bg/50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[12px] font-medium text-fg-muted">
-                  Niyet: <strong className="text-fg">{testRes.intent.intent}</strong> · TTS: {testRes.provider}
+                  Niyet: <strong className="text-fg">{etiketle(testRes.intent.intent, testRes.intent.intent)}</strong> · Ses: {testRes.provider}
                 </span>
                 <audio src={testRes.audioUrl} controls className="h-8" />
               </div>

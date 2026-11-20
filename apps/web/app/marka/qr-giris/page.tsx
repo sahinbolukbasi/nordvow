@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
 import { EventQrHub } from "@/components/luma/event-views";
 import { requireActor } from "@/lib/auth-guard";
 
@@ -11,7 +12,17 @@ export default async function BrandQrHubPage({
   searchParams: Promise<{ etkinlik?: string }>;
 }) {
   const actor = await requireActor("BRAND");
-  const { etkinlik } = await searchParams;
-  return <EventQrHub qrPath="/marka/qr-giris" tenantId={actor.brandId!} selectedEventId={etkinlik} />;
+  const [{ etkinlik }, restriction] = await Promise.all([
+    searchParams,
+    getQrScannerRestriction(actor.userId),
+  ]);
+  return (
+    <EventQrHub
+      qrPath="/marka/qr-giris"
+      tenantId={actor.brandId!}
+      selectedEventId={etkinlik}
+      allowedEventIds={restriction?.allowedEventIds}
+    />
+  );
 }
 

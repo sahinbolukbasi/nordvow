@@ -92,7 +92,7 @@ export function LiveAgentMonitor() {
       .then((json) => {
         if (active && json) setData(json);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       active = false;
     };
@@ -199,7 +199,7 @@ export function LiveAgentMonitor() {
                         <Link href={`/admin/influencerlar/${r.influencerId}`} className="font-medium text-fg hover:underline">
                           {r.influencerName}
                         </Link>
-                        <div className="text-[12px] text-fg-muted">@{r.handle}</div>
+                        <div className="text-[12px] text-fg-muted">@{r.handle.replace(/^@+/, "")}</div>
                       </td>
                       <td className="py-2.5 px-3">
                         <Pill tone={up.onboarding_scan_status === "COMPLETED" ? "green" : up.onboarding_scan_status === "FAILED" ? "red" : "amber"}>
@@ -214,9 +214,8 @@ export function LiveAgentMonitor() {
                           {r.telemetry.admin_telemetry.agents_executed.map((a) => (
                             <span
                               key={a.agent}
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
-                                a.status === "SUCCESS" ? "bg-emerald-500/12 text-emerald-500" : "bg-red-500/12 text-red-500"
-                              }`}
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${a.status === "SUCCESS" ? "bg-emerald-500/12 text-emerald-500" : "bg-red-500/12 text-red-500"
+                                }`}
                             >
                               {a.agent.replace("Agent", "").replace("Worker", "")} · {a.duration_ms}ms
                             </span>

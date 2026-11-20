@@ -91,12 +91,12 @@ async function dispatch(p: Any): Promise<string | null> {
     const dmOutcome =
       provider === "INSTAGRAM"
         ? await processInstagramWebhookForDmAutomation(p).catch(() => ({
-            commentsHandled: 0,
-            messagesHandled: 0,
-            postbacksHandled: 0,
-            optOutsCaptured: 0,
-            handledMessageIds: [] as string[],
-          }))
+          commentsHandled: 0,
+          messagesHandled: 0,
+          postbacksHandled: 0,
+          optOutsCaptured: 0,
+          handledMessageIds: [] as string[],
+        }))
         : { commentsHandled: 0, messagesHandled: 0, postbacksHandled: 0, optOutsCaptured: 0, handledMessageIds: [] as string[] };
     const dmHandledMids = new Set(dmOutcome.handledMessageIds);
     const hasGlobalIgToken = Boolean(envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", ""));
@@ -337,12 +337,18 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
         return { conversationId: conv.id, optOut: false };
       }
     }
-    const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { enabled: true } });
-    const botDisabledByFirm = agentRows.length > 0 && agentRows.every((a) => !a.enabled);
-    if (!botDisabledByFirm) {
+    const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { agentId: true, enabled: true } });
+    const hasEnabledBrandAssistant = agentRows.some((a) => a.enabled);
+    if (hasEnabledBrandAssistant) {
       void prescreenCreator(tenantId, conv.id, input.text).catch(() => undefined);
-      const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername, isFirst });
-      if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+      // Markanın kendi aktif asistanı (RAG + niyet yönlendirici + güven eşiği) önce çalışır.
+      const decision = await runAgentTurn(tenantId, conv.id, input.text, input.at);
+      if (decision.kind === "silent" && tenantId === "ajans") {
+        await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername, isFirst });
+      }
+    } else if (tenantId === "ajans") {
+      // Platform ajans hattı için genel kanal botu
+      await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername, isFirst });
     }
   }
   return { conversationId: conv.id, optOut: false };

@@ -103,6 +103,7 @@ export async function loadCampaignHubData(campaignId: string) {
         id: d.id,
         label: `${platformLabels[d.platform]} ${contentTypeLabels[d.contentType]}`,
         status: deliverableStatusLabels[d.status] ?? d.status,
+        rawStatus: d.status,
         isDone,
         postUrl: d.postUrl,
         publishedAt: d.publishedAt ? d.publishedAt.toISOString() : null,

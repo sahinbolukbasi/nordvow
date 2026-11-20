@@ -57,31 +57,32 @@ export type ChatHistoryItem = {
 
 type ChatTurn =
   | {
-      id: string;
-      from: "user";
-      text: string;
-      tierLabel?: string;
-      refCount?: number;
-      isHistorical?: boolean;
-    }
+    id: string;
+    from: "user";
+    text: string;
+    tierLabel?: string;
+    refCount?: number;
+    isHistorical?: boolean;
+  }
   | {
-      id: string;
-      from: "bot";
-      text: string;
-      postBrief?: string | null;
-      enhancedPrompt?: string | null;
-      voiceoverScript?: string | null;
-      assetId?: string | null;
-      uploadId?: string | null;
-      kind?: CreativeKind;
-      format?: string;
-      modelKey?: string;
-      prompt?: string;
-      savedToLibrary?: boolean;
-      orchestrator?: OrchestratorMeta | null;
-      error?: string | null;
-      isHistorical?: boolean;
-    };
+    id: string;
+    from: "bot";
+    text: string;
+    postBrief?: string | null;
+    enhancedPrompt?: string | null;
+    voiceoverScript?: string | null;
+    assetId?: string | null;
+    uploadId?: string | null;
+    kind?: CreativeKind;
+    format?: string;
+    modelKey?: string;
+    prompt?: string;
+    savedToLibrary?: boolean;
+    orchestrator?: OrchestratorMeta | null;
+    invokedSkill?: { id: string; label: string; agentName: string; reason: string } | null;
+    error?: string | null;
+    isHistorical?: boolean;
+  };
 
 const STARTER_PROMPT_IDEAS: PromptIdeaItem[] = [
   {
@@ -362,26 +363,6 @@ function ChatMediaCard({
           ★ {tt("Promptu Kaydet")}
         </button>
 
-        {kind !== "audio" ? (
-          <>
-            <Link
-              href={`/creative?sekme=editor&asset=${encodeURIComponent(effectiveRefId || assetId)}`}
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
-            >
-              {tt("Editörde Aç")}
-            </Link>
-            <form action={openAssetInStudioAction}>
-              <input type="hidden" name="assetId" value={assetId} />
-              <button
-                type="submit"
-                className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
-              >
-                {tt("Düzenleyici")}
-              </button>
-            </form>
-          </>
-        ) : null}
-
         <a
           href={src}
           download
@@ -605,19 +586,19 @@ export function CreativeComposer({
         { id: `hist-u-${h.jobId}`, from: "user", text: cleanText, isHistorical: true },
         ...(h.status === "COMPLETED" && h.assetId
           ? [
-              {
-                id: `hist-b-${h.jobId}`,
-                from: "bot" as const,
-                text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığa kaydedildi.`,
-                assetId: h.assetId,
-                uploadId: h.uploadId,
-                kind: h.kind,
-                modelKey: h.modelKey,
-                prompt: cleanText,
-                savedToLibrary: true,
-                isHistorical: true,
-              },
-            ]
+            {
+              id: `hist-b-${h.jobId}`,
+              from: "bot" as const,
+              text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığa kaydedildi.`,
+              assetId: h.assetId,
+              uploadId: h.uploadId,
+              kind: h.kind,
+              modelKey: h.modelKey,
+              prompt: cleanText,
+              savedToLibrary: true,
+              isHistorical: true,
+            },
+          ]
           : []),
       ];
       return {
@@ -957,6 +938,7 @@ export function CreativeComposer({
               text: res.reply,
               postBrief: res.postBrief,
               orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
             },
           ]);
           return;
@@ -983,6 +965,7 @@ export function CreativeComposer({
               prompt: res.enhancedPrompt ?? trimmed,
               savedToLibrary: true,
               orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
             },
           ]);
           router.refresh();
@@ -1005,13 +988,14 @@ export function CreativeComposer({
               enhancedPrompt: res.enhancedPrompt,
               voiceoverScript: res.voiceoverScript,
               orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
             },
           ]);
         } else if (res.pipelineJobId) {
           const pJobId = res.pipelineJobId;
           setChatLog((prev) => [
             ...prev,
-            { id: `b-pipe-${Date.now()}`, from: "bot", text: res.reply },
+            { id: `b-pipe-${Date.now()}`, from: "bot", text: res.reply, invokedSkill: res.invokedSkill ?? null },
           ]);
           void (async () => {
             for (let i = 0; i < 120; i++) {
@@ -1357,6 +1341,13 @@ export function CreativeComposer({
               </div>
             ) : (
               <div key={msg.id} className="mr-auto flex w-full max-w-2xl flex-col gap-2.5">
+                {msg.invokedSkill ? (
+                  <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-0.5 text-[10px] font-medium text-fg-muted">
+                    <span aria-hidden>⚡</span>
+                    <span className="text-fg">{msg.invokedSkill.agentName}</span>
+                    <span>· {msg.invokedSkill.label}</span>
+                  </div>
+                ) : null}
                 <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-fg">
                   {msg.text
                     .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -1388,8 +1379,8 @@ export function CreativeComposer({
                     </summary>
 
                     {msg.orchestrator.boundAsset ||
-                    msg.orchestrator.sfxTrack?.length ||
-                    msg.orchestrator.motionLayers?.length ? (
+                      msg.orchestrator.sfxTrack?.length ||
+                      msg.orchestrator.motionLayers?.length ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {msg.orchestrator.boundAsset ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-line bg-bg px-2.5 py-0.5 text-[10px] font-medium text-fg">
@@ -1601,129 +1592,129 @@ export function CreativeComposer({
           </button>
 
           <div className={cn("flex-col gap-2", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
-          {/* Fikir & Hazır Promptlar Açılır/Kapanır Butonu */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                aria-expanded={ideasOpen}
-                onClick={() => {
-                  if (ideasOpen && sliderTab === "ideas") setIdeasOpen(false);
-                  else {
-                    setSliderTab("ideas");
-                    setIdeasOpen(true);
-                  }
-                }}
-                className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  ideasOpen && sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
-                )}
-              >
-                {tt("Fikir & Hazır Promptlar")} ({ideas.length}) {ideasOpen && sliderTab === "ideas" ? "▲" : "▼"}
-              </button>
-              <button
-                type="button"
-                aria-expanded={ideasOpen}
-                onClick={() => {
-                  if (ideasOpen && sliderTab === "saved") setIdeasOpen(false);
-                  else {
-                    setSliderTab("saved");
-                    setIdeasOpen(true);
-                  }
-                }}
-                className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  ideasOpen && sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
-                )}
-              >
-                ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length}) {ideasOpen && sliderTab === "saved" ? "▲" : "▼"}
-              </button>
-            </div>
-
-            {ideasOpen ? (
-              <div className="flex items-center gap-1">
+            {/* Fikir & Hazır Promptlar Açılır/Kapanır Butonu */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => scrollElement(ideaSliderRef.current, -1)}
-                  aria-label={tt("Promptları sola kaydır")}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+                  aria-expanded={ideasOpen}
+                  onClick={() => {
+                    if (ideasOpen && sliderTab === "ideas") setIdeasOpen(false);
+                    else {
+                      setSliderTab("ideas");
+                      setIdeasOpen(true);
+                    }
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                    ideasOpen && sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  )}
                 >
-                  ‹
+                  {tt("Fikir & Hazır Promptlar")} ({ideas.length}) {ideasOpen && sliderTab === "ideas" ? "▲" : "▼"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => scrollElement(ideaSliderRef.current, 1)}
-                  aria-label={tt("Promptları sağa kaydır")}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
+                  aria-expanded={ideasOpen}
+                  onClick={() => {
+                    if (ideasOpen && sliderTab === "saved") setIdeasOpen(false);
+                    else {
+                      setSliderTab("saved");
+                      setIdeasOpen(true);
+                    }
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                    ideasOpen && sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  )}
                 >
-                  ›
+                  ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length}) {ideasOpen && sliderTab === "saved" ? "▲" : "▼"}
                 </button>
               </div>
-            ) : null}
-          </div>
 
-          {/* Yatay Kaydırılabilir (Slider) Kartlar: Yalnızca butonla açıldığında görünür */}
-          {ideasOpen ? (
-          <div
-            ref={ideaSliderRef}
-            className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
-          >
-            {sliderTab === "ideas" ? (
-              ideas.map((idea, idx) => (
-                <button
-                  key={`${idea.title}-${idx}`}
-                  type="button"
-                  onClick={() => insertPromptIntoChat(idea.prompt)}
-                  className="group flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
-                >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="truncate text-[11px] font-semibold text-fg">{idea.title}</span>
-                    <span className="shrink-0 rounded-full border border-line bg-bg px-2 py-0.5 text-[9px] font-medium text-fg-muted group-hover:border-fg/40">
-                      {idea.category}
-                    </span>
-                  </div>
-                  <p className="line-clamp-2 text-[11px] leading-snug text-fg-muted">{idea.prompt}</p>
-                </button>
-              ))
-            ) : savedPrompts.length === 0 ? (
-              <div className="flex w-full items-center justify-between rounded-xl border border-dashed border-line bg-surface/60 px-3 py-2 text-[12px] text-fg-muted">
-                <span>{tt("Henüz kayıtlı promptunuz yok. Sohbet kutusuna yazdığınız veya beğendiğiniz bir promptu '★ Promptu Kaydet' ile buraya ekleyebilirsiniz.")}</span>
-              </div>
-            ) : (
-              savedPrompts.map((sp) => (
-                <div
-                  key={sp.id}
-                  className="group relative flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
-                >
-                  <div className="flex items-center justify-between gap-1.5 pr-5">
-                    <button
-                      type="button"
-                      onClick={() => insertPromptIntoChat(sp.prompt)}
-                      className="truncate text-left text-[11px] font-semibold text-fg hover:underline"
-                    >
-                      ★ {sp.title}
-                    </button>
-                  </div>
+              {ideasOpen ? (
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => insertPromptIntoChat(sp.prompt)}
-                    className="line-clamp-2 text-left text-[11px] leading-snug text-fg-muted"
+                    onClick={() => scrollElement(ideaSliderRef.current, -1)}
+                    aria-label={tt("Promptları sola kaydır")}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
                   >
-                    {sp.prompt}
+                    ‹
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteSavedPrompt(sp.id)}
-                    aria-label={tt("Kayıtlı promptu sil")}
-                    className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-fg-passive hover:bg-bg hover:text-critical"
+                    onClick={() => scrollElement(ideaSliderRef.current, 1)}
+                    aria-label={tt("Promptları sağa kaydır")}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
                   >
-                    ×
+                    ›
                   </button>
                 </div>
-              ))
-            )}
-          </div>
-          ) : null}
+              ) : null}
+            </div>
+
+            {/* Yatay Kaydırılabilir (Slider) Kartlar: Yalnızca butonla açıldığında görünür */}
+            {ideasOpen ? (
+              <div
+                ref={ideaSliderRef}
+                className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
+              >
+                {sliderTab === "ideas" ? (
+                  ideas.map((idea, idx) => (
+                    <button
+                      key={`${idea.title}-${idx}`}
+                      type="button"
+                      onClick={() => insertPromptIntoChat(idea.prompt)}
+                      className="group flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                    >
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="truncate text-[11px] font-semibold text-fg">{idea.title}</span>
+                        <span className="shrink-0 rounded-full border border-line bg-bg px-2 py-0.5 text-[9px] font-medium text-fg-muted group-hover:border-fg/40">
+                          {idea.category}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-[11px] leading-snug text-fg-muted">{idea.prompt}</p>
+                    </button>
+                  ))
+                ) : savedPrompts.length === 0 ? (
+                  <div className="flex w-full items-center justify-between rounded-xl border border-dashed border-line bg-surface/60 px-3 py-2 text-[12px] text-fg-muted">
+                    <span>{tt("Henüz kayıtlı promptunuz yok. Sohbet kutusuna yazdığınız veya beğendiğiniz bir promptu '★ Promptu Kaydet' ile buraya ekleyebilirsiniz.")}</span>
+                  </div>
+                ) : (
+                  savedPrompts.map((sp) => (
+                    <div
+                      key={sp.id}
+                      className="group relative flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                    >
+                      <div className="flex items-center justify-between gap-1.5 pr-5">
+                        <button
+                          type="button"
+                          onClick={() => insertPromptIntoChat(sp.prompt)}
+                          className="truncate text-left text-[11px] font-semibold text-fg hover:underline"
+                        >
+                          ★ {sp.title}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => insertPromptIntoChat(sp.prompt)}
+                        className="line-clamp-2 text-left text-[11px] leading-snug text-fg-muted"
+                      >
+                        {sp.prompt}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedPrompt(sp.id)}
+                        aria-label={tt("Kayıtlı promptu sil")}
+                        className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-fg-passive hover:bg-bg hover:text-critical"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
           </div>
 
           {promptNotice ? (

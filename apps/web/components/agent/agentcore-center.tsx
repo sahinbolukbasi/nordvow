@@ -168,7 +168,7 @@ export function InstagramExplorer() {
       {d ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-line bg-bg/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-fg">@{String(d.handle ?? "")}</span>
+            <span className="text-sm font-semibold text-fg">@{String(d.handle ?? "").replace(/^@+/, "")}</span>
             {d.score ? (
               <span className="rounded-full bg-fg px-2.5 py-0.5 text-[11px] font-semibold text-bg">
                 {tt("Marka Uyum Skoru:")} {String(d.score)}

@@ -2,6 +2,7 @@ import { getTT } from "@/lib/i18n/tt-server";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { RegionSwitcher } from "@/components/i18n/region-switcher";
 import { BRAND_NAME } from "@/lib/brand";
 import { NordvowMark } from "@/components/brand/logo";
 /** Girişsiz erişilebilen yasal sayfalar (Meta/TikTok App Review için menüye girmeden görünür). */
@@ -18,6 +19,7 @@ export default async function PublicLayout({ children }: { children: ReactNode }
           <nav aria-label={tt("Genel")} className="flex items-center gap-5 text-sm text-fg-muted">
             <Link href="/" className="hidden hover:text-fg sm:inline">{tt("Ana sayfa")}</Link>
             <Link href="/giris" className="rounded-full bg-fg px-4 py-1.5 font-medium text-bg">{tt("Giriş")}</Link>
+            <RegionSwitcher compact />
             <ThemeToggle />
           </nav>
         </div>

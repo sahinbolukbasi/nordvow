@@ -9,6 +9,7 @@ import { Button, Input, Select } from "@/components/ui/form";
 import { createAssignmentsBulk, type BulkAssignResult } from "@/lib/actions/assignments";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui/avatar";
+import { fmtEr, fmtFollowers, formatHandle, UNMEASURED_HINT } from "@/lib/format";
 
 export type PickerInfluencer = {
   id: string;
@@ -272,12 +273,20 @@ export function InfluencerPicker({ campaignId, influencers, preselected = [], hi
                     </span>
                     <span className="flex flex-wrap gap-3 text-[12px] tabular-nums text-fg-muted">
                       {i.accounts.length === 0 ? <span>{tt("Sosyal hesap yok")}</span> : null}
-                      {i.accounts.map((a) => (
-                        <span key={a.platform} className="inline-flex items-center gap-1" title={`@${a.handle}`}>
-                          <PlatformIcon platform={a.platform} size={12} />
-                          {compact.format(a.followers)} · {pct.format(a.er)}
-                        </span>
-                      ))}
+                      {i.accounts.map((a) => {
+                        const fStr = fmtFollowers(a.followers);
+                        const eStr = fmtEr(a.er);
+                        return (
+                          <span
+                            key={a.platform}
+                            className="inline-flex items-center gap-1"
+                            title={fStr === "—" ? `${formatHandle(a.handle)} · ${UNMEASURED_HINT}` : formatHandle(a.handle)}
+                          >
+                            <PlatformIcon platform={a.platform} size={12} />
+                            {fStr} · {eStr}
+                          </span>
+                        );
+                      })}
                     </span>
                     {i.rationale ? <span className="text-[12px] text-fg-passive">{i.rationale}</span> : null}
                   </span>
@@ -298,8 +307,8 @@ export function InfluencerPicker({ campaignId, influencers, preselected = [], hi
               <Button type="button" size="sm" variant="ghost" onClick={() => applyFee(true)} disabled={!bulkFee.trim()}>{tt("Yalnız boşlara")}</Button>
             </div>
             {hideCommission ? null : (
-            <label className="flex items-center gap-2 text-[13px] text-fg-muted">{tt("Ajans komisyonu %")}<Input value={commissionPct} onChange={(e) => setCommissionPct(e.target.value)} inputMode="decimal" className="w-20" aria-label={tt("Ajans komisyonu yüzdesi")} />
-            </label>
+              <label className="flex items-center gap-2 text-[13px] text-fg-muted">{tt("Ajans komisyonu %")}<Input value={commissionPct} onChange={(e) => setCommissionPct(e.target.value)} inputMode="decimal" className="w-20" aria-label={tt("Ajans komisyonu yüzdesi")} />
+              </label>
             )}
           </div>
           <ul className="flex max-h-72 flex-col divide-y divide-border overflow-auto">

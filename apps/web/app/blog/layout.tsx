@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { NordvowMark } from "@/components/brand/logo";
 import { AppShell } from "@/components/shell/app-shell";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { RegionSwitcher } from "@/components/i18n/region-switcher";
 import { getActor } from "@/lib/auth-guard";
 import { BRAND_NAME } from "@/lib/brand";
 import { getTT } from "@/lib/i18n/tt-server";
@@ -27,6 +28,7 @@ export default async function BlogLayout({ children }: { children: ReactNode }) 
             <Link href="/blog" className="font-medium text-fg">{tt("Blog")}</Link>
             <Link href="/kayit" className="hidden hover:text-fg sm:inline">{tt("Kayıt ol")}</Link>
             <Link href="/giris" className="rounded-full bg-fg px-4 py-1.5 font-medium text-bg">{tt("Giriş")}</Link>
+            <RegionSwitcher compact />
             <ThemeToggle />
           </nav>
         </div>

@@ -96,7 +96,7 @@ export function InfluencerAnalyticsDeck({
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
                 <StatusDot tone={verInfo.tone}>{isAdmin ? verInfo.label : report.verificationStatus === "EXPLORER_BOT" ? tt("Güncel Profil Verisi") : tt("Doğrulanmış Hesap")}</StatusDot>
-                <span>· @{report.handle}</span>
+                <span>· @{report.handle.replace(/^@+/, "")}</span>
                 <span>· {tt("Son güncelleme:")} {fmtDateTime(new Date(report.generatedAt))}</span>
               </div>
             </div>
@@ -775,9 +775,9 @@ export function InfluencerAnalyticsDeck({
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-bg/40 p-4">
               <span className="text-sm font-semibold text-fg">{tt("Gönderi Yorumları NLP Duygu Dağılımı")}</span>
               {report.sentiment.positivePct === 0 &&
-              report.sentiment.purchaseIntentPct === 0 &&
-              report.sentiment.neutralPct === 0 &&
-              report.sentiment.negativePct === 0 ? (
+                report.sentiment.purchaseIntentPct === 0 &&
+                report.sentiment.neutralPct === 0 &&
+                report.sentiment.negativePct === 0 ? (
                 <p className="rounded-xl border border-dashed border-line px-3 py-4 text-xs text-fg-muted">
                   {tt("Yorum metni duygu analizi için üreticinin Instagram OAuth bağlantısını onaylaması gerekir.")}
                 </p>

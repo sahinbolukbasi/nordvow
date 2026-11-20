@@ -1,23 +1,22 @@
-import type { Metadata } from "next";
-import { DmAutomationShell } from "@/components/dm-automation/dm-automation-shell";
-import { AppShell } from "@/components/shell/app-shell";
-import { loadDmAutomationPageContext } from "@/lib/dm-automation-page";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "DM Otomasyonu · NordVow" };
 export const dynamic = "force-dynamic";
 
-export default async function DmAutomationPage() {
-  const ctx = await loadDmAutomationPageContext();
-  return (
-    <AppShell role={ctx.actor.role}>
-      <DmAutomationShell
-        initialTenantId={ctx.initialTenantId}
-        tenantOptions={ctx.tenantOptions}
-        initialView="list"
-        featureAllowed={ctx.tenantAllowed}
-        canAdminExport={ctx.canAdminExport}
-      />
-    </AppShell>
-  );
+export default async function LegacyDmAutomationRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) qs.append(k, item);
+    } else {
+      qs.set(k, v);
+    }
+  }
+  qs.set("tur", "yorum-dm");
+  permanentRedirect(`/dashboard/iletisim/otomasyonlar?${qs.toString()}`);
 }
-

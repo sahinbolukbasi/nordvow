@@ -3,11 +3,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Actor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
-import { assertCanEditDraft, draftStatus } from "@infulancer/core/domain/campaign-draft";
+import { assertCanEditDraft, draftStatus, getCampaignQuickMeta, previewCampaignOffers } from "@infulancer/core/domain/campaign-draft";
 import { isWizardStep, prevStepFor, visibleWizardSteps, type WizardStepKey } from "@infulancer/core/domain/campaign-plan";
 import { isDomainError } from "@infulancer/core/domain/errors";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
-import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
+import { CampaignActionsMenu } from "@/components/campaign/campaign-hub";
+import { fmtTrDate } from "@/lib/format";
 import { CheckIcon } from "@/components/icons";
 import { pickAvatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -102,9 +103,10 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
   }
   const step: WizardStepKey = isWizardStep(stepRaw) ? stepRaw : "temel";
   const base = wizardBase(actor.role, campaignId);
-  const [{ campaign: c, checks, ready, plan }, cfg] = await Promise.all([
+  const [{ campaign: c, checks, ready, plan }, cfg, quickMeta] = await Promise.all([
     draftStatus(campaignId),
     getCampaignShippingConfig(campaignId),
+    getCampaignQuickMeta(campaignId),
   ]);
   const includeShipping = c.objective === "urun_gonderimi" || cfg.requiresProductShipment;
   const steps = visibleWizardSteps(includeShipping);
@@ -122,12 +124,25 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
 
   let body: React.ReactNode = null;
   if (step === "temel") {
-    body = <BasicsStep id={c.id} values={{ name: c.name, objective: c.objective, description: c.description, brandId: c.brandId }} />;
+    body = (
+      <BasicsStep
+        id={c.id}
+        values={{
+          name: c.name,
+          objective: c.objective,
+          secondaryObjective: quickMeta.secondaryObjective ?? null,
+          description: c.description,
+          brandId: c.brandId,
+        }}
+      />
+    );
   } else if (step === "kitle") {
+    const dbCategories = await prisma.category.findMany({ select: { name: true }, orderBy: { name: "asc" }, take: 50 });
     body = (
       <AudienceStep
         id={c.id}
         backHref={backHref}
+        categoryOptions={dbCategories.map((cat) => cat.name)}
         values={{ targetCountries: c.targetCountries, platforms: c.platforms, audienceAgeMin: c.audienceAgeMin, audienceAgeMax: c.audienceAgeMax, audienceGender: c.audienceGender, audienceInterests: c.audienceInterests }}
       />
     );
@@ -174,35 +189,90 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         city: true,
         country: true,
         avatarKey: true,
-        socialAccounts: { select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true } },
+        socialAccounts: { select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true, verified: true, tokenRef: true, syncSource: true } },
       },
     });
+    const infIds = rows.map((r) => r.id);
+    const rateCardRows = infIds.length
+      ? await prisma.rateCard.findMany({
+        where: { influencerId: { in: infIds }, active: true },
+        select: { influencerId: true, priceKurus: true },
+      })
+      : [];
+    const rateCardsByInf = new Map<string, number[]>();
+    for (const rc of rateCardRows) {
+      const arr = rateCardsByInf.get(rc.influencerId) ?? [];
+      arr.push(rc.priceKurus);
+      rateCardsByInf.set(rc.influencerId, arr);
+    }
     const targetSet = new Set(c.targetCountries);
-    const sortedRows = [...rows].sort((a, b) => {
-      const aInTarget = targetSet.has(a.country) ? 0 : 1;
-      const bInTarget = targetSet.has(b.country) ? 0 : 1;
-      if (aInTarget !== bInTarget) return aInTarget - bInTarget;
-      return a.name.localeCompare(b.name, "tr");
-    });
-    const list: WizardInfluencer[] = sortedRows.map((i) => {
+    const interestSet = new Set(c.audienceInterests.map((x) => x.toLocaleLowerCase("tr")));
+    const platformSet = new Set(c.platforms);
+    const list: WizardInfluencer[] = rows.map((i) => {
       const igAcc = i.socialAccounts.find((s) => s.platform === "INSTAGRAM") ?? i.socialAccounts[0];
+      const followers = i.socialAccounts.reduce((s, a) => s + a.followers, 0);
+      const rawEr = igAcc?.engagementRate != null ? Number(igAcc.engagementRate) : null;
+      const er = rawEr != null && rawEr > 0 ? rawEr : null;
+      const verified = i.socialAccounts.some((s) => Boolean(s.verified || s.tokenRef || (s.syncSource && s.syncSource !== "manual")));
+      const platforms = [...new Set(i.socialAccounts.map((s) => s.platform))];
+      // Yapılandırılmış veriden deterministik uyum skoru ve gerekçeler
+      const reasons: string[] = [];
+      let score = 35;
+      const catLower = i.category.toLocaleLowerCase("tr");
+      if (interestSet.size > 0 && interestSet.has(catLower)) {
+        score += 25;
+        reasons.push(`Kategori eşleşiyor (${i.category})`);
+      }
+      if (targetSet.has(i.country)) {
+        score += 10;
+        reasons.push(`Hedef ülke (${countryLabel(i.country)})`);
+      }
+      if (platforms.some((p) => platformSet.has(p))) {
+        score += 10;
+      }
+      if (er != null && er >= 0.03) {
+        score += 12;
+        reasons.push(`Yüksek etkileşim (ER %${(er * 100).toFixed(1).replace(".", ",")})`);
+      } else if (er != null && er >= 0.015) {
+        score += 6;
+      }
+      if (verified) {
+        score += 8;
+        reasons.push("Bağlı hesap (doğrulanmış veri)");
+      }
+      const fees = rateCardsByInf.get(i.id) ?? [];
+      const estimatedFeeKurus =
+        fees.length > 0 ? fees.reduce((sum, f) => sum + f, 0) / fees.length : null;
       return {
         id: i.id,
         name: i.name,
         category: i.category,
         city: [i.city, `${countryLabel(i.country)} (${currencyOf(i.country)})`].filter(Boolean).join(", "),
         avatarUrl: pickAvatar(i.socialAccounts, i.avatarKey),
-        platforms: [...new Set(i.socialAccounts.map((s) => s.platform))],
-        followers: i.socialAccounts.reduce((s, a) => s + a.followers, 0),
-        er: igAcc?.engagementRate != null ? Number(igAcc.engagementRate) : null,
-        handle: igAcc?.handle ?? null,
+        platforms,
+        followers,
+        er,
+        handle: igAcc?.handle ? igAcc.handle.replace(/^@+/, "") : null,
+        verified,
+        matchScore: Math.min(100, Math.round(score)),
+        matchReasons: reasons.slice(0, 3),
+        estimatedFeeKurus: estimatedFeeKurus != null ? Math.round(estimatedFeeKurus) : null,
       };
     });
+    // Varsayılan sıralama: uyum puanı, eşitlikte doğrulanmış veri önce.
+    list.sort((a, b) => {
+      if ((b.matchScore ?? 0) !== (a.matchScore ?? 0)) return (b.matchScore ?? 0) - (a.matchScore ?? 0);
+      if (Boolean(b.verified) !== Boolean(a.verified)) return Number(Boolean(b.verified)) - Number(Boolean(a.verified));
+      return a.name.localeCompare(b.name, "tr");
+    });
+    const effectiveBudgetKurus = Number(c.brandTotalFeeKurus || c.budgetKurus);
     const campaignSummary = {
       name: c.name,
       objective: c.objective,
-      dates: `${localDay(c.startsAt, AGENCY_TZ)} – ${localDay(c.endsAt, AGENCY_TZ)}`,
-      budgetLabel: Number(c.brandTotalFeeKurus) > 0 ? formatMinor(c.brandTotalFeeKurus, c.currency) : "Belirlenmedi",
+      dates: `${fmtTrDate(localDay(c.startsAt, AGENCY_TZ))} – ${fmtTrDate(localDay(c.endsAt, AGENCY_TZ))}`,
+      budgetLabel: effectiveBudgetKurus > 0 ? formatMinor(effectiveBudgetKurus, c.currency) : "Belirlenmedi",
+      budgetKurus: effectiveBudgetKurus,
+      currency: c.currency,
       countriesLabel: c.targetCountries.map((x) => countryLabel(x)).join(", ") || "Tümü",
       planSummary: plan.map((p) => `${p.count}x ${platformLabels[p.platform]} ${contentTypeLabels[p.contentType]}`),
     };
@@ -214,14 +284,11 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         selected={c.shortlistInfluencerIds}
         campaignSummary={campaignSummary}
         profileBaseHref={isBrand ? "/marka/kesfet" : "/admin/influencerlar"}
-        note={
-          isBrand
-            ? "Influencer Bul ekranındaki gibi filtreleyip seçim yapın; seçtiğiniz influencerlara kampanya kaydedildiğinde otomatik teklif iletilir ve Influencer Teklifler sayfasında görünür."
-            : "Kısa liste: kurulumdaki toplu atama ekranında bu kişiler önceden seçili gelir."
-        }
+        note="Beğendiğiniz influencerları kısa listeye ekleyin. Teklifler otomatik gönderilmez; özet adımında onayınızla iletilir."
       />
     );
   } else {
+    const offerPreview = await previewCampaignOffers(actor, c.id).catch(() => undefined);
     body = (
       <SubmitStep
         id={c.id}
@@ -231,6 +298,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         isBrand={isBrand}
         submittedAt={c.submittedAt ? fmtDateTime(c.submittedAt, AGENCY_TZ) : null}
         base={base}
+        offerPreview={offerPreview}
       />
     );
   }
@@ -239,7 +307,13 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
       <PageHeader
         title={c.name}
         description={`${isBrand ? "" : `${brand.name} · `}${c.status === "AKTIF" ? "Aktif" : "Taslak"}${c.submittedAt ? " · kaydedildi" : ""}. Her adımın altındaki “Kaydet ve devam” bilgileri kaydeder.`}
-        actions={<CampaignDeleteButton campaignId={c.id} campaignName={c.name} />}
+        actions={
+          <CampaignActionsMenu
+            campaignId={c.id}
+            campaignName={c.name}
+            viewHref={isBrand ? `/marka/kampanyalar/${c.id}` : `/admin/kampanyalar/${c.id}`}
+          />
+        }
       />
       <Steps base={base} active={step} done={done} includeShipping={includeShipping} />
       <Card interactive={false} className="flex flex-col gap-2">

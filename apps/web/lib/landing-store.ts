@@ -1,6 +1,8 @@
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@infulancer/core/db";
+import { resolveAvatar } from "@/lib/avatar";
+import { fmtEr, fmtFollowers, formatHandle } from "@/lib/format";
 import { LANDING_CREATORS, LANDING_REFERENCES, LANDING_VIDEOS, type LandingReference, type LandingVideo } from "@/lib/landing-content";
 
 /** Tanıtım sayfası içeriği admin panelinden düzenlenir; kayıt yoksa landing-content.ts varsayılanları kullanılır. */
@@ -16,7 +18,7 @@ const TONES = [
 export const LANDING_TONES = TONES;
 const CREATOR_TONES = ["from-rose-400 to-fuchsia-500", "from-sky-400 to-cyan-500", "from-amber-400 to-orange-500", "from-lime-400 to-emerald-500", "from-violet-400 to-indigo-500", "from-teal-400 to-sky-500"] as const;
 
-/** Video/görsel adresi: https, /api/media/ veya /landing/ yolu (javascript:, data: vb. reddedilir). */
+/** Video/görsel adresi: https, /api/media/, /api/avatar/ veya /landing/ yolu (javascript:, data: vb. reddedilir). */
 const mediaUrl = z
   .string()
   .trim()
@@ -25,7 +27,7 @@ const mediaUrl = z
     (v) =>
       v === "" ||
       /^https?:\/\/[^\s"'<>]+$/i.test(v) ||
-      /^\/(landing|media|api\/media)\/[\w.\-/]+$/.test(v),
+      /^\/(landing|media|api\/media|api\/avatar)\/[\w.\-/]+$/.test(v),
     { error: "Geçerli bir https:// adresi veya yüklenmiş medya yolu girin." },
   );
 const text = (max: number, min = 1) => z.string().trim().min(min, { error: "Boş bırakılamaz." }).max(max, { error: `En fazla ${max} karakter.` });
@@ -68,11 +70,13 @@ export const creatorSchema = z.object({
 export const landingSchema = z.object({
   videos: z.array(videoSchema).min(1, { error: "En az bir video kartı olmalı." }).max(12),
   references: z.array(referenceSchema).max(12),
+  creatorsMode: z.enum(["auto", "manual"]).default("auto"),
   creators: z.array(creatorSchema).max(30),
 });
 export type LandingContent = z.infer<typeof landingSchema>;
 export type LandingVideoItem = z.infer<typeof videoSchema>;
 export type LandingReferenceItem = z.infer<typeof referenceSchema>;
+export type LandingCreatorItem = z.infer<typeof creatorSchema>;
 export { CREATOR_TONES };
 
 export function defaultLandingContent(): LandingContent {
@@ -90,6 +94,7 @@ export function defaultLandingContent(): LandingContent {
       sponsored: true,
     })),
     references: LANDING_REFERENCES.map((r) => ({ ...r, logo: "", visible: true })),
+    creatorsMode: "auto",
     creators: LANDING_CREATORS.map((c, i) => ({
       handle: c.handle,
       niche: c.niche,
@@ -129,4 +134,80 @@ export function toVideos(c: LandingContent): LandingVideo[] {
 }
 export function toReferences(c: LandingContent): (LandingReference & { logo?: string })[] {
   return c.references.filter((r) => r.visible).map((r) => ({ ...r, logo: r.logo || undefined }));
+}
+
+/** Platformdaki aktif ve vitrini açık influencerları otomatik olarak tanıtım kartı biçiminde çeker. */
+export async function getAutoLandingCreators(limit = 30): Promise<LandingCreatorItem[]> {
+  try {
+    const rows = await prisma.influencer.findMany({
+      where: {
+        showcaseVisible: true,
+        user: { status: "ACTIVE" },
+        socialAccounts: { some: {} },
+      },
+      take: Math.max(limit * 2, 60),
+      orderBy: { createdAt: "desc" },
+      select: {
+        name: true,
+        category: true,
+        city: true,
+        avatarKey: true,
+        showCollaborations: true,
+        socialAccounts: {
+          orderBy: { followers: "desc" },
+          take: 1,
+          select: {
+            platform: true,
+            handle: true,
+            followers: true,
+            engagementRate: true,
+            avatarUrl: true,
+          },
+        },
+        assignments: {
+          where: { campaign: { status: { not: "IPTAL" } } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { campaign: { select: { brand: { select: { name: true } } } } },
+        },
+      },
+    });
+    const sorted = rows
+      .filter((r) => r.socialAccounts.length > 0)
+      .sort((a, b) => (b.socialAccounts[0]?.followers ?? 0) - (a.socialAccounts[0]?.followers ?? 0))
+      .slice(0, limit);
+
+    return sorted.map((inf, i) => {
+      const acc = inf.socialAccounts[0]!;
+      const handle = (formatHandle(acc.handle) || formatHandle(inf.name) || "@influencer").slice(0, 40);
+      const niche = (inf.category?.trim() || "İçerik Üreticisi").slice(0, 24);
+      const followers = fmtFollowers(acc.followers).slice(0, 12);
+      const erVal = Number(acc.engagementRate);
+      const engagement = Number.isFinite(erVal) && erVal > 0 ? fmtEr(erVal).slice(0, 10) : "";
+      const platform = acc.platform === "TIKTOK" ? "TikTok" : acc.platform === "YOUTUBE" ? "YouTube" : "Instagram";
+      const city = (inf.city?.trim() ?? "").slice(0, 30);
+      const brand = inf.showCollaborations ? (inf.assignments[0]?.campaign.brand.name?.trim() ?? "").slice(0, 40) : "";
+      const avatar = resolveAvatar(inf.avatarKey, acc.avatarUrl) ?? "";
+      return {
+        handle,
+        niche,
+        followers,
+        avatar,
+        tone: CREATOR_TONES[i % CREATOR_TONES.length]!,
+        platform,
+        city,
+        engagement,
+        brand,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Mod "auto" ise veritabanındaki influencerları çeker; boşsa kayıtlı/varsayılan listeye düşer. */
+export async function resolveLandingCreators(content: LandingContent): Promise<LandingCreatorItem[]> {
+  if (content.creatorsMode === "manual") return content.creators;
+  const auto = await getAutoLandingCreators();
+  return auto.length > 0 ? auto : content.creators;
 }

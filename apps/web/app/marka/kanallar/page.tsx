@@ -16,6 +16,8 @@ import { SetupWizard } from "@/components/ui/setup-wizard";
 import { Tabs } from "@/components/ui/tabs";
 import { InfoNote } from "@/components/ui/unverified";
 import { requireActor } from "@/lib/auth-guard";
+import { formatHandle } from "@/lib/format";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import { cn } from "@/lib/cn";
 export const metadata: Metadata = { title: "Kanallar ve asistan" };
 export const dynamic = "force-dynamic";
@@ -111,7 +113,7 @@ export default async function BrandChannelsPage({ searchParams }: { searchParams
                     { key: "canli", title: "Canlıya geçin", done: live, hint: "KVKK bildirimi tamamlanınca açılır.", content: goLive },
                   ]}
                 />
-                {plan ? <p className="text-[13px] text-fg-muted">{tt("Günlük kademe")}{" "}{num!.messagingLimit}{tt(": 5.000 kişilik gönderim ≈")}{" "}{plan.estimatedDays}{" "}{tt("gün.")}</p> : null}
+                {plan ? <p className="text-[13px] text-fg-muted">{tt("Günlük kademe")}{" "}{etiketle(num!.messagingLimit, num!.messagingLimit)}{tt(": 5.000 kişilik gönderim ≈")}{" "}{plan.estimatedDays}{" "}{tt("gün.")}</p> : null}
               </div>
             ),
           },
@@ -148,7 +150,7 @@ export default async function BrandChannelsPage({ searchParams }: { searchParams
                     {candidates.map((c) => (
                       <li key={c.id} className="flex flex-col py-2">
                         <span>
-                          @{c.handle ?? "?"} · {c.category ?? tt("kategori yok")}
+                          {c.handle ? formatHandle(c.handle) : "?"} · {c.category ?? tt("kategori yok")}
                         </span>
                         <span className="text-[13px] text-fg-muted">
                           {c.followers ? `${c.followers.toLocaleString("tr-TR")} takipçi` : tt("takipçi bilinmiyor")} · {c.priceExpectation ?? tt("fiyat yok")} · {c.contact ?? tt("iletişim yok")}

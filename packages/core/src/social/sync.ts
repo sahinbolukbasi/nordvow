@@ -105,7 +105,10 @@ export const httpSocial: SocialProvider = {
         const msg = sdk.errorMessage ?? "Instagram SDK senkronu başarısız.";
         if (msg.includes("yapılandırılmadı")) throw new SyncError(msg, "NOT_CONFIGURED");
         if (sdk.errorSubcode === 2207013 || sdk.errorCode === 110) {
-          throw new SyncError(`@${handle} bir Business/Creator hesabı değil veya bulunamadı.`, "NOT_BUSINESS");
+          throw new SyncError(
+            `@${handle} Meta Business Discovery'de bulunamadı (Kişisel/Gizli hesap, yaş/bölge kısıtı veya değişmiş kullanıcı adı olabilir; herkese açık Business/Creator veya Instagram OAuth gerekir).`,
+            "NOT_BUSINESS",
+          );
         }
         throw new SyncError(msg, "API");
       }

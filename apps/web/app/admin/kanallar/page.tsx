@@ -18,6 +18,7 @@ import { getInstagramAutoReplies } from "@infulancer/core/messaging/instagram-au
 import { InstagramAutoReplyPanel } from "@/components/channels/instagram-auto-reply-panel";
 import { RunJobButton } from "@/components/forms/operations-forms";
 import { fmtDate, fmtDateTime } from "@/lib/time";
+import { etiketle } from "@/lib/iletisim/etiketler";
 
 export const metadata: Metadata = { title: "Kanallar" };
 
@@ -118,11 +119,11 @@ export default async function AdminChannelsPage() {
         rows={conversations.map((c) => ({
           id: c.id,
           cells: {
-            channel: c.channel,
-            brand: brandName.get(c.tenantId) ?? c.tenantId.slice(-6),
-            contact: c.contact.name ?? c.contact.phoneE164 ?? c.contact.externalId,
+            channel: c.channel === "WHATSAPP" ? "WhatsApp" : c.channel === "INSTAGRAM" ? "Instagram" : c.channel,
+            brand: brandName.get(c.tenantId) ?? "Ajans",
+            contact: c.contact.name ?? c.contact.phoneE164 ?? "İsimsiz kişi",
             lastMsg: <span className="line-clamp-1 max-w-xs text-fg-muted">{c.messages[0]?.body ?? "—"}</span>,
-            status: { sort: c.status, display: <StatusDot tone={c.status === "awaiting_human" ? "critical" : c.status === "closed" ? "passive" : "active"}>{c.status}</StatusDot> },
+            status: { sort: c.status, display: <StatusDot tone={c.status === "awaiting_human" ? "critical" : c.status === "closed" ? "passive" : "active"}>{etiketle(c.status)}</StatusDot> },
             updated: { sort: c.updatedAt.getTime(), display: fmtDateTime(c.updatedAt) },
           },
         }))}
@@ -141,8 +142,8 @@ export default async function AdminChannelsPage() {
         rows={assistants.map((a) => ({
           id: a.id,
           cells: {
-            brand: brandName.get(a.tenantId) ?? a.tenantId.slice(-6),
-            agent: a.agentId,
+            brand: brandName.get(a.tenantId) ?? "Ajans",
+            agent: etiketle(a.agentId),
             status: { sort: a.enabled ? 1 : 0, display: <StatusDot tone={a.enabled ? "active" : "passive"}>{a.enabled ? tt("Açık") : tt("Kapalı")}</StatusDot> },
             conf: `%${Math.round(Number(a.confidenceThreshold) * 100)}`,
             turns: String(a.maxTurnsBeforeHandoff),
@@ -154,7 +155,7 @@ export default async function AdminChannelsPage() {
         {quotas.map(({ n, q }) => (
           <Card key={n.id} interactive={false} className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
-              <CardTitle>{brandName.get(n.tenantId) ?? n.tenantId}</CardTitle>
+              <CardTitle>{brandName.get(n.tenantId) ?? "Ajans"}</CardTitle>
               <StatusDot tone={n.paymentMethod === "payment_method_confirmed" ? "active" : "critical"}>
                 {n.paymentMethod === "payment_method_confirmed" ? tt("Onboarding tamam") : tt("Ödeme yöntemi bekleniyor")}
               </StatusDot>
@@ -164,7 +165,7 @@ export default async function AdminChannelsPage() {
               <div>
                 <dt className="text-fg-muted">{tt("Mesaj limiti (portföy)")}</dt>
                 <dd className="tabular-nums">
-                  {n.messagingLimit} · {Number.isFinite(tierCapacity(n.messagingLimit)) ? `${num.format(tierCapacity(n.messagingLimit))} tekil alıcı / 24 sa` : tt("sınırsız")}
+                  {etiketle(n.messagingLimit, n.messagingLimit)} · {Number.isFinite(tierCapacity(n.messagingLimit)) ? `${num.format(tierCapacity(n.messagingLimit))} tekil alıcı / 24 sa` : tt("sınırsız")}
                 </dd>
               </div>
               <div>
@@ -194,26 +195,26 @@ export default async function AdminChannelsPage() {
           {connections.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <span>
-                {brandName.get(c.tenantId) ?? c.tenantId} · {c.provider}
+                {brandName.get(c.tenantId) ?? "Ajans"} · {c.provider === "WHATSAPP" ? "WhatsApp" : c.provider === "INSTAGRAM" ? "Instagram" : c.provider}
               </span>
               <span className="text-fg-muted">{" "}{tt("Son doğrulama:")}{" "}{c.lastVerifiedAt ? fmtDateTime(c.lastVerifiedAt) : "—"}
                 {c.lastError ? ` · ${c.lastError}` : ""}
               </span>
-              <StatusDot tone={c.status === "ACTIVE" ? "active" : c.status === "REVOKED" ? "critical" : "muted"}>{c.status}</StatusDot>
+              <StatusDot tone={c.status === "ACTIVE" ? "active" : c.status === "REVOKED" ? "critical" : "muted"}>{etiketle(c.status)}</StatusDot>
             </li>
           ))}
         </ul>
       </Card>
 
       <Card interactive={false} className="flex flex-col gap-4">
-        <CardTitle>{tt("Template’ler")}</CardTitle>
-        <p className="text-[13px] text-fg-muted">{" "}{tt("Kalite Orta olunca gönderim hızı %50’ye kısılır; Düşük olunca gönderim otomatik durur. 1. duraklatma 3 saat, 2. duraklatma 6 saat; 3. duraklatmada template devre dışı kalır.")}</p>
+        <CardTitle>{tt("Şablonlar")}</CardTitle>
+        <p className="text-[13px] text-fg-muted">{" "}{tt("Kalite Orta olunca gönderim hızı %50’ye kısılır; Düşük olunca gönderim otomatik durur. 1. duraklatma 3 saat, 2. duraklatma 6 saat; 3. duraklatmada şablon devre dışı kalır.")}</p>
         <table className="w-full text-sm">
-          <caption className="sr-only">{tt("Template durumu ve kalitesi")}</caption>
+          <caption className="sr-only">{tt("Şablon durumu ve kalitesi")}</caption>
           <thead>
             <tr className="border-b border-border text-left text-fg-muted">
               <th className="py-2 font-normal">{tt("Marka")}</th>
-              <th className="py-2 font-normal">{tt("Template")}</th>
+              <th className="py-2 font-normal">{tt("Şablon")}</th>
               <th className="py-2 font-normal">{tt("Kategori")}</th>
               <th className="py-2 font-normal">{tt("Durum")}</th>
               <th className="py-2 font-normal">{tt("Kalite")}</th>
@@ -223,9 +224,9 @@ export default async function AdminChannelsPage() {
           <tbody>
             {templates.map((t) => (
               <tr key={t.id} className="border-b border-border">
-                <td className="py-2">{brandName.get(t.tenantId)}</td>
+                <td className="py-2">{brandName.get(t.tenantId) ?? "Ajans"}</td>
                 <td className="py-2">{t.name}</td>
-                <td className="py-2">{t.containsPromotion && t.category !== "marketing" ? `${t.category} (promosyon → ticari)` : t.category}</td>
+                <td className="py-2">{t.containsPromotion && t.category !== "marketing" ? `${etiketle(t.category)} (promosyon → pazarlama)` : etiketle(t.category)}</td>
                 <td className="py-2">{statusLabel[t.status]}</td>
                 <td className="py-2">
                   <StatusDot tone={t.quality === "LOW" ? "critical" : t.quality === "MEDIUM" ? "muted" : "active"}>{qualityLabel[t.quality]}</StatusDot>

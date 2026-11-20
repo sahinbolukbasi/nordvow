@@ -11,6 +11,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button, Input, Select, Textarea } from "@/components/ui/form";
 import { sendOffersAction } from "@/lib/actions/offers";
 import { cn } from "@/lib/cn";
+import { fmtEr, fmtFollowers, UNMEASURED_HINT } from "@/lib/format";
 
 export type DiscoverCreator = {
   id: string;
@@ -150,13 +151,17 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
                     </span>
                   </span>
                   <span className="flex flex-wrap gap-3 text-[12px] tabular-nums text-fg-muted">
-                    {c.accounts.map((a) => (
-                      <span key={a.platform} className="inline-flex items-center gap-1">
-                        <PlatformIcon platform={a.platform} size={12} /> {compact.format(a.followers)} · {pct.format(a.er)}
-                        {a.avgLikes ? ` · ❤ ${compact.format(a.avgLikes)}` : ""}
-                        {a.avgViews ? ` · ▶ ${compact.format(a.avgViews)}` : ""}
-                      </span>
-                    ))}
+                    {c.accounts.map((a) => {
+                      const fStr = fmtFollowers(a.followers);
+                      const eStr = fmtEr(a.er);
+                      return (
+                        <span key={a.platform} className="inline-flex items-center gap-1" title={fStr === "—" || eStr === "—" ? UNMEASURED_HINT : undefined}>
+                          <PlatformIcon platform={a.platform} size={12} /> {fStr} · {eStr}
+                          {a.avgLikes ? ` · ❤ ${compact.format(a.avgLikes)}` : ""}
+                          {a.avgViews ? ` · ▶ ${compact.format(a.avgViews)}` : ""}
+                        </span>
+                      );
+                    })}
                   </span>
                   <span className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
                     <span>{tt("Platform içi:")}{" "}{c.internalCampaigns ?? 0} {tt("kampanya")} · {c.internalDeliverables ?? 0} {tt("içerik")}</span>

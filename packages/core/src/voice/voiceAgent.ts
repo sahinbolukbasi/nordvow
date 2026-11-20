@@ -1,5 +1,14 @@
 import { envStr } from "../env";
 import { converseChat, type ChatTurn } from "../llm/bedrock";
+import { classifyAssistantIntent } from "../assistant/intent-router";
+import { stripInternalLeaks, validateAssistantOutput } from "../assistant/output-validator";
+import {
+  CAMPAIGN_STATUS_VERIFY_REPLY,
+  COMPLAINT_HANDOFF_MESSAGE,
+  CREATOR_APPLICATION_REPLY,
+  lookupBrandShipmentStatus,
+  recordUnansweredQuestion,
+} from "../assistant/runtime";
 import { retrieveBrandKnowledge } from "./retriever";
 import { routeVoiceIntent } from "./intentRouter";
 import type { IntentRouteResult, RetrievedChunk, VoiceBusinessHours, VoiceRoutingRule } from "./types";
@@ -110,6 +119,52 @@ export async function runVoiceAgentTurn(input: {
     return { replyText: msg, sentences: splitIntoSentences(msg), intent, sources: [], unanswered: false };
   }
 
+  // Metin asistanı ile ortak niyet yönlendiricisi (fiyat, kargo, basvuru, kampanya_durumu, iade, sikayet, diger)
+  const sharedIntent = classifyAssistantIntent(input.utterance);
+  if (sharedIntent.intent === "sikayet") {
+    return {
+      replyText: COMPLAINT_HANDOFF_MESSAGE,
+      sentences: splitIntoSentences(COMPLAINT_HANDOFF_MESSAGE),
+      intent: { ...intent, intent: "callback", reason: "Şikâyet nedeniyle insana aktarma" },
+      sources: [],
+      unanswered: false,
+    };
+  }
+  if (sharedIntent.intent === "basvuru") {
+    return {
+      replyText: CREATOR_APPLICATION_REPLY,
+      sentences: splitIntoSentences(CREATOR_APPLICATION_REPLY),
+      intent,
+      sources: [{ docId: "system_creator_signup", title: "İçerik Üreticisi Kayıt Akışı", content: CREATOR_APPLICATION_REPLY, score: 0.95 }],
+      unanswered: false,
+    };
+  }
+  if (sharedIntent.intent === "kargo") {
+    if (!sharedIntent.extractedOrderCode) {
+      const ask = "Kargonuzun durumunu kontrol edebilmem için sipariş veya kargo takip numaranızı paylaşabilir misiniz?";
+      return { replyText: ask, sentences: [ask], intent, sources: [], unanswered: false };
+    }
+    const status = await lookupBrandShipmentStatus(input.brandId, sharedIntent.extractedOrderCode);
+    if (status) {
+      return {
+        replyText: status,
+        sentences: splitIntoSentences(status),
+        intent,
+        sources: [{ docId: `shipment_${sharedIntent.extractedOrderCode}`, title: "Kargo Yönetimi Modülü", content: status, score: 0.96 }],
+        unanswered: false,
+      };
+    }
+  }
+  if (sharedIntent.intent === "kampanya_durumu") {
+    return {
+      replyText: CAMPAIGN_STATUS_VERIFY_REPLY,
+      sentences: splitIntoSentences(CAMPAIGN_STATUS_VERIFY_REPLY),
+      intent,
+      sources: [],
+      unanswered: false,
+    };
+  }
+
   const sources = await retrieveBrandKnowledge(input.brandId, input.utterance, 4);
   const contextText = sources.length
     ? sources.map((s, i) => `[Kaynak ${i + 1} - ${s.title}]: ${s.content}`).join("\n\n")
@@ -118,22 +173,25 @@ export async function runVoiceAgentTurn(input: {
   let reply = "";
   let unanswered = sources.length === 0;
 
-  if (envStr("LLM_PROVIDER", "mock") === "bedrock") {
+  if (envStr("LLM_PROVIDER", "mock") === "bedrock" && sources.length > 0) {
     try {
       const system = [
         `Sen ${input.brandName} şirketinde çalışan gerçek bir müşteri temsilcisisin. Adın ${input.assistantName}.`,
         "Asla 'yapay zekâ', 'bot', 'dijital asistan' veya 'telefon asistanıyım' gibi ifadeler kullanma; tamamen gerçek bir insan gibi konuş.",
-        "Doğal, samimi, akıcı günlük Türkçe kullan ('Tabii, hemen bakayım', 'Anlıyorum', 'Memnuniyetle' gibi). En fazla 1 veya 2 kısa cümle kur; uzun paragraflar, liste ve madde işareti kullanma.",
-        "Sayı, fiyat, tarih ve saatleri konuşma dilindeki okunuşuyla yaz (ör. 1.250 TL -> bin iki yüz elli lira). Bilgi yoksa uydurma; kibarca adını ve numarasını alıp ekibin döneceğini söyle.",
-        input.blockedTopics ? `Cevaplanmayacak konular (bunlar sorulursa kibarca yardımcı olamayacağını söyle): ${input.blockedTopics}` : "",
-        `\nŞİRKET BİLGİLERİ:\n${contextText}`,
+        "Doğal, samimi, akıcı günlük Türkçe kullan. En fazla 1 veya 2 kısa cümle kur; uzun paragraflar, liste ve madde işareti kullanma.",
+        "Yalnızca verilen onaylı şirket bilgilerindeki rakamları kullan; bilgi tabanında olmayan fiyat, tarih veya kod asla uydurma.",
+        input.blockedTopics ? `Cevaplanmayacak konular: ${input.blockedTopics}` : "",
+        `\nONAYLI ŞİRKET BİLGİLERİ:\n${contextText}`,
       ]
         .filter(Boolean)
         .join("\n");
 
       const turns: ChatTurn[] = [...input.history.slice(-8), { role: "user", text: input.utterance }];
-      const res = await converseChat({ system, turns, maxTokens: 160, temperature: 0.55 });
-      reply = normalizeForPhoneSpeech(res.text);
+      const res = await converseChat({ system, turns, maxTokens: 160, temperature: 0.35 });
+      const candidate = normalizeForPhoneSpeech(res.text);
+      const allowedContext = sources.map((s) => s.content).join("\n");
+      const check = validateAssistantOutput(candidate, allowedContext);
+      reply = check.ok ? candidate : normalizeForPhoneSpeech(sources[0]!.content.slice(0, 260));
       if (/bilgim yok|bulunmuyor|yetkiliye|geri dönüş/i.test(reply)) unanswered = true;
     } catch (e) {
       console.warn("[voiceAgent] Bedrock fallback:", (e as Error).message);
@@ -145,10 +203,13 @@ export async function runVoiceAgentTurn(input: {
       reply = normalizeForPhoneSpeech(sources[0]!.content.slice(0, 260));
       unanswered = false;
     } else {
-      reply = "Bu konuda elimde kesin bilgi bulunmuyor. Dilerseniz adınızı ve konunuzu not alayım, yetkili ekibimiz sizi arasın ya da sizi temsilciye aktarayım.";
+      await recordUnansweredQuestion(input.brandId, input.utterance, sharedIntent.intent, "kaynak_yok");
+      reply = "Bu konuda onaylı bilgi tabanımızda kayıt bulunmuyor. Notunuzu alıp görevli ekibimize ilettim; en geç 2 saat içinde size dönüş yapılacak.";
       unanswered = true;
     }
   }
+
+  reply = stripInternalLeaks(reply);
 
   return {
     replyText: reply,

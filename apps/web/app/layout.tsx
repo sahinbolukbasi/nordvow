@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { themeInitScript } from "@/lib/theme";
@@ -7,26 +8,30 @@ import { BRAND_NAME } from "@/lib/brand";
 import { getPreferences } from "@/lib/i18n/server";
 import { I18nProvider } from "@/lib/i18n/client";
 import { MessagesProvider } from "@/lib/i18n/tt-client";
-import { messagesFor } from "@/lib/i18n/messages";
+import { getMergedMessages } from "@/lib/i18n/overrides";
+import { buildLocalizedMetadata, siteBaseUrl } from "@/lib/i18n/seo";
 
 const geistSans = Geist({ subsets: ["latin", "latin-ext"], variable: "--font-geist-sans", display: "swap" });
 const geistMono = Geist_Mono({ subsets: ["latin", "latin-ext"], variable: "--font-geist-mono", display: "swap" });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL ?? "https://nordvow.com"),
-  title: { default: BRAND_NAME, template: `%s · ${BRAND_NAME}` },
-  description: `${BRAND_NAME} — influencer pazarlama ve ajans operasyon platformu`,
-  applicationName: BRAND_NAME,
-  icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
-  openGraph: {
-    type: "website",
-    siteName: BRAND_NAME,
-    title: BRAND_NAME,
-    description: `${BRAND_NAME} — influencer pazarlama ve ajans operasyon platformu`,
-    locale: "tr_TR",
-  },
-  twitter: { card: "summary_large_image", title: BRAND_NAME, description: `${BRAND_NAME} — influencer pazarlama platformu` },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const [{ locale }, h] = await Promise.all([getPreferences(), headers()]);
+  const pathname = h.get("x-pathname") ?? "/";
+  const localized = buildLocalizedMetadata({ pathname, locale });
+  return {
+    metadataBase: new URL(siteBaseUrl()),
+    title: {
+      default: typeof localized.title === "string" ? localized.title : BRAND_NAME,
+      template: `%s · ${BRAND_NAME}`,
+    },
+    description: localized.description,
+    applicationName: BRAND_NAME,
+    icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
+    alternates: localized.alternates,
+    openGraph: localized.openGraph,
+    twitter: localized.twitter,
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -37,16 +42,16 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Dil/bölge: hesap ayarı ya da ilk ziyarette otomatik algılanan (konum + tarayıcı dili).
-  const { locale, region } = await getPreferences();
+  const { locale, region, detectedCountry } = await getPreferences();
+  const messages = await getMergedMessages(locale);
   return (
     <html lang={locale} className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <I18nProvider locale={locale} country={region.code} currency={region.currency}>
-          <MessagesProvider messages={messagesFor(locale)}>
+        <I18nProvider locale={locale} country={detectedCountry || region.code} currency={region.currency}>
+          <MessagesProvider messages={messages}>
             {children}
             <CookieBanner />
           </MessagesProvider>

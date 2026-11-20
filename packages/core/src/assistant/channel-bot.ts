@@ -66,9 +66,26 @@ async function humanPause(text: string) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+/** Giden bot mesajlarında iç teknik terim / şablon değişkeni sızıntısını engeller. */
+const INTERNAL_LEAK_RE = /\b(intent|link_account|offer_respond|create_image|create_video)\b|_account\b|\{\{|\}\}/i;
+
+const SAFE_BOT_FALLBACK =
+  "Merhaba! Size yardımcı olabilmem için kayıtlı e-posta adresinizi veya @instagram kullanıcı adınızı paylaşabilir ya da talebinizi kısaca yazabilirsiniz.";
+
+export function sanitizeOutgoingBotReply(text: string): { text: string; leaked: boolean } {
+  const cleaned = text.trim();
+  if (!cleaned) return { text: SAFE_BOT_FALLBACK, leaked: false };
+  if (INTERNAL_LEAK_RE.test(cleaned)) {
+    console.warn("[channel-bot] Giden mesajda iç terim sızıntısı engellendi:", cleaned.slice(0, 160));
+    return { text: SAFE_BOT_FALLBACK, leaked: true };
+  }
+  return { text: cleaned, leaked: false };
+}
+
 async function reply(tenantId: string, convId: string, text: string) {
-  await humanPause(text);
-  await sendMessage({ tenantId, conversationId: convId, byUserId: null, text });
+  const safe = sanitizeOutgoingBotReply(text).text;
+  await humanPause(safe);
+  await sendMessage({ tenantId, conversationId: convId, byUserId: null, text: safe });
 }
 
 function norm(s: string): string {
@@ -376,7 +393,7 @@ function systemPrompt(user: LinkedUser | null, channel: ChannelProvider, contact
   return [
     `Sen Nordvow AI — Nordvow'un ${channel === "WHATSAPP" ? "WhatsApp" : "Instagram"} hattındaki akıllı asistanısın. Nordvow; markaları, ajansları ve influencerları buluşturan, kampanya/teklif yönetimi, kupon/etkinlik bileti, bildirim ve AI Creative Stüdyo (görsel/video üretimi) sunan bir platformdur. Site: ${base}.`,
     who,
-    `ÜSLUP: Karşında gerçek bir müşteri temsilcisi varmış gibi samimi, doğal, kısa ve akıcı Türkçe yaz. Robotik liste/menü dökme, madde işaretlerini yalnız gerçekten gerekirse kullan. 1-3 cümle yeterli. Emoji ölçülü (en fazla 1). Kullanıcının dilinde yanıt ver. Doğrudan "bot musun" diye sorulursa dürüstçe Nordvow AI dijital asistanı olduğunu söyle. Asla kart/şifre/IBAN isteme. Bilmediğin konuda uydurma; ekibe ileteceğini söyle.`,
+    `ÜSLUP: Karşında gerçek bir müşteri temsilcisi varmış gibi samimi, doğal, kısa ve akıcı Türkçe yaz. Robotik liste/menü dökme, madde işaretlerini yalnız gerçekten gerekirse kullan. 1-3 cümle yeterli. Emoji ölçülü (en fazla 1). Kullanıcının dilinde yanıt ver. Doğrudan "bot musun" diye sorulursa dürüstçe Nordvow AI dijital asistanı olduğunu söyle. Asla kart/şifre/IBAN isteme. Bilmediğin konuda uydurma; ekibe ileteceğini söyle. ÖNEMLİ: Kullanıcıya gidecek "reply" metninde ASLA "intent", "link_account", "chat", "args", JSON veya teknik komut adı geçirme.`,
     `Kullanıcının mesajından NİYETİ çıkar ve SADECE şu JSON'u döndür (başka metin yok):`,
     `{"intent":"<niyet>","args":{...},"reply":"<kullanıcıya gidecek doğal yanıt>"}`,
     `Niyetler:`,

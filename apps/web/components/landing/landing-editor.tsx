@@ -4,7 +4,7 @@ import { ArrowDownIcon, ArrowUpIcon, PlusIcon, ResetIcon, XIcon } from "@/compon
 import { ReelCard } from "@/components/landing/reel-card";
 import { Button, Input, Select, Textarea } from "@/components/ui/form";
 import { resetLandingAction, saveLandingAction } from "@/lib/actions/landing";
-import type { LandingContent, LandingReferenceItem, LandingVideoItem } from "@/lib/landing-store";
+import type { LandingContent, LandingCreatorItem, LandingReferenceItem, LandingVideoItem } from "@/lib/landing-store";
 import { mediaSrc } from "@/lib/media";
 import { cn } from "@/lib/cn";
 
@@ -120,7 +120,17 @@ function move<T>(arr: T[], i: number, d: -1 | 1): T[] {
 }
 
 /** Tanıtım sayfası içerik editörü: video/reklam kartları, referanslar ve kayan içerik üreticileri. */
-export function LandingEditor({ initial, tones, creatorTones }: { initial: LandingContent; tones: readonly string[]; creatorTones: readonly string[] }) {
+export function LandingEditor({
+  initial,
+  autoCreators,
+  tones,
+  creatorTones,
+}: {
+  initial: LandingContent;
+  autoCreators: LandingCreatorItem[];
+  tones: readonly string[];
+  creatorTones: readonly string[];
+}) {
   const [data, setData] = useState(initial);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initial));
   const [tab, setTab] = useState<Tab>("videos");
@@ -151,7 +161,10 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
   const tabs: { id: Tab; label: string }[] = [
     { id: "videos", label: `Video / reklam kartları (${data.videos.length})` },
     { id: "references", label: `Referanslar (${data.references.length})` },
-    { id: "creators", label: `İçerik üreticisi şeridi (${data.creators.length})` },
+    {
+      id: "creators",
+      label: data.creatorsMode === "auto" ? `İçerik üreticisi şeridi (Otomatik · ${autoCreators.length})` : `İçerik üreticisi şeridi (${data.creators.length})`,
+    },
   ];
 
   return (
@@ -362,75 +375,145 @@ export function LandingEditor({ initial, tones, creatorTones }: { initial: Landi
       ) : null}
 
       {tab === "creators" ? (
-        <div className="flex flex-col gap-3">
-          <p className="text-[13px] text-fg-muted">Ana sayfada kayan içerik üreticisi şeridi. Gerçek hesapları yalnız izinleriyle ekleyin.</p>
-          {data.creators.map((c, i) => (
-            <div key={i} className="grid grid-cols-1 items-end gap-3 rounded-[12px] border border-border p-3 md:grid-cols-4">
-              <L label="Profil resmi" className="md:col-span-2">
-                <div className="flex items-center gap-2">
-                  {c.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- editör avatar önizleme
-                    <img src={c.avatar} alt={c.handle} className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
-                  ) : (
-                    <span className={cn("h-9 w-9 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
-                  )}
-                  <Input value={c.avatar ?? ""} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: e.target.value } : x)) }))} placeholder="https://… veya fotoğraf yükle" className="flex-1" />
-                  <MediaUploadInline kind="image" label="Fotoğraf yükle" onUploaded={(url) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: url } : x)) }))} />
-                </div>
-              </L>
-              <L label="Kullanıcı adı">
-                <Input value={c.handle} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, handle: e.target.value } : x)) }))} maxLength={40} />
-              </L>
-              <L label="Alan">
-                <Input value={c.niche} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, niche: e.target.value } : x)) }))} maxLength={24} />
-              </L>
-              <L label="Takipçi">
-                <Input value={c.followers} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, followers: e.target.value } : x)) }))} maxLength={12} />
-              </L>
-              <L label="Platform">
-                <Select value={c.platform} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, platform: e.target.value as typeof c.platform } : x)) }))}>
-                  <option>Instagram</option>
-                  <option>TikTok</option>
-                  <option>YouTube</option>
-                </Select>
-              </L>
-              <L label="Şehir">
-                <Input value={c.city} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, city: e.target.value } : x)) }))} maxLength={30} />
-              </L>
-              <L label="Etkileşim">
-                <Input value={c.engagement} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, engagement: e.target.value } : x)) }))} maxLength={10} placeholder="%6,5" />
-              </L>
-              <L label="Çalıştığı marka (izinliyse)">
-                <Input value={c.brand} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, brand: e.target.value } : x)) }))} maxLength={40} />
-              </L>
-              <L label="Renk">
-                <Select
-                  value={c.tone}
-                  onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, tone: e.target.value as typeof c.tone } : x)) }))}
-                >
-                  {creatorTones.map((t, k) => (
-                    <option key={t} value={t}>
-                      Renk {k + 1}
-                    </option>
-                  ))}
-                </Select>
-              </L>
-              <RowTools
-                i={i}
-                n={data.creators.length}
-                label={c.handle}
-                onMove={(d) => setData((x) => ({ ...x, creators: move(x.creators, i, d) }))}
-                onRemove={() => setData((x) => ({ ...x, creators: x.creators.filter((_, k) => k !== i) }))}
-              />
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-border bg-surface/50 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setData((d) => ({ ...d, creatorsMode: "auto" }))}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-standard",
+                  data.creatorsMode === "auto" ? "bg-fg text-bg" : "border border-border bg-bg text-fg-muted hover:text-fg",
+                )}
+              >
+                Otomatik (İçerideki influencerlar)
+              </button>
+              <button
+                type="button"
+                onClick={() => setData((d) => ({ ...d, creatorsMode: "manual" }))}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-standard",
+                  data.creatorsMode === "manual" ? "bg-fg text-bg" : "border border-border bg-bg text-fg-muted hover:text-fg",
+                )}
+              >
+                Elle düzenleme
+              </button>
             </div>
-          ))}
-          <Button
-            variant="secondary"
-            onClick={() => setData((d) => ({ ...d, creators: [...d.creators, { handle: "@kullanici", niche: "Alan", followers: "—", avatar: "", platform: "Instagram", city: "", engagement: "", brand: "", tone: creatorTones[d.creators.length % creatorTones.length] as (typeof d.creators)[number]["tone"] }] }))}
-            disabled={data.creators.length >= 30}
-          >
-            <PlusIcon size={14} /> Üretici ekle
-          </Button>
+            {autoCreators.length > 0 ? (
+              <Button
+                variant="secondary"
+                onClick={() => setData((d) => ({ ...d, creatorsMode: "manual", creators: autoCreators }))}
+              >
+                {data.creatorsMode === "auto" ? "Listeyi elle düzenlemeye aktar" : "İçerideki influencerları çek"}
+              </Button>
+            ) : null}
+          </div>
+
+          {data.creatorsMode === "auto" ? (
+            <div className="flex flex-col gap-3">
+              <p className="text-[13px] text-fg-muted">
+                {autoCreators.length > 0
+                  ? `Platformdaki aktif ve vitrini açık ${autoCreators.length} influencer takipçi sayısına göre otomatik çekiliyor. Yeni influencer eklendikçe tanıtım sayfası kendiliğinden güncellenir.`
+                  : "Şu anda vitrini açık ve sosyal hesabı bağlı aktif influencer bulunamadı; bu nedenle kayıtlı/varsayılan liste gösterilir."}
+              </p>
+              {autoCreators.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {autoCreators.map((c, i) => (
+                    <div key={`${c.handle}-${i}`} className="flex items-center gap-3 rounded-[12px] border border-border p-3">
+                      {c.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- otomatik influencer avatarı
+                        <img src={c.avatar} alt={c.handle} className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-line" />
+                      ) : (
+                        <span className={cn("h-10 w-10 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{c.handle}</div>
+                        <div className="truncate text-[12px] text-fg-muted">
+                          {[c.platform, c.niche, c.city].filter(Boolean).join(" · ")}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
+                          <span>{c.followers} takipçi</span>
+                          {c.engagement ? <span>· {c.engagement} etkileşim</span> : null}
+                          {c.brand ? <span>· {c.brand}</span> : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-[13px] text-fg-muted">Ana sayfada kayan içerik üreticisi şeridi. Gerçek hesapları yalnız izinleriyle ekleyin.</p>
+              {data.creators.map((c, i) => (
+                <div key={i} className="grid grid-cols-1 items-end gap-3 rounded-[12px] border border-border p-3 md:grid-cols-4">
+                  <L label="Profil resmi" className="md:col-span-2">
+                    <div className="flex items-center gap-2">
+                      {c.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- editör avatar önizleme
+                        <img src={c.avatar} alt={c.handle} className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line" />
+                      ) : (
+                        <span className={cn("h-9 w-9 shrink-0 rounded-full bg-gradient-to-br", c.tone)} />
+                      )}
+                      <Input value={c.avatar ?? ""} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: e.target.value } : x)) }))} placeholder="https://… veya fotoğraf yükle" className="flex-1" />
+                      <MediaUploadInline kind="image" label="Fotoğraf yükle" onUploaded={(url) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, avatar: url } : x)) }))} />
+                    </div>
+                  </L>
+                  <L label="Kullanıcı adı">
+                    <Input value={c.handle} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, handle: e.target.value } : x)) }))} maxLength={40} />
+                  </L>
+                  <L label="Alan">
+                    <Input value={c.niche} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, niche: e.target.value } : x)) }))} maxLength={24} />
+                  </L>
+                  <L label="Takipçi">
+                    <Input value={c.followers} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, followers: e.target.value } : x)) }))} maxLength={12} />
+                  </L>
+                  <L label="Platform">
+                    <Select value={c.platform} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, platform: e.target.value as typeof c.platform } : x)) }))}>
+                      <option>Instagram</option>
+                      <option>TikTok</option>
+                      <option>YouTube</option>
+                    </Select>
+                  </L>
+                  <L label="Şehir">
+                    <Input value={c.city} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, city: e.target.value } : x)) }))} maxLength={30} />
+                  </L>
+                  <L label="Etkileşim">
+                    <Input value={c.engagement} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, engagement: e.target.value } : x)) }))} maxLength={10} placeholder="%6,5" />
+                  </L>
+                  <L label="Çalıştığı marka (izinliyse)">
+                    <Input value={c.brand} onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, brand: e.target.value } : x)) }))} maxLength={40} />
+                  </L>
+                  <L label="Renk">
+                    <Select
+                      value={c.tone}
+                      onChange={(e) => setData((d) => ({ ...d, creators: d.creators.map((x, k) => (k === i ? { ...x, tone: e.target.value as typeof c.tone } : x)) }))}
+                    >
+                      {creatorTones.map((t, k) => (
+                        <option key={t} value={t}>
+                          Renk {k + 1}
+                        </option>
+                      ))}
+                    </Select>
+                  </L>
+                  <RowTools
+                    i={i}
+                    n={data.creators.length}
+                    label={c.handle}
+                    onMove={(d) => setData((x) => ({ ...x, creators: move(x.creators, i, d) }))}
+                    onRemove={() => setData((x) => ({ ...x, creators: x.creators.filter((_, k) => k !== i) }))}
+                  />
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                onClick={() => setData((d) => ({ ...d, creators: [...d.creators, { handle: "@kullanici", niche: "Alan", followers: "—", avatar: "", platform: "Instagram", city: "", engagement: "", brand: "", tone: creatorTones[d.creators.length % creatorTones.length] as (typeof d.creators)[number]["tone"] }] }))}
+                disabled={data.creators.length >= 30}
+              >
+                <PlusIcon size={14} /> Üretici ekle
+              </Button>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

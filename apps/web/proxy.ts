@@ -1,58 +1,248 @@
 import NextAuth from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authConfig } from "./auth.config";
-import { detectRegion } from "@infulancer/core/i18n/regions";
+import {
+  extractCountryFromHeaders,
+  isSearchBot,
+  lookupCountryByIp,
+  resolveLocaleAndCountry,
+} from "@infulancer/core/i18n/geo";
 import { roleHome } from "./lib/roles";
 
 const { auth } = NextAuth(authConfig);
-const PUBLIC_PATHS = new Set(["/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek", "/sifremi-unuttum", "/sifre-sifirla", "/veri-silme-durumu"]);
-/** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
-const LANDING = "/";
 
-/**
- * Oturum ve rol öneki kontrolü. Herkese açık: /giris, /api/auth/*, yasal sayfalar (/gizlilik,
- * /kullanim-kosullari — App Review için girişsiz erişilebilir olmalı), /kvkk, /cerez-politikasi ve imzayla
- * doğrulanan webhook uçları (/api/webhooks/*).
- * Her sayfa/aksiyon ayrıca lib/auth-guard ile rolü yeniden doğrular (derinlemesine savunma).
- */
-function withPath(req: NextRequest, pathname: string): NextResponse {
+const PUBLIC_PATHS = new Set([
+  "/gizlilik",
+  "/kullanim-kosullari",
+  "/kvkk",
+  "/cerez-politikasi",
+  "/destek",
+  "/sifremi-unuttum",
+  "/sifre-sifirla",
+  "/veri-silme-durumu",
+]);
+
+/** Konuma göre /tr/... veya /en/... yönlendirmesi yapılacak herkese açık SEO rotaları. */
+const LOCALIZED_REDIRECT_EXACT = new Set([
+  "/",
+  "/blog",
+  "/destek",
+  "/gizlilik",
+  "/kullanim-kosullari",
+  "/kvkk",
+  "/cerez-politikasi",
+]);
+
+function isLocalizedRedirectPath(pathname: string): boolean {
+  if (LOCALIZED_REDIRECT_EXACT.has(pathname)) return true;
+  if (pathname.startsWith("/blog/") || pathname.startsWith("/etkinlik/")) return true;
+  return false;
+}
+
+const LANDING = "/";
+const URL_LOCALE_RE = /^\/(tr|en)(?=\/|$)/;
+
+function stripUrlLocale(pathname: string): { urlLocale: "tr" | "en" | null; stripped: string } {
+  const m = URL_LOCALE_RE.exec(pathname);
+  if (!m) return { urlLocale: null, stripped: pathname };
+  const rest = pathname.slice(m[0].length) || "/";
+  return { urlLocale: m[1] as "tr" | "en", stripped: rest.startsWith("/") ? rest : `/${rest}` };
+}
+
+function cookieOpts() {
+  return {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+  };
+}
+
+function buildRequestHeaders(
+  req: NextRequest,
+  meta: { pathname: string; locale: string; country: string },
+): Headers {
   const requestHeaders = new Headers(req.headers);
-  requestHeaders.set("x-pathname", pathname);
-  const res = NextResponse.next({ request: { headers: requestHeaders } });
-  res.headers.set("x-pathname", pathname);
+  requestHeaders.set("x-pathname", meta.pathname);
+  requestHeaders.set("x-locale", meta.locale);
+  requestHeaders.set("x-detected-country", meta.country);
+  return requestHeaders;
+}
+
+function attachLocaleHeadersAndCookies(
+  req: NextRequest,
+  res: NextResponse,
+  meta: { locale: string; country: string; isManualOrUrl: boolean },
+): NextResponse {
+  res.headers.set("x-locale", meta.locale);
+  res.headers.set("x-detected-country", meta.country);
+  const opts = cookieOpts();
+  if (meta.isManualOrUrl || req.cookies.get("nv_locale")?.value !== meta.locale) {
+    res.cookies.set("nv_locale", meta.locale, opts);
+  }
+  if (!req.cookies.get("nv_country")?.value || req.cookies.get("nv_country")?.value !== meta.country) {
+    res.cookies.set("nv_country", meta.country, opts);
+  }
   return res;
 }
-/**
- * Dil ve ülke otomatik algılama: ilk ziyarette Cloudflare (cf-ipcountry) / CloudFront
- * (cloudfront-viewer-country) ülke başlığı ve tarayıcı dili okunur, çereze yazılır.
- * Kullanıcı seçici ile değiştirdiğinde çerez ve hesap güncellenir; bu yalnız ilk değerdir.
- */
-function withRegion(req: Parameters<Parameters<typeof auth>[0]>[0], res: Response): Response {
-  if (!(res instanceof NextResponse)) return res;
-  if (req.cookies.get("nv_locale") && req.cookies.get("nv_country")) return res;
-  const d = detectRegion({ ipCountry: req.headers.get("cf-ipcountry") ?? req.headers.get("cloudfront-viewer-country"), acceptLanguage: req.headers.get("accept-language") });
-  const opts = { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production" };
-  if (!req.cookies.get("nv_locale")) res.cookies.set("nv_locale", d.locale, opts);
-  if (!req.cookies.get("nv_country")) res.cookies.set("nv_country", d.country, opts);
-  return res;
-}
-export default auth((req) => withRegion(req, handle(req)));
-function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
+
+export default auth(async (req) => {
   const { pathname, search } = req.nextUrl;
   const user = req.auth?.user;
+  const userAgent = req.headers.get("user-agent");
+  const isBot = isSearchBot(userAgent);
 
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/webhooks/") || pathname.startsWith("/api/meta/") || pathname === "/api/voice/connect" || pathname === "/api/health" || pathname === "/sitemap.xml" || pathname === "/robots.txt") return NextResponse.next();
+  // API, sistem ve medya uçlarına dil yönlendirmesi uygulanmaz.
+  if (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/webhooks/") ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/robots.txt" ||
+    pathname === "/opengraph-image" ||
+    pathname === "/icon.svg" ||
+    pathname === "/apple-icon"
+  ) {
+    return handleAuth(req, pathname, search, user, null, null);
+  }
+
+  const { urlLocale, stripped } = stripUrlLocale(pathname);
+
+  // 1) Öncelik sırasıyla dil & ülke algıla (ham IP saklanmaz, yalnızca ülke kodu).
+  const isManual = req.cookies.get("nv_locale_manual")?.value === "1";
+  const cookieLocale = req.cookies.get("nv_locale")?.value;
+  const cookieCountry = req.cookies.get("nv_country")?.value;
+  const headerCountry = extractCountryFromHeaders((name) => req.headers.get(name));
+
+  let geoIpCountry: string | null = null;
+  if (!urlLocale && !isManual && !headerCountry && !cookieCountry && !isBot) {
+    const rawIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip");
+    geoIpCountry = await lookupCountryByIp(rawIp);
+  }
+
+  const resolved = resolveLocaleAndCountry({
+    cookieLocale: urlLocale ?? cookieLocale,
+    isManualLocale: Boolean(urlLocale) || isManual,
+    cookieCountry,
+    headerCountry,
+    geoIpCountry,
+    acceptLanguage: req.headers.get("accept-language"),
+  });
+
+  const activeLocale: "tr" | "en" = urlLocale ?? (resolved.locale === "tr" ? "tr" : "en");
+  const activeCountry = resolved.country;
+
+  // 2) Arama motoru botlarını konuma göre yönlendirme: her dil sürümünü doğrudan görebilsin.
+  if (!urlLocale && !isBot && !user?.role && isLocalizedRedirectPath(pathname)) {
+    const targetPath = pathname === "/" ? `/${activeLocale}` : `/${activeLocale}${pathname}`;
+    const redirectUrl = new URL(`${targetPath}${search}`, req.nextUrl);
+    const redirectRes = NextResponse.redirect(redirectUrl, 307);
+    redirectRes.headers.set("Vary", "Accept-Language, CF-IPCountry, x-vercel-ip-country, Cookie");
+    return attachLocaleHeadersAndCookies(req, redirectRes, {
+      locale: activeLocale,
+      country: activeCountry,
+      isManualOrUrl: isManual,
+    });
+  }
+
+  // 3) Oturum ve rol kontrolü (dil öneki soyulmuş gerçek rota üzerinden).
+  const authRes = handleAuth(req, stripped, search, user, activeLocale, activeCountry);
+  if (authRes) {
+    return attachLocaleHeadersAndCookies(req, authRes, {
+      locale: activeLocale,
+      country: activeCountry,
+      isManualOrUrl: Boolean(urlLocale) || isManual,
+    });
+  }
+
+  // 4) /tr/... veya /en/... URL'lerini mevcut sayfalara dahili olarak rewrite et (sıfır kırılma).
+  const reqHeaders = buildRequestHeaders(req, {
+    pathname: stripped,
+    locale: activeLocale,
+    country: activeCountry,
+  });
+
+  const response = urlLocale
+    ? NextResponse.rewrite(new URL(`${stripped}${search}`, req.nextUrl), {
+        request: { headers: reqHeaders },
+      })
+    : NextResponse.next({
+        request: { headers: reqHeaders },
+      });
+
+  response.headers.set("x-pathname", stripped);
+  return attachLocaleHeadersAndCookies(req, response, {
+    locale: activeLocale,
+    country: activeCountry,
+    isManualOrUrl: Boolean(urlLocale) || isManual,
+  });
+});
+
+function handleAuth(
+  req: Parameters<Parameters<typeof auth>[0]>[0],
+  pathname: string,
+  search: string,
+  user: Parameters<Parameters<typeof auth>[0]>[0]["auth"] extends infer A
+    ? A extends { user?: infer U }
+      ? U
+      : undefined
+    : undefined,
+  locale: string | null,
+  country: string | null,
+): NextResponse | null {
+  if (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith("/api/webhooks/") ||
+    pathname.startsWith("/api/meta/") ||
+    pathname === "/api/voice/connect" ||
+    pathname === "/api/health" ||
+    pathname === "/api/locations" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/robots.txt"
+  ) {
+    return locale ? null : NextResponse.next();
+  }
+
   // Herkese açık blog, bilet/kupon kartları ve görsel uçları.
-  if (pathname === "/blog" || pathname.startsWith("/blog/") || pathname.startsWith("/api/blog/") || pathname.startsWith("/bilet/") || pathname.startsWith("/kupon/") || pathname.startsWith("/etkinlik/") || pathname.startsWith("/api/media/") || pathname.startsWith("/api/bilet/") || pathname.startsWith("/api/kupon/") || pathname.startsWith("/api/etkinlik/") || pathname.startsWith("/api/wallet/") || pathname.startsWith("/l/") || pathname.startsWith("/brand/") || pathname === "/opengraph-image" || pathname === "/icon.svg" || pathname === "/apple-icon") return NextResponse.next();
-  if (pathname === LANDING && !user?.role) return NextResponse.next();
+  if (
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/") ||
+    pathname.startsWith("/api/blog/") ||
+    pathname.startsWith("/bilet/") ||
+    pathname.startsWith("/kupon/") ||
+    pathname.startsWith("/etkinlik/") ||
+    pathname.startsWith("/api/media/") ||
+    pathname.startsWith("/api/bilet/") ||
+    pathname.startsWith("/api/kupon/") ||
+    pathname.startsWith("/api/etkinlik/") ||
+    pathname.startsWith("/api/wallet/") ||
+    pathname.startsWith("/l/") ||
+    pathname.startsWith("/brand/") ||
+    pathname === "/opengraph-image" ||
+    pathname === "/icon.svg" ||
+    pathname === "/apple-icon"
+  ) {
+    return locale ? null : NextResponse.next();
+  }
+
+  if (pathname === LANDING && !user?.role) return locale ? null : NextResponse.next();
+
   const pending = !!user?.role && user.status && user.status !== "ACTIVE";
-  if (pathname === "/onay-bekliyor") return user?.role ? NextResponse.next() : NextResponse.redirect(new URL("/giris", req.nextUrl));
-  if (pathname === "/kayit") return user?.role ? NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl)) : NextResponse.next();
+  if (pathname === "/onay-bekliyor") {
+    return user?.role ? (locale ? null : NextResponse.next()) : NextResponse.redirect(new URL("/giris", req.nextUrl));
+  }
+  if (pathname === "/kayit") {
+    return user?.role
+      ? NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl))
+      : locale
+        ? null
+        : NextResponse.next();
+  }
   if (pathname === "/giris") {
     if (user?.role) return NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl));
-    return NextResponse.next();
+    return locale ? null : NextResponse.next();
   }
-  // Onay bekleyen/reddedilen kullanıcı panele giremez (sayfa korumaları ayrıca veritabanından doğrular).
+
   if (pending) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Üyeliğiniz onay bekliyor." }, { status: 403 });
     return NextResponse.redirect(new URL("/onay-bekliyor", req.nextUrl));
@@ -67,8 +257,6 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
     return NextResponse.redirect(url);
   }
 
-  // Rol bazlı rota izolasyonu (Edge katmanında ilk savunma):
-  // INFLUENCER ve BRAND yalnızca kendi rol öneklerine ve ortak sayfalara erişebilir.
   const isStaff = user.role === "ADMIN" || user.role === "AGENCY";
   if ((pathname === "/admin" || pathname.startsWith("/admin/")) && !isStaff) {
     return NextResponse.redirect(new URL(roleHome[user.role], req.nextUrl));
@@ -83,8 +271,13 @@ function handle(req: Parameters<Parameters<typeof auth>[0]>[0]): Response {
     return NextResponse.json({ error: "Yetkisiz erişim." }, { status: 403 });
   }
 
-  // Yetki kontrolü (rol + PagePermission özel izinleri) veritabanı erişimli requireActor/requireAdmin katmanında yapılır.
-  return withPath(req, pathname);
+  if (!locale) {
+    const reqHeaders = buildRequestHeaders(req, { pathname, locale: "tr", country: country ?? "TR" });
+    const res = NextResponse.next({ request: { headers: reqHeaders } });
+    res.headers.set("x-pathname", pathname);
+    return res;
+  }
+  return null;
 }
 
 export const config = {

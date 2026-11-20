@@ -21,11 +21,12 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
-import { AGENCY_TZ, isDay } from "@/lib/time";
-import { zonedToUtc } from "@/lib/time";
+import { majorToMinor } from "@infulancer/core/i18n/currency-service";
+import { AGENCY_TZ, isDay, isValidTimeZone, zonedToUtc } from "@/lib/time";
 
-function dayToUtc(day: string, time: string): Date {
-  return zonedToUtc(day, time, AGENCY_TZ);
+function dayToUtc(day: string, time: string, tz?: string): Date {
+  const safeTz = tz && isValidTimeZone(tz) ? tz : AGENCY_TZ;
+  return zonedToUtc(day, time, safeTz);
 }
 
 const createSchema = z.object({
@@ -34,6 +35,11 @@ const createSchema = z.object({
   venueName: z.string().max(200).optional(),
   address: z.string().max(400).optional(),
   city: z.string().max(80).optional(),
+  countryId: z.string().max(64).optional(),
+  cityId: z.string().max(64).optional(),
+  timezone: z.string().max(80).optional(),
+  priceMinor: z.number().int().nonnegative().nullable().optional(),
+  currency: z.string().max(8).optional(),
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
   startsAtDay: z.string().refine(isDay, { error: "Geçerli bir başlangıç tarihi girin." }),
@@ -53,12 +59,27 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
     const latRaw = str(fd, "latitude");
     const lngRaw = str(fd, "longitude");
     const capRaw = str(fd, "capacity");
+    const priceRaw = str(fd, "price");
+    const currencyRaw = (str(fd, "currency") || "TRY").toUpperCase();
+    const countryIdRaw = str(fd, "countryId");
+    const cityIdRaw = str(fd, "cityId");
+    const timezoneRaw = str(fd, "timezone") || AGENCY_TZ;
+    const parsedPrice = priceRaw ? Number(priceRaw.replace(",", ".")) : null;
+    const priceMinor = parsedPrice != null && Number.isFinite(parsedPrice) && parsedPrice >= 0 ? majorToMinor(parsedPrice, currencyRaw) : null;
+    const safeCountryId = countryIdRaw && !countryIdRaw.startsWith("seed-") ? countryIdRaw : undefined;
+    const safeCityId = cityIdRaw && !cityIdRaw.startsWith("seed-") ? cityIdRaw : undefined;
+
     const input = parseInput(createSchema, {
       title: str(fd, "title"),
       description: str(fd, "description"),
       venueName: str(fd, "venueName") || undefined,
       address: str(fd, "address") || undefined,
       city: str(fd, "city") || undefined,
+      countryId: safeCountryId,
+      cityId: safeCityId,
+      timezone: isValidTimeZone(timezoneRaw) ? timezoneRaw : AGENCY_TZ,
+      priceMinor,
+      currency: currencyRaw,
       latitude: latRaw ? Number(latRaw.replace(",", ".")) : null,
       longitude: lngRaw ? Number(lngRaw.replace(",", ".")) : null,
       startsAtDay: str(fd, "startsAtDay"),
@@ -82,10 +103,15 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
       venueName: input.venueName,
       address: input.address,
       city: input.city,
+      countryId: input.countryId,
+      cityId: input.cityId,
+      timezone: input.timezone,
+      priceMinor: input.priceMinor ?? null,
+      currency: input.currency,
       latitude: input.latitude,
       longitude: input.longitude,
-      startsAt: dayToUtc(input.startsAtDay, input.startsAtTime),
-      endsAt: input.endsAtDay && isDay(input.endsAtDay) ? dayToUtc(input.endsAtDay, input.endsAtTime || "23:59") : null,
+      startsAt: dayToUtc(input.startsAtDay, input.startsAtTime, input.timezone),
+      endsAt: input.endsAtDay && isDay(input.endsAtDay) ? dayToUtc(input.endsAtDay, input.endsAtTime || "23:59", input.timezone) : null,
       visibility: input.visibility,
       capacity: input.capacity,
       coverImageKey: input.coverImageKey,

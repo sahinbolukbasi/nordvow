@@ -8,6 +8,7 @@ import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { isPathHiddenFor, loadPagePermissions } from "@infulancer/core/access/page-permissions";
 import { isPathExplicitlyAllowed } from "@infulancer/core/access/page-visibility";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
 import { roleHome } from "./roles";
 
 /** Oturumdaki kullanıcıyı core Actor'a çevirir; oturum yoksa null. */
@@ -80,6 +81,15 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
  */
 async function assertPageVisible(actor: Actor): Promise<void> {
   const pathname = (await headers()).get("x-pathname");
+  const scannerRestriction = await getQrScannerRestriction(actor.userId);
+  if (scannerRestriction) {
+    const qrHome = actor.brandId ? "/marka/qr-giris" : "/admin/qr-giris";
+    if (!scannerRestriction.active) redirect("/api/auth/clear-session?hata=hesap");
+    if (pathname && pathname !== qrHome && !pathname.startsWith(`${qrHome}/`) && pathname !== "/profil" && !pathname.startsWith("/profil/")) {
+      redirect(qrHome);
+    }
+    return;
+  }
   const home = roleHome[actor.role];
   if (!pathname || pathname === home) return;
   // Ajans çalışanının kuralları AGENCY rolüne göre (oturumda ADMIN olarak çalışsa da).

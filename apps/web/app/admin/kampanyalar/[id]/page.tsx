@@ -14,7 +14,8 @@ import {
 } from "@infulancer/core/domain/labels";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
-import { CampaignDeleteButton, CampaignHub } from "@/components/campaign/campaign-hub";
+import { CampaignActionsMenu, CampaignHub } from "@/components/campaign/campaign-hub";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import { CampaignShippingDashboard } from "@/components/shipping/campaign-shipping-dashboard";
 import { getCampaignShipmentsDashboard } from "@infulancer/core/shipping/service";
 import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
@@ -153,10 +154,10 @@ export default async function CampaignDetailPage({
             <dd>
               {fmtDate(campaign.startsAt)} – {fmtDate(campaign.endsAt)}
             </dd>
-            <dt className="text-fg-passive">{tt("Bütçe")}</dt>
-            <dd className="tabular-nums">{formatKurus(Number(campaign.budgetKurus))}</dd>
-            <dt className="text-fg-passive">{tt("Marka bedeli")}</dt>
-            <dd className="tabular-nums">{formatKurus(Number(campaign.brandTotalFeeKurus))}</dd>
+            <dt className="text-fg-passive">{tt("Toplam bütçe")}</dt>
+            <dd className="tabular-nums">{formatKurus(Number(campaign.brandTotalFeeKurus || campaign.budgetKurus))}</dd>
+            <dt className="text-fg-passive">{tt("Influencer bütçesi")}</dt>
+            <dd className="tabular-nums">{Number(campaign.budgetKurus) > 0 ? formatKurus(Number(campaign.budgetKurus)) : "—"}</dd>
             <dt className="text-fg-passive">{tt("UTM")}</dt>
             <dd className="font-mono text-[13px]">{campaign.slug}</dd>
             <dt className="text-fg-passive">{tt("Kapanış")}</dt>
@@ -455,47 +456,47 @@ export default async function CampaignDetailPage({
           {campaign.reportSummary ? <p className="text-[13px] text-fg-passive">{tt("Rapordaki mevcut özet bu taslakla değiştirilir.")}</p> : null}
         </Card>
       ) : null}
-    <AgentRunList
-      runs={runs.map((r) => ({ ...r, resolvedByName: r.resolvedBy?.name }))}
-      emptyText={tt("Bu kampanya için agent bulgusu yok.")}
-    />
-    <CampaignAiReviewPanel
-      items={published.map((d): CampaignChartMetricRow => {
-        const snap = d.metricSnapshots[0];
-        const v = snap?.impressions ?? 0;
-        const rc = snap?.reach ?? 0;
-        const lk = snap?.likes ?? 0;
-        const cm = snap?.comments ?? 0;
-        const ss = (snap?.shares ?? 0) + (snap?.saves ?? 0);
-        const denom = v > 0 ? v : rc;
-        return {
-          id: d.id,
-          influencerName: d.influencer.name,
-          platform: d.platform,
-          contentLabel: `${platformLabels[d.platform]} ${contentTypeLabels[d.contentType]}`,
-          views: v,
-          reach: rc,
-          likes: lk,
-          comments: cm,
-          savesShares: ss,
-          er: denom > 0 && lk + cm + ss > 0 ? (lk + cm + ss) / denom : null,
-          postUrl: d.postUrl ?? null,
-          complianceStatus: d.contractViolation ? "EKSIK" : "UYUMLU",
-        };
-      })}
-      findings={runs.map((r) => ({
-        id: r.id,
-        title: r.checkType,
-        severity: r.severity,
-        status: r.status,
-        summary: r.summary,
-      }))}
-      totalViews={published.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0)}
-      totalLikes={published.reduce((s, d) => s + (d.metricSnapshots[0]?.likes ?? 0), 0)}
-      totalComments={published.reduce((s, d) => s + (d.metricSnapshots[0]?.comments ?? 0), 0)}
-      avgEr={null}
-      detailHrefPrefix="/admin/teslimler"
-    />
+      <AgentRunList
+        runs={runs.map((r) => ({ ...r, resolvedByName: r.resolvedBy?.name }))}
+        emptyText={tt("Bu kampanya için agent bulgusu yok.")}
+      />
+      <CampaignAiReviewPanel
+        items={published.map((d): CampaignChartMetricRow => {
+          const snap = d.metricSnapshots[0];
+          const v = snap?.impressions ?? 0;
+          const rc = snap?.reach ?? 0;
+          const lk = snap?.likes ?? 0;
+          const cm = snap?.comments ?? 0;
+          const ss = (snap?.shares ?? 0) + (snap?.saves ?? 0);
+          const denom = v > 0 ? v : rc;
+          return {
+            id: d.id,
+            influencerName: d.influencer.name,
+            platform: d.platform,
+            contentLabel: `${platformLabels[d.platform]} ${contentTypeLabels[d.contentType]}`,
+            views: v,
+            reach: rc,
+            likes: lk,
+            comments: cm,
+            savesShares: ss,
+            er: denom > 0 && lk + cm + ss > 0 ? (lk + cm + ss) / denom : null,
+            postUrl: d.postUrl ?? null,
+            complianceStatus: d.contractViolation ? "EKSIK" : "UYUMLU",
+          };
+        })}
+        findings={runs.map((r) => ({
+          id: r.id,
+          title: etiketle(r.checkType, r.checkType),
+          severity: r.severity,
+          status: r.status,
+          summary: r.summary,
+        }))}
+        totalViews={published.reduce((s, d) => s + (d.metricSnapshots[0]?.impressions ?? 0), 0)}
+        totalLikes={published.reduce((s, d) => s + (d.metricSnapshots[0]?.likes ?? 0), 0)}
+        totalComments={published.reduce((s, d) => s + (d.metricSnapshots[0]?.comments ?? 0), 0)}
+        avgEr={null}
+        detailHrefPrefix="/admin/teslimler"
+      />
     </div>
   );
 
@@ -559,7 +560,7 @@ export default async function CampaignDetailPage({
             {campaign.status !== "KAPANDI" ? (
               <ButtonLink href={`/admin/kampanyalar/${campaign.id}/duzenle`} variant="secondary">{" "}{tt("Düzenle")}</ButtonLink>
             ) : null}
-            <CampaignDeleteButton campaignId={campaign.id} campaignName={campaign.name} />
+            <CampaignActionsMenu campaignId={campaign.id} campaignName={campaign.name} editHref={campaign.status !== "KAPANDI" ? `/admin/kampanyalar/${campaign.id}/duzenle` : undefined} />
           </>
         }
       />

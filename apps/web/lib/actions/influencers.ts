@@ -112,7 +112,7 @@ function parseAccounts(fd: FormData): AccountInput[] {
     demographics = mergeStructuredAudience(fd, p, demographics, label);
     out.push({
       platform,
-      handle: handle.startsWith("@") ? handle : `@${handle}`,
+      handle: handle.trim().replace(/^@+/, ""),
       followers,
       engagementRate: Math.round(erPct * 100) / 10000,
       demographics,

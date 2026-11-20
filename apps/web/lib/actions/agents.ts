@@ -175,33 +175,33 @@ export async function runCustomAgentAction(_p: ActionState, fd: FormData): Promi
     const cid = campaignIdOverride ?? agent.campaignId;
     const campaign = cid
       ? await prisma.campaign.findUnique({
-          where: { id: cid },
-          include: {
-            brand: { select: { name: true } },
-            assignments: {
-              include: {
-                influencer: {
-                  select: {
-                    name: true,
-                    socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true, followers: true, engagementRate: true, avgLikes: true, avgComments: true } },
-                  },
+        where: { id: cid },
+        include: {
+          brand: { select: { name: true } },
+          assignments: {
+            include: {
+              influencer: {
+                select: {
+                  name: true,
+                  socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true, followers: true, engagementRate: true, avgLikes: true, avgComments: true } },
                 },
-                deliverables: { select: { platform: true, contentType: true, status: true } },
               },
+              deliverables: { select: { platform: true, contentType: true, status: true } },
             },
           },
-        })
+        },
+      })
       : null;
 
     const contextLines = campaign
       ? [
-          `Kampanya: ${campaign.name} (${campaign.brand.name}) · Durum: ${campaign.status}`,
-          `Influencerlar (${campaign.assignments.length}):`,
-          ...campaign.assignments.map((a) => {
-            const ig = a.influencer.socialAccounts[0];
-            return `- ${a.influencer.name}: ${ig ? `@${ig.handle} (${ig.followers} takipçi, ER ${(Number(ig.engagementRate) * 100).toFixed(2)}%, ort. ${ig.avgLikes ?? 0} beğeni)` : "Instagram yok"} · ${a.deliverables.length} teslim`;
-          }),
-        ].join("\n")
+        `Kampanya: ${campaign.name} (${campaign.brand.name}) · Durum: ${campaign.status}`,
+        `Influencerlar (${campaign.assignments.length}):`,
+        ...campaign.assignments.map((a) => {
+          const ig = a.influencer.socialAccounts[0];
+          return `- ${a.influencer.name}: ${ig ? `@${ig.handle.replace(/^@+/, "")} (${ig.followers} takipçi, ER ${(Number(ig.engagementRate) * 100).toFixed(2)}%, ort. ${ig.avgLikes ?? 0} beğeni)` : "Instagram yok"} · ${a.deliverables.length} teslim`;
+        }),
+      ].join("\n")
       : "Genel platform Instagram analizi";
 
     let summary = "";
@@ -279,7 +279,7 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
         revalidateAll();
         return {
           ok: true,
-          message: `@${report.handle}: Uyum Skoru ${report.scores.overallScore}/100 · ${report.followers.toLocaleString("tr-TR")} takipçi`,
+          message: `@${report.handle.replace(/^@+/, "")}: Uyum Skoru ${report.scores.overallScore}/100 · ${report.followers.toLocaleString("tr-TR")} takipçi`,
           data: {
             handle: report.handle,
             influencerId: report.influencerId,
@@ -303,7 +303,7 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
     const estViews = data.avgViews ?? Math.round(data.followers * 0.45);
     return {
       ok: true,
-      message: `@${data.handle}: ${data.followers.toLocaleString("tr-TR")} takipçi · ${data.postsCount ?? 0} gönderi`,
+      message: `@${data.handle.replace(/^@+/, "")}: ${data.followers.toLocaleString("tr-TR")} takipçi · ${data.postsCount ?? 0} gönderi`,
       data: {
         handle: data.handle,
         influencerId: "",
@@ -316,7 +316,7 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
         er: data.engagementRate != null ? `%${(data.engagementRate * 100).toFixed(2)}` : "—",
         score: "86/100 (A UYGUN)",
         collabs: "Caption & @mention taraması tamamlandı",
-        summary: `@${data.handle} hesabı canlı tarandı: ort. ${estViews.toLocaleString("tr-TR")} Reels izlenmesi ve tahmini ${estSaves?.toLocaleString("tr-TR") ?? "—"} kaydetme performansı tespit edildi.`,
+        summary: `@${data.handle.replace(/^@+/, "")} hesabı canlı tarandı: ort. ${estViews.toLocaleString("tr-TR")} Reels izlenmesi ve tahmini ${estSaves?.toLocaleString("tr-TR") ?? "—"} kaydetme performansı tespit edildi.`,
       },
     };
   });
@@ -346,7 +346,7 @@ export async function triggerInfluencerExplorerAction(_p: ActionState, fd: FormD
     revalidateAll();
     return {
       ok: true,
-      message: `Canlı tarama tamamlandı (@${report.handle}): Meta API + Instagram Gezgini Bot verileri ve 90 günlük grafikler güncellendi.`,
+      message: `Canlı tarama tamamlandı (@${report.handle.replace(/^@+/, "")}): Meta API + Instagram Gezgini Bot verileri ve 90 günlük grafikler güncellendi.`,
     };
   });
 }

@@ -57,6 +57,7 @@ import { converseChat, parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
 import { enqueueVideoEdit } from "@infulancer/core/creative/video-edit";
 import { startAiVideoEditJob, startPhotoToVideoJob } from "@infulancer/core/creative/studio/jobQueue";
+import { routeCreativeSkill, SKILL_BY_ID } from "@infulancer/core/creative/skills/registry";
 import { downloadToFile, getOwnedUpload, importGeneratedAsset } from "@infulancer/core/creative/uploads";
 import { redirect } from "next/navigation";
 import { deleteObject } from "@infulancer/core/storage/s3";
@@ -151,12 +152,12 @@ export async function saveAssetToLibraryAction(_p: ActionState, fd: FormData): P
 
 export async function openAssetInStudioAction(fd: FormData): Promise<void> {
   const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
-  let target = "/creative?sekme=studyo";
+  let target = "/creative";
   try {
     const u = await importGeneratedAsset(await creativeTenantFor(actor), str(fd, "assetId"), actor.userId);
-    target = `/creative?sekme=studyo&dosya=${u.id}${actor.role === "ADMIN" ? `&hesap=${u.tenantId}` : ""}`;
+    target = `/creative?ref=${encodeURIComponent(u.id)}`;
   } catch (e) {
-    target = `/creative?sekme=galeri&hata=${encodeURIComponent(e instanceof DomainError ? e.message : "İçerik açılamadı.")}`;
+    target = `/creative?hata=${encodeURIComponent(e instanceof DomainError ? e.message : "İçerik açılamadı.")}`;
   }
   redirect(target);
 }
@@ -310,6 +311,7 @@ export type PersistedChatTurn = {
   prompt?: string;
   savedToLibrary?: boolean;
   error?: string | null;
+  invokedSkill?: { id: string; label: string; agentName: string; reason: string } | null;
 };
 
 function chatHistoryKey(tenantId: string): string {
@@ -332,25 +334,26 @@ async function persistChatExchange(tenantId: string, userText: string, res: Crea
     const userTurn: PersistedChatTurn = { id: `u-${now}`, from: "user", text: userText };
     const botTurn: PersistedChatTurn = res.ok
       ? {
-          id: `b-${now + 1}`,
-          from: "bot",
-          text: res.reply,
-          postBrief: res.postBrief ?? null,
-          enhancedPrompt: res.enhancedPrompt ?? null,
-          voiceoverScript: res.voiceoverScript ?? null,
-          assetId: res.assetId ?? null,
-          kind: res.kind,
-          format: res.format,
-          modelKey: res.modelKey,
-          prompt: res.enhancedPrompt ?? userText,
-          savedToLibrary: Boolean(res.assetId),
-        }
+        id: `b-${now + 1}`,
+        from: "bot",
+        text: res.reply,
+        postBrief: res.postBrief ?? null,
+        enhancedPrompt: res.enhancedPrompt ?? null,
+        voiceoverScript: res.voiceoverScript ?? null,
+        assetId: res.assetId ?? null,
+        kind: res.kind,
+        format: res.format,
+        modelKey: res.modelKey,
+        prompt: res.enhancedPrompt ?? userText,
+        invokedSkill: res.invokedSkill ?? null,
+        savedToLibrary: Boolean(res.assetId),
+      }
       : {
-          id: `b-err-${now + 1}`,
-          from: "bot",
-          text: `İşlem tamamlanamadı: ${res.error ?? "Beklenmeyen hata"}`,
-          error: res.error ?? null,
-        };
+        id: `b-err-${now + 1}`,
+        from: "bot",
+        text: `İşlem tamamlanamadı: ${res.error ?? "Beklenmeyen hata"}`,
+        error: res.error ?? null,
+      };
     const next = [...existing, userTurn, botTurn].slice(-60);
     await prisma.configValue.upsert({
       where: { key: chatHistoryKey(tenantId) },
@@ -390,6 +393,7 @@ export type CreativeDirectorResponse = {
   assetId?: string | null;
   availableCredits?: number;
   orchestrator?: OrchestratorMeta | null;
+  invokedSkill?: { id: string; label: string; agentName: string; reason: string } | null;
   suggestions: PromptIdeaItem[];
 };
 
@@ -732,12 +736,12 @@ export async function chatCreativeDirectorAction(input: {
   const toBoundSummary = (b: BoundAsset | null) =>
     b
       ? {
-          assetId: b.asset_id,
-          role: b.vision.role,
-          categoryTr: CATEGORY_LABELS_TR[b.vision.product_category],
-          summaryTr: b.vision.subject_summary_tr,
-          textures: b.vision.materials_textures,
-        }
+        assetId: b.asset_id,
+        role: b.vision.role,
+        categoryTr: CATEGORY_LABELS_TR[b.vision.product_category],
+        summaryTr: b.vision.subject_summary_tr,
+        textures: b.vision.materials_textures,
+      }
       : null;
 
   // 1. Selamlaşma veya "Neler yapabilirsin?" kontrolü
@@ -766,35 +770,134 @@ export async function chatCreativeDirectorAction(input: {
     return out;
   }
 
-  // 2. Mevcut bir videoya ses üretip ekleme isteği kontrolü
-  const asksVoiceOnVideo =
-    /(videoma ses|videoya ses|bu videoya ses|videoyu seslendir|videonun üzerine ses|seslendirme ekle)/.test(norm) &&
-    Boolean(input.targetVideoAssetId);
+  // 2. LLM + Kayıtlı Skill Agent Orkestratörü (tüm creative yeteneklerini tek sohbetten yönlendirir)
+  const attachedUploads = rawRefIds.length
+    ? await prisma.creativeUpload
+      .findMany({ where: { tenantId, id: { in: rawRefIds } }, select: { id: true, kind: true, name: true } })
+      .catch(() => [])
+    : [];
+  const attachedPhotoIds = attachedUploads.filter((u) => u.kind === "image").map((u) => u.id);
+  const attachedVideoUpload = attachedUploads.find((u) => u.kind === "video") ?? null;
+  const resolvedVideoTargetId = attachedVideoUpload?.id ?? input.targetVideoAssetId ?? null;
 
-  if (asksVoiceOnVideo && input.targetVideoAssetId) {
-    const colonIdx = msg.indexOf(":");
-    const quoteMatch = msg.match(/['"“”]([^'"“”]{4,})['"“”]/);
-    let script = quoteMatch?.[1] ?? (colonIdx >= 0 ? msg.slice(colonIdx + 1).trim() : "");
-    if (!script || script.length < 5) {
-      script = "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
-    }
-    const out = await addVoiceoverToVideoAction({
-      videoId: input.targetVideoAssetId,
-      scriptText: script,
-      tier: input.tier,
-    });
+  const skillDecision = await routeCreativeSkill({
+    message: msg,
+    history: input.history.map((h) => ({ role: h.role, text: h.text })),
+    attachedImagesCount: attachedPhotoIds.length || analyzedRefs.filter((r) => r.kind === "image").length,
+    hasAttachedVideo: Boolean(attachedVideoUpload),
+    hasLastGeneratedVideo: Boolean(resolvedVideoTargetId),
+  });
+  const activeSkillDef = SKILL_BY_ID[skillDecision.skill];
+  const invokedSkill = {
+    id: activeSkillDef.id,
+    label: activeSkillDef.label,
+    agentName: activeSkillDef.agentName,
+    reason: skillDecision.reason,
+  };
+
+  // Skill: Kredi & Bakiye Sorgusu
+  if (skillDecision.skill === "credit_status") {
+    const [availCredits, accCur] = await Promise.all([
+      getAvailableCredits(tenantId).catch(() => 0),
+      tenantCurrency(tenantId).catch(() => "TRY"),
+    ]);
+    const out: CreativeDirectorResponse = {
+      ok: true,
+      action: "ask",
+      reply: `Mevcut kullanılabilir bakiyeniz: **${availCredits.toLocaleString("tr-TR")} ${accCur}**.\n\nGörsel üretimi, video üretimi, AI video kurgu (FFmpeg + altyazı + müzik) ve seslendirme işlemlerini doğrudan bu sohbetten başlatabilirsiniz.`,
+      availableCredits: availCredits,
+      invokedSkill,
+      suggestions: DEFAULT_PROMPT_IDEAS,
+    };
     await persistChatExchange(tenantId, msg, out);
     return out;
   }
 
-  // 2b. Mevcut bir video üzerinde AI / FFmpeg düzenleme (altyazı, müzik, kırp, 9:16, hız, renk, sessiz)
-  const asksVideoAiPipeline =
-    Boolean(input.targetVideoAssetId) &&
-    /(altyazı|alt yazı|altyazi|subtitle|müzik|muzik|fon müziği|sahne)/.test(norm);
+  // Skill: Kitaplık / Medya Listeleme
+  if (skillDecision.skill === "library_search") {
+    const [recentUploads, recentAssets] = await Promise.all([
+      prisma.creativeUpload.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 8 }),
+      prisma.generatedAsset.findMany({ where: { tenantId }, orderBy: { createdAt: "desc" }, take: 8 }),
+    ]);
+    const lines: string[] = [];
+    for (const u of recentUploads) {
+      lines.push(`• **${u.kind === "video" ? "🎬 Video" : "🖼️ Fotoğraf"}:** ${u.name ?? u.id.slice(-6)} (${u.source === "edit" ? "Kurgu" : u.source === "ai" ? "AI" : "Yükleme"})`);
+    }
+    for (const a of recentAssets.slice(0, Math.max(0, 10 - lines.length))) {
+      lines.push(`• **✨ AI Çıktı:** ${a.modelKey} (${a.id.slice(-6)})`);
+    }
+    const replyText =
+      lines.length > 0
+        ? `Kitaplığınızdaki son medya dosyaları:\n\n${lines.join("\n")}\n\nDüzenlemek veya videoya çevirmek istediğiniz dosyayı aşağıdaki **+** (ekle) menüsünden seçip komut yazmanız yeterli.`
+        : "Kitaplığınızda henüz dosya yok. Aşağıdan fotoğraf/video yükleyebilir veya sıfırdan görsel/video üretmemi isteyebilirsiniz.";
+    const out: CreativeDirectorResponse = {
+      ok: true,
+      action: "ask",
+      reply: replyText,
+      invokedSkill,
+      suggestions: DEFAULT_PROMPT_IDEAS,
+    };
+    await persistChatExchange(tenantId, msg, out);
+    return out;
+  }
 
-  if (asksVideoAiPipeline && input.targetVideoAssetId) {
+  // Skill: Çoklu Fotoğraftan AI Video Montajı (Bedrock Storyboard + fal.ai + FFmpeg)
+  if (skillDecision.skill === "photo_to_video_montage" && attachedPhotoIds.length >= 2) {
     try {
-      const upload = await getOwnedUpload(tenantId, input.targetVideoAssetId);
+      const pJob = await startPhotoToVideoJob({
+        tenantId,
+        uploadIds: attachedPhotoIds,
+        modelChoice: input.tier === "pro" ? "kling" : "hailuo",
+        aspect: skillDecision.aspect === "16:9" || skillDecision.aspect === "1:1" ? skillDecision.aspect : "9:16",
+        goal: msg,
+      });
+      const out: CreativeDirectorResponse = {
+        ok: true,
+        action: "generate",
+        reply: `${attachedPhotoIds.length} fotoğrafınız için AI storyboard ve video montaj işi başlatıldı! Arka planda sahneler üretilip müzikle birleştiriliyor; tamamlandığında doğrudan bu sohbette açılacak.`,
+        kind: "video",
+        format: skillDecision.aspect ?? "9:16",
+        modelKey: "photo-to-video",
+        pipelineJobId: pJob.id,
+        invokedSkill,
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    } catch (e) {
+      const out: CreativeDirectorResponse = {
+        ok: false,
+        error: humanizeCreativeError(e),
+        action: "ask",
+        reply: humanizeCreativeError(e),
+        invokedSkill,
+        suggestions: DEFAULT_PROMPT_IDEAS,
+      };
+      await persistChatExchange(tenantId, msg, out);
+      return out;
+    }
+  }
+
+  // Skill: Videoya Seslendirme (Voiceover)
+  if (skillDecision.skill === "video_voiceover" && resolvedVideoTargetId) {
+    let script = skillDecision.extractedScript ?? "";
+    if (!script || script.length < 5) {
+      script = "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
+    }
+    const out = await addVoiceoverToVideoAction({
+      videoId: resolvedVideoTargetId,
+      scriptText: script,
+      tier: input.tier,
+    });
+    const enriched: CreativeDirectorResponse = { ...out, invokedSkill };
+    await persistChatExchange(tenantId, msg, enriched);
+    return enriched;
+  }
+
+  // Skill: AI Video Kurgu & FFmpeg (altyazı, müzik, kesme, sessizlik silme, 9:16, hız, renk, metin)
+  if (skillDecision.skill === "ai_video_edit" && resolvedVideoTargetId) {
+    try {
+      const upload = await getOwnedUpload(tenantId, resolvedVideoTargetId);
       if (upload.kind === "video") {
         const pJob = await startAiVideoEditJob({
           tenantId,
@@ -805,11 +908,12 @@ export async function chatCreativeDirectorAction(input: {
         const out: CreativeDirectorResponse = {
           ok: true,
           action: "generate",
-          reply: "AI Video Edit planınız oluşturuldu! Altyazı, müzik ve FFmpeg montajı arka planda hazırlanıyor; bitince önizlemede açılacak.",
+          reply: "AI Video Kurgu planınız oluşturuldu! İsteğiniz (kırpma, altyazı, müzik, renk/hız veya format dönüşümü) arka planda FFmpeg + Bedrock ile işleniyor; bitince burada önizlemeye düşecek.",
           kind: "video",
-          format: "9:16",
+          format: skillDecision.aspect ?? "9:16",
           modelKey: "ai-video-edit",
           pipelineJobId: pJob.id,
+          invokedSkill,
           suggestions: DEFAULT_PROMPT_IDEAS,
         };
         await persistChatExchange(tenantId, msg, out);
@@ -820,7 +924,8 @@ export async function chatCreativeDirectorAction(input: {
         ok: false,
         error: humanizeCreativeError(e),
         action: "ask",
-        reply: "",
+        reply: humanizeCreativeError(e),
+        invokedSkill,
         suggestions: DEFAULT_PROMPT_IDEAS,
       };
       await persistChatExchange(tenantId, msg, out);
@@ -1346,9 +1451,9 @@ export async function chatCreativeDirectorAction(input: {
     effectiveKind === "video" && costRoute.fidelityPrompt
       ? costRoute.fidelityPrompt
       : costRoute.fidelityPrompt ??
-        (effectiveKind === "video"
-          ? `${decision.enhancedPrompt || msg}. Clean composition, strictly no text overlays, no watermarks.`
-          : decision.enhancedPrompt || msg);
+      (effectiveKind === "video"
+        ? `${decision.enhancedPrompt || msg}. Clean composition, strictly no text overlays, no watermarks.`
+        : decision.enhancedPrompt || msg);
 
   const orchestratorMeta: OrchestratorMeta = {
     status: "ready",
@@ -1373,12 +1478,12 @@ export async function chatCreativeDirectorAction(input: {
     motionLayers:
       effectiveKind === "video"
         ? costRoute.timeline.motion_layers.map((m) => ({
-            type: m.type,
-            text: m.text,
-            animation: m.animation,
-            startMs: m.start_ms,
-            endMs: m.end_ms,
-          }))
+          type: m.type,
+          text: m.text,
+          animation: m.animation,
+          startMs: m.start_ms,
+          endMs: m.end_ms,
+        }))
         : undefined,
     preFlightSummary: costRoute.preFlightSummaryTr,
   };

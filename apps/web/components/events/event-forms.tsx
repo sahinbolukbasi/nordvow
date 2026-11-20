@@ -1,6 +1,11 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
-import { useMemo, useState, type ReactNode } from "react";
+import { usePrefs } from "@/lib/i18n/client";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { checkCountryScheduleNotice, localizedName, type CountryDto } from "@infulancer/core/i18n/location-utils";
+import { majorToMinor } from "@infulancer/core/i18n/currency-service";
+import { formatMoneyIntl } from "@/lib/i18n/format";
+import { CountryCityPicker, type SelectedLocation } from "@/components/i18n/country-city-picker";
 import { ActionForm } from "@/components/forms/action-form";
 import { Button, Field, Input, Select, Textarea } from "@/components/ui/form";
 import { BRAND_NAME } from "@/lib/brand";
@@ -31,17 +36,30 @@ function Section({ n, title, hint, children }: { n: number; title: string; hint?
   );
 }
 
-function toDate(day: string, time: string): Date | null {
+function toDate(day: string, time: string, tz: string): Date | null {
   if (!isDay(day)) return null;
-  return zonedToUtc(day, isTime(time) ? time : "19:00", AGENCY_TZ);
+  return zonedToUtc(day, isTime(time) ? time : "19:00", tz || AGENCY_TZ);
 }
 
 /**
  * Etkinlik oluşturma: dört bölüm (temel bilgiler, tarih, konum, katılım ayarları) ve sağda
  * yazdıkça güncellenen Luma tarzı etkinlik sayfası önizlemesi. Başarıda yönetim sayfasına gider.
  */
-export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: boolean; brands?: { id: string; name: string }[]; organizerName: string }) {
+export function EventCreateForm({
+  isAdmin,
+  brands,
+  organizerName,
+  countries = [],
+  defaultCountryCode,
+}: {
+  isAdmin: boolean;
+  brands?: { id: string; name: string }[];
+  organizerName: string;
+  countries?: CountryDto[];
+  defaultCountryCode?: string;
+}) {
   const tt = useTT();
+  const { locale } = usePrefs();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [cover, setCover] = useState<string | null>(null);
@@ -52,11 +70,26 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
   const [venue, setVenue] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
+  const [selectedLoc, setSelectedLoc] = useState<SelectedLocation>({
+    country: null,
+    city: null,
+    timezone: AGENCY_TZ,
+    currency: "TRY",
+  });
+  const [price, setPrice] = useState("");
   const [visibility, setVisibility] = useState("KAPALI");
   const [capacity, setCapacity] = useState("");
   const [selectedTenant, setSelectedTenant] = useState("");
   const [partnerIds, setPartnerIds] = useState<string[]>([]);
   const [org, setOrg] = useState(organizerName);
+
+  const handleLocChange = useCallback(
+    (loc: SelectedLocation) => {
+      setSelectedLoc(loc);
+      if (loc.city) setCity(localizedName(loc.city.names, locale));
+    },
+    [locale],
+  );
 
   const togglePartner = (id: string) =>
     setPartnerIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -64,9 +97,22 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
   const partnerNames = availablePartners.filter((b) => partnerIds.includes(b.id)).map((b) => b.name);
   const orgDisplay = [org, ...partnerNames].join(" × ");
 
-  const start = useMemo(() => toDate(startDay, startTime), [startDay, startTime]);
-  const end = useMemo(() => (endDay ? toDate(endDay, endTime) : null), [endDay, endTime]);
+  const activeTz = selectedLoc.timezone || AGENCY_TZ;
+  const start = useMemo(() => toDate(startDay, startTime, activeTz), [startDay, startTime, activeTz]);
+  const end = useMemo(() => (endDay ? toDate(endDay, endTime, activeTz) : null), [endDay, endTime, activeTz]);
   const endBeforeStart = !!(start && end && end < start);
+  const scheduleNotice = useMemo(
+    () => checkCountryScheduleNotice(selectedLoc.country, startDay, startTime, locale),
+    [selectedLoc.country, startDay, startTime, locale],
+  );
+  const previewPrice = useMemo(() => {
+    const n = Number(price.replace(",", "."));
+    if (!price.trim() || !Number.isFinite(n) || n <= 0) return null;
+    return formatMoneyIntl(majorToMinor(n, selectedLoc.currency), selectedLoc.currency, {
+      locale,
+      country: selectedLoc.country?.code,
+    });
+  }, [price, selectedLoc, locale]);
 
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -131,7 +177,7 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
           <ImageUpload name="coverImageKey" label={tt("Kapak görseli (önerilen 1:1 veya 16:9)")} onPreview={setCover} />
         </Section>
 
-        <Section n={2} title={tt("Tarih ve saat")} hint={tt("İstanbul saatiyle.")}>
+        <Section n={2} title={tt("Tarih ve saat")} hint={`${tt("Saat dilimi")}: ${activeTz} (UTC olarak saklanır)`}>
           <div className="grid grid-cols-2 gap-3">
             <Field label={tt("Başlangıç tarihi")}>{(p) => <Input {...p} name="startsAtDay" type="date" required onChange={(e) => setStartDay(e.target.value)} />}</Field>
             <Field label={tt("Başlangıç saati")}>{(p) => <Input {...p} name="startsAtTime" type="time" defaultValue="19:00" onChange={(e) => setStartTime(e.target.value)} />}</Field>
@@ -139,14 +185,34 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
             <Field label={tt("Bitiş saati")}>{(p) => <Input {...p} name="endsAtTime" type="time" defaultValue="23:00" onChange={(e) => setEndTime(e.target.value)} />}</Field>
           </div>
           {endBeforeStart ? <p role="alert" className="text-[13px] text-critical">{tt("Bitiş, başlangıçtan önce olamaz.")}</p> : null}
+          {scheduleNotice.holidayName ? (
+            <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
+              ⚠️ {tt("Seçilen tarih bu ülkede resmî tatile denk geliyor")}: <strong>{scheduleNotice.holidayName}</strong>
+            </p>
+          ) : null}
+          {scheduleNotice.outsideWorkingHours ? (
+            <p className="rounded-xl border border-line bg-bg/60 px-3 py-2 text-[12px] text-fg-muted">
+              ℹ️ {tt("Seçilen saat ülke çalışma saatleri dışında")}
+              {scheduleNotice.workingWindow ? ` (${scheduleNotice.workingWindow})` : ""}.
+            </p>
+          ) : null}
         </Section>
 
-        <Section n={3} title={tt("Konum")} hint={tt("Haritadan seçerseniz misafirler tek dokunuşla yol tarifi alır.")}>
+        <Section n={3} title={tt("Konum")} hint={tt("Önce ülke, ardından o ülkeye ait şehri seçin; saat dilimi ve para birimi otomatik güncellenir.")}>
+          {countries.length > 0 ? (
+            <CountryCityPicker countries={countries} defaultCountryCode={defaultCountryCode} onChange={handleLocChange} />
+          ) : null}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <Field label={tt("Mekan adı")}>{(p) => <Input {...p} name="venueName" placeholder={tt("Studio X")} onChange={(e) => setVenue(e.target.value)} />}</Field>
-            <Field label={tt("Şehir")}>{(p) => <Input {...p} name="city" placeholder={tt("İstanbul")} onChange={(e) => setCity(e.target.value)} />}</Field>
+            {countries.length === 0 ? (
+              <Field label={tt("Şehir")}>{(p) => <Input {...p} name="city" placeholder={tt("İstanbul")} onChange={(e) => setCity(e.target.value)} />}</Field>
+            ) : (
+              <Field label={tt("Adres")}>{(p) => <Input {...p} name="address" placeholder={tt("Açık adres")} onChange={(e) => setAddress(e.target.value)} />}</Field>
+            )}
           </div>
-          <Field label={tt("Adres")}>{(p) => <Input {...p} name="address" placeholder={tt("Açık adres")} onChange={(e) => setAddress(e.target.value)} />}</Field>
+          {countries.length === 0 ? (
+            <Field label={tt("Adres")}>{(p) => <Input {...p} name="address" placeholder={tt("Açık adres")} onChange={(e) => setAddress(e.target.value)} />}</Field>
+          ) : null}
           <MapPicker />
         </Section>
 
@@ -159,13 +225,18 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
               <label key={o.v} className={cn("flex cursor-pointer flex-col gap-1 rounded-xl border p-3 transition-standard", visibility === o.v ? "border-fg bg-surface-hover" : "border-line hover:border-line-strong")}>
                 <span className="flex items-center gap-2 font-medium text-fg">
                   <input type="radio" name="visibility" value={o.v} checked={visibility === o.v} onChange={() => setVisibility(o.v)} className="h-4 w-4 accent-[var(--color-fg)]" />
-                  {o.t}
+                  {tt(o.t)}
                 </span>
-                <span className="text-[13px] text-fg-muted">{o.d}</span>
+                <span className="text-[13px] text-fg-muted">{tt(o.d)}</span>
               </label>
             ))}
           </div>
-          <Field label={tt("Kapasite (boş = sınırsız)")}>{(p) => <Input {...p} name="capacity" type="number" min={1} placeholder="100" onChange={(e) => setCapacity(e.target.value)} className="max-w-40" />}</Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={tt("Kapasite (boş = sınırsız)")}>{(p) => <Input {...p} name="capacity" type="number" min={1} placeholder="100" onChange={(e) => setCapacity(e.target.value)} />}</Field>
+            <Field label={`${tt("Bilet / Katılım Ücreti (opsiyonel)")} (${selectedLoc.currency})`} hint={tt("Ücretsiz bırakmak için boş geçin")}>
+              {(p) => <Input {...p} name="price" type="number" min={0} step="0.01" placeholder="0" onChange={(e) => setPrice(e.target.value)} />}
+            </Field>
+          </div>
         </Section>
       </ActionForm>
 
@@ -184,11 +255,16 @@ export function EventCreateForm({ isAdmin, brands, organizerName }: { isAdmin: b
             <div className="flex flex-wrap gap-2">
               <Pill tone="gray">{tt("Taslak")}</Pill>
               <Pill>{visibility === "HERKESE_ACIK" ? tt("Herkese açık") : tt("Yalnız davetliler")}</Pill>
+              {previewPrice ? <Pill tone="violet">{previewPrice}</Pill> : null}
             </div>
             <h3 className="text-[22px] font-semibold leading-tight text-fg">{title || tt("Etkinlik adı")}</h3>
-            <InfoRow icon={start ? <DateBadge date={start} size="sm" /> : <CalIcon />} title={start ? rangeLabel(start, end) : tt("Tarih seçilmedi")} />
-            <InfoRow icon={<PinIcon />} title={venue || tt("Mekan")}>{[address, city].filter(Boolean).join(", ") || tt("Adres")}</InfoRow>
-            <InfoRow icon={<PersonIcon />} title={orgDisplay}>{capacity ? `${capacity} kişilik` : tt("Kapasite sınırsız")}</InfoRow>
+            <InfoRow icon={start ? <DateBadge date={start} size="sm" /> : <CalIcon />} title={start ? rangeLabel(start, end, activeTz, locale) : tt("Tarih seçilmedi")}>
+              {activeTz}
+            </InfoRow>
+            <InfoRow icon={<PinIcon />} title={venue || tt("Mekan")}>
+              {[address, city, selectedLoc.country ? localizedName(selectedLoc.country.names, locale) : ""].filter(Boolean).join(", ") || tt("Adres")}
+            </InfoRow>
+            <InfoRow icon={<PersonIcon />} title={orgDisplay}>{capacity ? `${capacity} ${tt("kişilik")}` : tt("Kapasite sınırsız")}</InfoRow>
             {desc ? <p className="line-clamp-4 whitespace-pre-line border-t border-line pt-3 text-[13px] text-fg-muted">{desc}</p> : null}
           </div>
         </div>

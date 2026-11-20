@@ -1,13 +1,28 @@
 import type { MetadataRoute } from "next";
+import { siteBaseUrl } from "@/lib/i18n/seo";
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = (process.env.APP_URL ?? "https://nordvow.com").replace(/\/+$/, "");
+  const baseUrl = siteBaseUrl();
 
   return {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/blog", "/blog/", "/kayit", "/gizlilik", "/kullanim-kosullari", "/kvkk", "/cerez-politikasi", "/destek"],
+        allow: [
+          "/",
+          "/tr",
+          "/tr/",
+          "/en",
+          "/en/",
+          "/blog",
+          "/blog/",
+          "/kayit",
+          "/gizlilik",
+          "/kullanim-kosullari",
+          "/kvkk",
+          "/cerez-politikasi",
+          "/destek",
+        ],
         disallow: [
           "/api/",
           "/admin",
@@ -27,4 +42,3 @@ export default function robots(): MetadataRoute.Robots {
     host: baseUrl,
   };
 }
-

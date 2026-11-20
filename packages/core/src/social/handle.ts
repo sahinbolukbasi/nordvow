@@ -39,3 +39,15 @@ export function cleanSocialHandle(raw: string, platform?: "INSTAGRAM" | "TIKTOK"
   if (platform === "INSTAGRAM") return cleaned.replace(/[^a-z0-9._]/g, "");
   return cleaned.replace(/[^a-z0-9._-]/g, "");
 }
+
+/** Baştaki tüm `@` karakterlerini ve boşlukları temizler (veritabanı standardı: `@` işaretsiz). */
+export function stripLeadingAt(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw.trim().replace(/^@+/, "");
+}
+
+/** Arayüz gösterimi için tek `@` önekli kullanıcı adı üretir (asla `@@` üretmez). */
+export function formatSocialHandle(raw: string | null | undefined): string {
+  const clean = stripLeadingAt(raw);
+  return clean ? `@${clean}` : "";
+}

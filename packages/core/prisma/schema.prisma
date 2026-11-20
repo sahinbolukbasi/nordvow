@@ -1589,6 +1589,13 @@ model Event {
   venueName     String?         @map("venue_name")
   address       String?
   city          String?
+  countryId     String?         @map("country_id")
+  countryRef    Country?        @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  cityId        String?         @map("city_id")
+  cityRef       City?           @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  timezone      String?
+  priceMinor    Int?            @map("price_minor")
+  currency      String?
   latitude      Float?
   longitude     Float?
   startsAt      DateTime        @map("starts_at")
@@ -1603,6 +1610,7 @@ model Event {
   tickets EventTicket[]
   @@index([tenantId, status])
   @@index([visibility, status])
+  @@index([countryId, cityId])
   @@map("events")
 }
 
@@ -2661,4 +2669,84 @@ model BlogPost {
   @@index([category])
   @@index([targetAudience])
   @@map("blog_posts")
+}
+
+/// Global konum hiyerarşisi: Ülke (ISO kodu, çok dilli adlar, para birimi, dil, saat dilimi, çalışma saatleri).
+model Country {
+  id            String          @id @default(cuid())
+  code          String          @unique
+  /// Çok dilli ülke adları: {"tr": "Türkiye", "en": "Turkey"}
+  names         Json
+  currency      String          @default("USD")
+  defaultLocale String          @default("en") @map("default_locale")
+  timezone      String          @default("UTC")
+  /// Gün bazlı çalışma saatleri: {"mon":{"start":"09:00","end":"18:00","closed":false},...}
+  workingHours  Json?           @map("working_hours")
+  isActive      Boolean         @default(true) @map("is_active")
+  sortOrder     Int             @default(0) @map("sort_order")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  cities        City[]
+  holidays      PublicHoliday[]
+  events        Event[]
+
+  @@index([isActive, sortOrder])
+  @@map("countries")
+}
+
+/// Global konum hiyerarşisi: Şehir (ülkeye bağlı; ileride bölge/ilçe eklenebilir).
+model City {
+  id           String   @id @default(cuid())
+  countryId    String   @map("country_id")
+  country      Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  slug         String
+  /// Çok dilli şehir adları: {"tr": "İstanbul", "en": "Istanbul"}
+  names        Json
+  /// İleride bölge/eyalet/ilçe hiyerarşisi için opsiyonel üst bölge adı
+  regionName   String?  @map("region_name")
+  timezone     String
+  latitude     Float?
+  longitude    Float?
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  events       Event[]
+
+  @@unique([countryId, slug])
+  @@index([countryId, isActive, sortOrder])
+  @@map("cities")
+}
+
+/// Ülke bazlı resmî tatil tanımları (planlama ekranında uyarı ve raporlama için).
+model PublicHoliday {
+  id          String   @id @default(cuid())
+  countryId   String   @map("country_id")
+  country     Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  /// YYYY-MM-DD biçiminde tatil tarihi
+  date        String
+  /// Çok dilli tatil adı: {"tr": "Cumhuriyet Bayramı", "en": "Republic Day"}
+  names       Json
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([countryId, date])
+  @@index([countryId, isActive])
+  @@map("public_holidays")
+}
+
+/// Admin panelinden yönetilen çeviri geçersiz kılmaları (JSON dil dosyalarının üzerine yazılır).
+model TranslationOverride {
+  id        String   @id @default(cuid())
+  locale    String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([locale, key])
+  @@index([locale])
+  @@map("translation_overrides")
 }

@@ -65,9 +65,9 @@ export function InstagramAutoReplyPanel({
     <Card interactive={false} className="flex flex-col gap-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <CardTitle>Instagram Hazır Cevaplar &amp; Otomatik Yanıt</CardTitle>
+          <CardTitle>Anahtar kelime cevabı</CardTitle>
           <p className="mt-1 text-[13px] text-fg-muted">
-            Sohbet botu beklemeden, Instagram DM&apos;den yazan kişilere anahtar kelimeye göre anında hazır cevap gönderir.
+            Instagram DM&apos;den yazan kişilere anahtar kelimeye göre anında otomatik cevap gönderir. Türkçe karakter ve büyük-küçük harf fark etmez (ör. &quot;ücret&quot; = &quot;ucret&quot;).
           </p>
         </div>
         {statusMsg ? <span className="text-xs font-medium text-emerald-500">{statusMsg}</span> : null}
@@ -95,7 +95,10 @@ export function InstagramAutoReplyPanel({
               </div>
               <button
                 type="button"
-                onClick={() => persist(rules.filter((_, i) => i !== idx), "Kural silindi.")}
+                onClick={() => {
+                  if (!window.confirm(`“${r.title}” silinsin mi? Bu işlem geri alınamaz.`)) return;
+                  persist(rules.filter((_, i) => i !== idx), "Kural silindi.");
+                }}
                 className="text-xs text-critical hover:underline"
               >
                 Sil

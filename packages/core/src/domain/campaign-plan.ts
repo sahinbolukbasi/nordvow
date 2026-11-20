@@ -16,9 +16,9 @@ export const WIZARD_STEPS: { key: WizardStepKey; title: string; hint: string }[]
   { key: "icerik", title: "İçerik planı", hint: "Influencer başına kaç post, reels, story" },
   { key: "brief", title: "Brief", hint: "Mesaj, yapılacaklar, etiketler" },
   { key: "medya", title: "Fotoğraf ve video", hint: "Ürün görselleri, örnek çekimler, logo" },
-  { key: "urun", title: "Ürün & Gönderim", hint: "Fiziksel ürün, varyant ve kargo kuralı" },
-  { key: "influencer", title: "Influencerlar", hint: "Toplu seçim" },
-  { key: "ozet", title: "Özet ve kaydet", hint: "Kontrol et ve gönder" },
+  { key: "urun", title: "Ürün ve kargo", hint: "Fiziksel ürün, varyant ve kargo kuralı" },
+  { key: "influencer", title: "Influencerlar", hint: "Kısa liste seçimi (teklif otomatik gitmez)" },
+  { key: "ozet", title: "Özet ve kaydet", hint: "Taslak kaydet veya onaylı yayınla" },
 ];
 export function isWizardStep(v: unknown): v is WizardStepKey {
   return typeof v === "string" && WIZARD_STEPS.some((s) => s.key === v);
@@ -51,6 +51,8 @@ export const OBJECTIVES = [
   { id: "satis", title: "Satış", text: "Kupon ve tıklama" },
   { id: "video", title: "Video izlenme", text: "Reels, TikTok, YouTube" },
   { id: "urun_gonderimi", title: "Ürün gönderimi", text: "Ürün teslimi ve kargo takibi" },
+  { id: "urun_tanitimi", title: "Ürün tanıtımı", text: "Yeni ürün lansmanı ve deneyim" },
+  { id: "etkinlik", title: "Etkinlik", text: "Davet, katılım ve canlı paylaşım" },
 ] as const;
 export type Objective = (typeof OBJECTIVES)[number]["id"];
 
@@ -118,18 +120,26 @@ export function draftChecks(c: {
   briefCount: number;
   mediaCount: number;
   influencerCount: number;
+  includeShipping?: boolean;
 }): DraftCheck[] {
   const plan = parseContentPlan(c.contentPlan);
-  return [
+  const checks: DraftCheck[] = [
     { key: "temel", ok: !!c.name && !!c.objective, note: c.objective ? (OBJECTIVES.find((o) => o.id === c.objective)?.title ?? c.objective) : "Amaç seçilmedi" },
     { key: "kitle", ok: c.targetCountries.length > 0 && c.platforms.length > 0, note: c.targetCountries.length ? c.targetCountries.map(countryName).join(", ") : "Ülke seçilmedi" },
     { key: "butce", ok: Number(c.brandTotalFeeKurus) > 0 && c.endsAt >= c.startsAt, note: Number(c.brandTotalFeeKurus) > 0 ? "Bütçe girildi" : "Bütçe girilmedi" },
     { key: "icerik", ok: plan.length > 0, note: plan.length ? `${planTotal(plan)} içerik / influencer` : "İçerik planı yok" },
     { key: "brief", ok: c.briefCount > 0, note: c.briefCount ? "Brief yazıldı" : "Brief yazılmadı" },
     { key: "medya", ok: true, note: c.mediaCount ? `${c.mediaCount} dosya` : "İsteğe bağlı" },
-    { key: "urun", ok: true, note: "İsteğe bağlı" },
-    { key: "influencer", ok: true, note: c.influencerCount ? `${c.influencerCount} influencer` : "Ajans önerir (isteğe bağlı)" },
   ];
+  if (c.includeShipping || c.objective === "urun_gonderimi") {
+    checks.push({ key: "urun", ok: true, note: "Ürün ve kargo ayarları (isteğe bağlı)" });
+  }
+  checks.push({
+    key: "influencer",
+    ok: true,
+    note: c.influencerCount ? `${c.influencerCount} influencer kısa listede` : "Henüz seçilmedi (isteğe bağlı)",
+  });
+  return checks;
 }
 
 const shiftDay = (day: string, n: number) => {

@@ -2,7 +2,8 @@
 import { z } from "zod";
 import { prisma } from "@infulancer/core/db";
 import { activateAgent, type AgentKey } from "@infulancer/core/assistant/catalog";
-import { ingestText } from "@infulancer/core/assistant/rag";
+import { approveKnowledgeSource, ingestText, rejectKnowledgeSource } from "@infulancer/core/assistant/rag";
+import { seedBrandKnowledgeDrafts } from "@infulancer/core/assistant/seeder";
 import { reopenConversation } from "@infulancer/core/assistant/runtime";
 import { completeWhatsAppSignup, confirmPaymentMethod, connectInstagram, OnboardingError } from "@infulancer/core/channels/onboarding";
 import { recordConsent, ConsentError } from "@infulancer/core/compliance/iys";
@@ -26,6 +27,15 @@ function wrap(e: unknown): never {
 async function brandActor() {
   const a = await requireActor("BRAND");
   return { actor: a, tenantId: a.brandId! };
+}
+
+async function brandOrAdminTenant(fd: FormData) {
+  const a = await requireActor("BRAND", "ADMIN");
+  const tenantId = a.role === "BRAND" ? a.brandId! : str(fd, "tenantId");
+  if (!tenantId) throw new DomainError("DOGRULAMA", "Marka seçilmedi.");
+  const brand = await prisma.brand.findUnique({ where: { id: tenantId }, select: { id: true } });
+  if (!brand) throw new DomainError("BULUNAMADI", "Seçili marka bulunamadı.");
+  return { actor: a, tenantId };
 }
 
 export async function sendInboxMessage(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -109,12 +119,80 @@ export async function enableAgent(_p: ActionState, fd: FormData): Promise<Action
 }
 
 export async function addKnowledge(_p: ActionState, fd: FormData): Promise<ActionState> {
-  const { tenantId } = await brandActor();
+  const { tenantId } = await brandOrAdminTenant(fd);
   return attempt(async () => {
     const input = parseInput(z.object({ title: z.string().min(2).max(140), text: z.string().min(10).max(50_000) }), { title: str(fd, "title"), text: str(fd, "text") });
-    const r = await ingestText(tenantId, { type: "manual", uri: `manual://${input.title}`, text: input.text });
+    const scope = str(fd, "scope") === "influencer" ? "influencer_brief" : "manual";
+    const r = await ingestText(tenantId, { type: scope, uri: `${scope}://${input.title}`, text: input.text, status: "ready" });
     revalidateAll();
     return { ok: true, message: `${r.chunks} parça bilgi tabanına eklendi.` };
+  });
+}
+
+export async function seedKnowledgeDraftsAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const { tenantId } = await brandOrAdminTenant(fd);
+  return attempt(async () => {
+    const websiteUrl = optStr(fd, "websiteUrl");
+    const r = await seedBrandKnowledgeDrafts(tenantId, { websiteUrl });
+    revalidateAll();
+    if (r.createdCount === 0) {
+      return { ok: true, message: "Yeni taslak bulunamadı; mevcut kaynaklar zaten güncel." };
+    }
+    return {
+      ok: true,
+      message: `Asistanınız 3 kaynaktan ${r.createdCount} cevap taslağı hazırladı. 2 dakikada kontrol edip onaylayın.`,
+    };
+  });
+}
+
+export async function approveKnowledgeDraftAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const { tenantId } = await brandOrAdminTenant(fd);
+  return attempt(async () => {
+    const sourceId = str(fd, "sourceId");
+    const editedText = optStr(fd, "text") ?? undefined;
+    if (!sourceId) throw new DomainError("DOGRULAMA", "Kaynak seçilmedi.");
+    await approveKnowledgeSource(tenantId, sourceId, editedText);
+    revalidateAll();
+    return { ok: true, message: "Madde onaylandı ve asistan yanıtlarında aktif edildi." };
+  });
+}
+
+export async function rejectKnowledgeDraftAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const { tenantId } = await brandOrAdminTenant(fd);
+  return attempt(async () => {
+    const sourceId = str(fd, "sourceId");
+    if (!sourceId) throw new DomainError("DOGRULAMA", "Kaynak seçilmedi.");
+    await rejectKnowledgeSource(tenantId, sourceId);
+    revalidateAll();
+    return { ok: true, message: "Taslak reddedildi ve listeden çıkarıldı." };
+  });
+}
+
+export async function promoteUnansweredQuestionAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const { tenantId } = await brandOrAdminTenant(fd);
+  return attempt(async () => {
+    const question = str(fd, "question");
+    const answer = str(fd, "answer");
+    if (question.length < 3 || answer.length < 5) {
+      throw new DomainError("DOGRULAMA", "Soru ve yanıt en az 5 karakter olmalıdır.");
+    }
+    await ingestText(tenantId, {
+      type: "manual",
+      uri: `manual://SSS · ${question.slice(0, 60)}`,
+      text: `Soru: ${question}\nYanıt: ${answer}`,
+      status: "ready",
+    });
+    // Cevapsız listesinden kaldır
+    const key = `assistant.unanswered.${tenantId}`;
+    const existing = await prisma.configValue.findUnique({ where: { key } });
+    if (existing && Array.isArray(existing.value)) {
+      const next = (existing.value as { question: string }[]).filter(
+        (x) => x.question.toLocaleLowerCase("tr") !== question.toLocaleLowerCase("tr"),
+      );
+      await prisma.configValue.update({ where: { key }, data: { value: next as unknown as object } });
+    }
+    revalidateAll();
+    return { ok: true, message: "Yanıt onaylanarak bilgi tabanına eklendi." };
   });
 }
 

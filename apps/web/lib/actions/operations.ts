@@ -201,8 +201,8 @@ export async function runMultiAgentScanAction(_p: ActionState, fd: FormData): Pr
     return {
       ok: true,
       message: report.ingestion.apiConnected
-        ? `@${report.handle} için 4 ajanlı analiz ve telemetri güncellendi.`
-        : `@${report.handle} taraması tamamlandı (Meta API durumu: ${report.ingestion.apiMessage}).`,
+        ? `@${report.handle.replace(/^@+/, "")} için 4 ajanlı analiz ve telemetri güncellendi.`
+        : `@${report.handle.replace(/^@+/, "")} taraması tamamlandı (Meta API durumu: ${report.ingestion.apiMessage}).`,
     };
   });
 }

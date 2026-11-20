@@ -40,11 +40,6 @@ export function TicketScannerPanel({
   const [manualCode, setManualCode] = useState("");
   const [busyCode, setBusyCode] = useState(false);
 
-  const [showAdd, setShowAdd] = useState(false);
-  const [newHolder, setNewHolder] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [adding, setAdding] = useState(false);
-
   const [filter, setFilter] = useState<"ALL" | "GELDİ" | "BEKLİYOR">("ALL");
   const [query, setQuery] = useState("");
 
@@ -203,33 +198,6 @@ export function TicketScannerPanel({
     };
   }, [cameraOn, submitCheckIn, tt]);
 
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newHolder.trim() || adding) return;
-    setAdding(true);
-    try {
-      const res = await fetch("/api/bilet/check-in", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "quickAdd", eventId, holderName: newHolder.trim(), guestEmail: newEmail.trim() || undefined }),
-      });
-      const data = (await res.json()) as { ok: boolean; error?: string; ticket?: TicketRow };
-      if (!res.ok || !data.ok || !data.ticket) {
-        setBanner({ kind: "err", text: data.error ?? tt("Bilet eklenemedi.") });
-        return;
-      }
-      setTickets((prev) => [data.ticket!, ...prev]);
-      setNewHolder("");
-      setNewEmail("");
-      setShowAdd(false);
-      setBanner({ kind: "ok", text: `${tt("Bilet eklendi")}: ${data.ticket.holderName} (${data.ticket.code})` });
-    } catch {
-      setBanner({ kind: "err", text: tt("Bilet eklenirken bağlantı hatası.") });
-    } finally {
-      setAdding(false);
-    }
-  };
-
   const handleUndo = async (ticketId: string) => {
     try {
       const res = await fetch("/api/bilet/check-in", {
@@ -279,13 +247,6 @@ export function TicketScannerPanel({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAdd((v) => !v)}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-line bg-bg px-4 text-[13px] font-medium text-fg hover:border-line-strong"
-            >
-              {showAdd ? tt("Kapat") : `+ ${tt("Bilet ekle")}`}
-            </button>
             <a
               href={`/api/etkinlik/${eventId}/csv`}
               className="inline-flex h-10 items-center rounded-full border border-line bg-bg px-4 text-[13px] font-medium text-fg hover:border-line-strong"
@@ -304,35 +265,6 @@ export function TicketScannerPanel({
             </button>
           </div>
         </div>
-
-        {/* Hızlı bilet ekleme formu */}
-        {showAdd ? (
-          <form onSubmit={handleQuickAdd} className="grid grid-cols-1 gap-3 rounded-xl border border-line bg-bg p-3.5 sm:grid-cols-[1fr_1fr_auto]">
-            <input
-              type="text"
-              required
-              minLength={2}
-              value={newHolder}
-              onChange={(e) => setNewHolder(e.target.value)}
-              placeholder={tt("Katılımcı Ad Soyad *")}
-              className="h-10 rounded-lg border border-line bg-surface px-3 text-[13px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-            />
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder={tt("E-posta (opsiyonel)")}
-              className="h-10 rounded-lg border border-line bg-surface px-3 text-[13px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-            />
-            <button
-              type="submit"
-              disabled={adding}
-              className="h-10 rounded-lg bg-fg px-4 text-[13px] font-semibold text-bg hover:opacity-90 disabled:opacity-50"
-            >
-              {adding ? tt("Ekleniyor...") : tt("Bilet Oluştur")}
-            </button>
-          </form>
-        ) : null}
 
         {/* Canlı kamera QR okuma alanı */}
         {cameraOn ? (

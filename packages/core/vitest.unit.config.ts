@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["test/scoring-engine.test.ts"],
+    include: ["test/scoring-engine.test.ts", "test/meta-business-sdk.test.ts"],
   },
 });
 

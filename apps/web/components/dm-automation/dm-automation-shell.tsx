@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { matchKeyword, type KeywordMatchMode } from "@infulancer/core/dm-automation/matcher";
@@ -768,14 +769,9 @@ export function DmAutomationShell({
             <span className="font-semibold text-fg">
               {primaryAccount ? `@${primaryAccount.username}` : "Bağlı hesap yok"}
             </span>
-            {primaryAccount ? (
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${primaryAccount.status === "CONNECTED"
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-red-500/15 text-red-300"
-                  }`}
-              >
-                ● {primaryAccount.status === "CONNECTED" ? "Bağlı" : "Yeniden yetkilendir"}
+            {primaryAccount && primaryAccount.status === "CONNECTED" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                ● Bağlı
               </span>
             ) : null}
             {primaryAccount?.authMode === "OWN_OAUTH" ? (
@@ -991,7 +987,7 @@ export function DmAutomationShell({
                           <div className="font-bold tabular-nums text-neon-cyan">{camp.metrics24h.uniqueClicks}</div>
                         </div>
                         <div className="rounded-lg bg-bg/70 p-2">
-                          <div className="text-[10px] text-fg-muted">CTR</div>
+                          <div className="text-[10px] text-fg-muted">Tıklama oranı</div>
                           <div className="font-bold tabular-nums text-fg">%{camp.metrics24h.ctrPercent}</div>
                         </div>
                       </div>
@@ -1036,22 +1032,18 @@ export function DmAutomationShell({
       {view === "new" ? (
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="space-y-5 rounded-2xl border border-line bg-surface p-6">
-            {/* Adım Çubuğu */}
+            {/* Adım Çubuğu (3 adım) */}
             <div className="flex flex-wrap gap-1.5 border-b border-line pb-4">
               {[
-                [1, "1. Hesap"],
-                [2, "2. Tetikleyici"],
-                [3, "3. Kelimeler"],
-                [4, "4. DM İçeriği"],
-                [5, "5. Açık Yanıt"],
-                [6, "6. Sınırlar"],
-                [7, "7. Onay & Başlat"],
+                [1, "1. Gönderi & kelime"],
+                [2, "2. Mesaj & kupon"],
+                [3, "3. Kontrol & başlat"],
               ].map(([num, label]) => (
                 <button
                   key={num}
                   type="button"
                   onClick={() => setWizardStep(Number(num))}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${wizardStep === num ? "bg-fg text-bg" : "bg-bg text-fg-muted hover:text-fg"
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${wizardStep === num ? "bg-fg text-bg" : "bg-bg text-fg-muted hover:text-fg"
                     }`}
                 >
                   {label}
@@ -1101,9 +1093,9 @@ export function DmAutomationShell({
               </div>
             ) : null}
 
-            {wizardStep === 2 ? (
-              <div className="space-y-4">
-                <h2 className="text-base font-semibold">2. Tetikleyici Gönderi veya Reel Seç</h2>
+            {wizardStep === 1 ? (
+              <div className="space-y-4 border-t border-line pt-4">
+                <h2 className="text-base font-semibold">Tetikleyici Gönderi veya Reel Seç</h2>
                 <div className="grid gap-2.5 sm:grid-cols-3">
                   {(
                     [
@@ -1168,9 +1160,9 @@ export function DmAutomationShell({
               </div>
             ) : null}
 
-            {wizardStep === 3 ? (
-              <div className="space-y-4">
-                <h2 className="text-base font-semibold">3. Anahtar Kelimeler ve Canlı Eşleşme Testi</h2>
+            {wizardStep === 1 ? (
+              <div className="space-y-4 border-t border-line pt-4">
+                <h2 className="text-base font-semibold">Anahtar Kelimeler ve Canlı Eşleşme Testi</h2>
                 <p className="text-xs text-fg-muted">
                   Büyük-küçük harf, Türkçe karakter ve emoji fark etmez: &apos;İndirim&apos;, &apos;indirim&apos;, &apos;INDIRIM 🔥&apos; aynı sayılır.
                 </p>
@@ -1272,9 +1264,9 @@ export function DmAutomationShell({
               </div>
             ) : null}
 
-            {wizardStep === 4 ? (
+            {wizardStep === 2 ? (
               <div className="space-y-4">
-                <h2 className="text-base font-semibold">4. DM İçeriği, Link Butonları ve Kupon</h2>
+                <h2 className="text-base font-semibold">2. Mesaj İçeriği, Link Butonları ve Kupon</h2>
                 <div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium text-fg-muted">
@@ -1427,9 +1419,9 @@ export function DmAutomationShell({
               </div>
             ) : null}
 
-            {wizardStep === 5 ? (
-              <div className="space-y-4">
-                <h2 className="text-base font-semibold">5. Yoruma Herkese Açık Yanıt (Opsiyonel)</h2>
+            {wizardStep === 2 ? (
+              <div className="space-y-4 border-t border-line pt-4">
+                <h2 className="text-base font-semibold">Yoruma Herkese Açık Yanıt</h2>
                 <label className="flex items-center gap-2 text-xs font-medium">
                   <input
                     type="checkbox"
@@ -1481,9 +1473,12 @@ export function DmAutomationShell({
               </div>
             ) : null}
 
-            {wizardStep === 6 ? (
-              <div className="space-y-4">
-                <h2 className="text-base font-semibold">6. Zamanlama ve Tekrar Politikası</h2>
+            {wizardStep === 3 ? (
+              <details className="rounded-xl border border-line bg-bg/40 p-4">
+                <summary className="cursor-pointer text-xs font-semibold text-fg">
+                  Gelişmiş sınırlar ve zamanlama (kişi başına 1 kez, saatlik 700, bitiş tarihi)
+                </summary>
+                <div className="mt-4 space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="block text-xs font-medium text-fg-muted">Başlangıç Tarihi (Opsiyonel)</label>
@@ -1527,15 +1522,16 @@ export function DmAutomationShell({
                     </select>
                   </div>
                 </div>
-              </div>
+                </div>
+              </details>
             ) : null}
 
-            {wizardStep === 7 ? (
+            {wizardStep === 3 ? (
               <div className="space-y-4">
-                <h2 className="text-base font-semibold">7. Kontrol ve Yayınla</h2>
+                <h2 className="text-base font-semibold">3. Kontrol ve Yayınla</h2>
                 <div className="rounded-xl border border-line bg-bg/60 p-4 text-xs space-y-1.5">
                   <div><strong>Otomasyon:</strong> {wName}</div>
-                  <div><strong>Tetikleyici:</strong> {wTriggerMode} ({wKeywords.join(", ") || "Her yorum"})</div>
+                  <div><strong>Tetikleyici:</strong> {etiketle(wTriggerMode)} ({wKeywords.join(", ") || "Her yorum"})</div>
                   <div><strong>Kupon:</strong> {wCouponCode || "Yok"} · <strong>Buton:</strong> {wButtons.length} adet</div>
                 </div>
 
@@ -1588,8 +1584,8 @@ export function DmAutomationShell({
               </button>
               <button
                 type="button"
-                disabled={wizardStep >= 7}
-                onClick={() => setWizardStep((s) => Math.min(7, s + 1))}
+                disabled={wizardStep >= 3}
+                onClick={() => setWizardStep((s) => Math.min(3, s + 1))}
                 className="rounded-xl bg-fg px-4 py-1.5 text-xs font-semibold text-bg disabled:opacity-40"
               >
                 Sonraki →
@@ -1676,12 +1672,36 @@ export function DmAutomationShell({
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              {detailStats.campaign.status === "ENDED" ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await fetch(
+                      `/api/dm-automation/campaigns/${encodeURIComponent(detailStats.campaign.id)}/duplicate?tenantId=${encodeURIComponent(tenantId)}`,
+                      { method: "POST" },
+                    );
+                    const data = await res.json();
+                    if (res.ok) {
+                      await fetchOverview();
+                      setSelectedCampaignId(data.campaign.id);
+                      notify("ok", "Otomasyon çoğaltıldı.");
+                    }
+                  }}
+                  className="rounded-xl bg-fg px-3.5 py-2 text-xs font-semibold text-bg"
+                >
+                  Çoğalt
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleToggleCampaignStatus(detailStats.campaign)}
                 className="rounded-xl border border-line bg-bg px-3.5 py-2 text-xs font-medium text-fg"
               >
-                {detailStats.campaign.status === "ACTIVE" ? "Duraklat" : "Başlat"}
+                {detailStats.campaign.status === "ACTIVE"
+                  ? "Duraklat"
+                  : detailStats.campaign.status === "ENDED"
+                    ? "Yeniden başlat"
+                    : "Başlat"}
               </button>
               <button
                 type="button"
@@ -1953,7 +1973,7 @@ export function DmAutomationShell({
             <div className="rounded-2xl border border-line bg-surface p-5 space-y-4 text-xs">
               <div><strong>DM Metni:</strong> {detailStats.campaign.dmText}</div>
               <div><strong>Zorunlu Alt Bilgi:</strong> {detailStats.campaign.dmFooter}</div>
-              <div><strong>Tekrar Politikası:</strong> {detailStats.campaign.repeatPolicy}</div>
+              <div><strong>Tekrar Politikası:</strong> {etiketle(detailStats.campaign.repeatPolicy)}</div>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"

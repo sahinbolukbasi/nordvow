@@ -324,11 +324,11 @@ export async function loadBrandCampaignReport(
         }),
         usage: rights
           ? {
-              channel: rights.usageChannel,
-              durationDays: rights.usageDurationDays,
-              endsAt: rights.usageEndsAt,
-              geography: rights.usageGeography,
-            }
+            channel: rights.usageChannel,
+            durationDays: rights.usageDurationDays,
+            endsAt: rights.usageEndsAt,
+            geography: rights.usageGeography,
+          }
           : null,
       };
     });
@@ -349,7 +349,7 @@ export async function loadBrandCampaignReport(
     campaign: {
       ...view,
       brandName: campaign.brand.name,
-      budgetKurus: Number(campaign.budgetKurus),
+      budgetKurus: Number(campaign.brandTotalFeeKurus || campaign.budgetKurus),
       paidKurus,
       brandPaymentReceivedAt: campaign.brandPaymentReceivedAt,
     },

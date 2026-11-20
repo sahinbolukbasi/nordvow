@@ -35,6 +35,7 @@ import { CampaignHub } from "@/components/campaign/campaign-hub";
 import { StatusDot } from "@/components/ui/status";
 import { BosDurum, KaynakRozeti, Uyumluluk23ARozeti } from "@/components/ui/trust-badges";
 import { requireActor } from "@/lib/auth-guard";
+import { etiketle } from "@/lib/iletisim/etiketler";
 import { prisma } from "@infulancer/core/db";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
 import { formatDualMinor } from "@infulancer/core/i18n/regions";
@@ -92,11 +93,11 @@ export default async function BrandCampaignPage({
     getCampaignShipmentsDashboard(campaign.id),
     actor.brandId
       ? prisma.coupon.findMany({
-          where: { tenantId: actor.brandId },
-          orderBy: { createdAt: "desc" },
-          take: 20,
-          include: { grants: { select: { id: true, status: true, influencerId: true } } },
-        })
+        where: { tenantId: actor.brandId },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        include: { grants: { select: { id: true, status: true, influencerId: true } } },
+      })
       : Promise.resolve([]),
     prisma.agentRun.findMany({
       where: {
@@ -308,13 +309,12 @@ export default async function BrandCampaignPage({
           {timelineNodes.map((n) => (
             <li
               key={n.label}
-              className={`flex flex-col gap-1 rounded-2xl border p-3 ${
-                n.late
+              className={`flex flex-col gap-1 rounded-2xl border p-3 ${n.late
                   ? "border-rose-500/40 bg-rose-500/5"
                   : n.done
                     ? "border-emerald-500/30 bg-emerald-500/5"
                     : "border-border bg-bg/40"
-              }`}
+                }`}
             >
               <span className="text-[11px] font-medium text-fg-muted">{tt(n.label)}</span>
               <span className="text-sm font-semibold text-fg tabular-nums">{n.date}</span>
@@ -734,7 +734,7 @@ export default async function BrandCampaignPage({
       items={chartMetricRows}
       findings={agentRuns.map((r) => ({
         id: r.id,
-        title: r.checkType,
+        title: etiketle(r.checkType, r.checkType),
         severity: r.severity,
         status: r.status,
         summary: r.summary,

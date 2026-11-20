@@ -1,6 +1,21 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { prisma } from "@infulancer/core/db";
+import { classifyAssistantIntent, INTENT_LABELS, type AssistantIntent } from "@infulancer/core/assistant/intent-router";
+import { stripInternalLeaks, validateAssistantOutput } from "@infulancer/core/assistant/output-validator";
+import { retrieveWithConfidence } from "@infulancer/core/assistant/rag";
+import {
+  CAMPAIGN_STATUS_VERIFY_REPLY,
+  COMPLAINT_HANDOFF_MESSAGE,
+  CREATOR_APPLICATION_REPLY,
+  lookupBrandShipmentStatus,
+  recordUnansweredQuestion,
+} from "@infulancer/core/assistant/runtime";
+import { converseChat } from "@infulancer/core/llm/bedrock";
+import { envStr } from "@infulancer/core/env";
+import { retrieveBrandKnowledge } from "@infulancer/core/voice/retriever";
+import { createVoiceCallbackRequest } from "@infulancer/core/voice/callLogService";
 import { AssistantTools } from "./assistant-tools";
 import { CallLogStore, type CallExtractedDetails } from "./call-log-store";
 import { CostTracker } from "./cost-tracker";
@@ -30,7 +45,14 @@ export interface VoiceAssistantRuntime {
     sessionId?: string;
     message: string;
     callerPhone?: string;
-  }) => Promise<{ sessionId: string; reply: string }>;
+  }) => Promise<{
+    sessionId: string;
+    reply: string;
+    intent?: AssistantIntent;
+    intentLabel?: string;
+    sources?: { title: string; confidence: number }[];
+    handoff?: boolean;
+  }>;
 }
 
 const DEFAULT_FAQ = `# İşletme Bilgi Bankası
@@ -135,15 +157,71 @@ function extractImportantDetailsFromText(
   };
 }
 
-async function runFallbackReply(
+interface RoutedVoiceReply {
+  reply: string;
+  intent: AssistantIntent;
+  intentLabel: string;
+  sources: { title: string; confidence: number }[];
+  handoff: boolean;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * Sesli asistanın birleşik yanıt motoru:
+ * 1) Metin asistanı ile aynı 7 niyet yönlendiricisini (fiyat/kargo/basvuru/kampanya_durumu/iade/sikayet/diger) kullanır.
+ * 2) Prisma onaylı bilgi tabanı + Voice KB + yerel KB üzerinde arama yapar; yalnızca onaylı kaynakları kullanır.
+ * 3) AWS Bedrock (eu. profili) ile yanıt üretir; uydurma rakam ve iç terim sızıntısını engeller.
+ * 4) Gerçek LLM çağrısı yapılmadıysa token=0 kaydeder (sahte $0.0001 maliyet yazmaz).
+ * 5) Yedek aktarma yanıtı yalnızca `diger` niyetinde ve düşük güvende (veya şikâyette) devreye girer ve görev/not açar.
+ */
+async function runUnifiedVoiceTurn(
+  rawBrandId: string,
   text: string,
   callerPhone: string,
   callId: string,
   settings: AssistantSettings,
   tools: AssistantTools,
-): Promise<{ reply: string; inputTokens: number; outputTokens: number }> {
+  history: ChatMessage[],
+): Promise<RoutedVoiceReply> {
   const lower = text.toLocaleLowerCase("tr-TR");
+  const intentRes = classifyAssistantIntent(text);
+  const intentLabel = INTENT_LABELS[intentRes.intent];
 
+  // 1) Şikâyet -> özür, not al, çağrı kaydına yaz ve Gelen Kutusu / geri arama görevi aç
+  if (intentRes.intent === "sikayet") {
+    if (settings.features.staffNotesEnabled) {
+      await tools
+        .execute(
+          "take_staff_note",
+          {
+            callerName: "Arayan Müşteri",
+            callerPhone,
+            category: "complaint",
+            urgency: "high",
+            summary: text,
+          },
+          { callId, callerPhone, settings },
+        )
+        .catch(() => undefined);
+    }
+    await createVoiceCallbackRequest({
+      brandId: rawBrandId,
+      callerPhone,
+      topic: `Şikâyet: ${text.slice(0, 140)}`,
+    }).catch(() => undefined);
+    return {
+      reply: COMPLAINT_HANDOFF_MESSAGE,
+      intent: "sikayet",
+      intentLabel,
+      sources: [],
+      handoff: true,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // 2) Rezervasyon / randevu aracı
   if (lower.includes("rezervasyon") || lower.includes("randevu")) {
     const timeMatch = lower.match(/\d{1,2}[:.]\d{2}/);
     if (timeMatch && settings.features.reservationsEnabled) {
@@ -163,72 +241,268 @@ async function runFallbackReply(
       );
       return {
         reply: `Rezervasyonunuzu oluşturdum. Onay kodunuz ${res.confirmationCode}. Başka bir konuda yardımcı olabilir miyim?`,
-        inputTokens: 80,
-        outputTokens: 35,
+        intent: "diger",
+        intentLabel,
+        sources: [{ title: "Rezervasyon Modülü", confidence: 0.95 }],
+        handoff: false,
+        inputTokens: 0,
+        outputTokens: 0,
       };
     }
     return {
-      reply:
-        "Memnuniyetle rezervasyon oluşturabilirim. Hangi gün ve saat için düşünüyorsunuz?",
-      inputTokens: 60,
-      outputTokens: 25,
+      reply: "Memnuniyetle rezervasyon oluşturabilirim. Hangi gün ve saat için düşünüyorsunuz?",
+      intent: "diger",
+      intentLabel,
+      sources: [{ title: "Rezervasyon Modülü", confidence: 0.9 }],
+      handoff: false,
+      inputTokens: 0,
+      outputTokens: 0,
     };
   }
 
-  if (
-    lower.includes("not") ||
-    lower.includes("ilet") ||
-    lower.includes("şikayet") ||
-    lower.includes("arasın")
-  ) {
-    if (settings.features.staffNotesEnabled) {
-      await tools.execute(
+  // 3) Influencer başvurusu -> kayıt linki ve 3 adım
+  if (intentRes.intent === "basvuru") {
+    return {
+      reply: CREATOR_APPLICATION_REPLY,
+      intent: "basvuru",
+      intentLabel,
+      sources: [{ title: "İçerik Üreticisi Kayıt Akışı", confidence: 0.95 }],
+      handoff: false,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // 4) Kargo / sipariş durumu -> takip no iste veya Kargo Yönetimi modülünden sorgula
+  if (intentRes.intent === "kargo") {
+    if (!intentRes.extractedOrderCode) {
+      return {
+        reply: "Kargonuzun durumunu kontrol edebilmem için sipariş veya kargo takip numaranızı paylaşabilir misiniz?",
+        intent: "kargo",
+        intentLabel,
+        sources: [{ title: "Kargo Yönetimi", confidence: 0.92 }],
+        handoff: false,
+        inputTokens: 0,
+        outputTokens: 0,
+      };
+    }
+    const shipmentStatus = await lookupBrandShipmentStatus(rawBrandId, intentRes.extractedOrderCode);
+    if (shipmentStatus) {
+      return {
+        reply: shipmentStatus,
+        intent: "kargo",
+        intentLabel,
+        sources: [{ title: "Kargo Yönetimi Modülü", confidence: 0.96 }],
+        handoff: false,
+        inputTokens: 0,
+        outputTokens: 0,
+      };
+    }
+    await createVoiceCallbackRequest({
+      brandId: rawBrandId,
+      callerPhone,
+      topic: `Kargo sorgusu (${intentRes.extractedOrderCode}): ${text.slice(0, 120)}`,
+    }).catch(() => undefined);
+    return {
+      reply: `${intentRes.extractedOrderCode} numaralı gönderiyi bu hat üzerinden doğrulayamadım. Notunuzu aldım; kargo ekibimiz kontrol edip size en geç 2 saat içinde dönüş yapacak.`,
+      intent: "kargo",
+      intentLabel,
+      sources: [],
+      handoff: true,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // 5) Kampanya / teklif / ödeme durumu -> kimlik doğrulama
+  if (intentRes.intent === "kampanya_durumu") {
+    return {
+      reply: CAMPAIGN_STATUS_VERIFY_REPLY,
+      intent: "kampanya_durumu",
+      intentLabel,
+      sources: [{ title: "Kimlik Doğrulama Politikası", confidence: 0.9 }],
+      handoff: false,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // 6) Kişiye özel fiyat -> temsilci aktarımı
+  if (intentRes.intent === "fiyat" && intentRes.needsCustomQuote) {
+    await createVoiceCallbackRequest({
+      brandId: rawBrandId,
+      callerPhone,
+      topic: `Özel fiyat teklifi: ${text.slice(0, 140)}`,
+    }).catch(() => undefined);
+    return {
+      reply: "Özel fiyat ve paket talebinizi not aldım; satış ekibimiz size en geç 2 saat içinde dönüş yapacaktır.",
+      intent: "fiyat",
+      intentLabel,
+      sources: [],
+      handoff: true,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
+  // 7) Birleşik onaylı bilgi tabanı araması (Prisma RAG + Voice KB + Yerel dosya KB)
+  const evidence: { title: string; content: string; confidence: number }[] = [];
+
+  if (settings.features.knowledgeBaseEnabled) {
+    // 7a) Prisma onaylı RAG (marka kapsamı)
+    try {
+      const ragHits = await retrieveWithConfidence(rawBrandId, text, 3, "brand");
+      for (const h of ragHits) {
+        if (h.confidence >= 0.35) {
+          evidence.push({ title: h.sourceTitle, content: h.content, confidence: h.confidence });
+        }
+      }
+    } catch (err) {
+      console.warn("[voice-engine] Prisma RAG sorgusu atlandı:", err instanceof Error ? err.message : err);
+    }
+
+    // 7b) Prisma VoiceFaqItem / VoiceKnowledgeDoc
+    try {
+      const voiceChunks = await retrieveBrandKnowledge(rawBrandId, text, 3);
+      for (const vc of voiceChunks) {
+        evidence.push({ title: vc.title, content: vc.content, confidence: Math.max(0.55, vc.score || 0.7) });
+      }
+    } catch (err) {
+      console.warn("[voice-engine] Voice KB sorgusu atlandı:", err instanceof Error ? err.message : err);
+    }
+
+    // 7c) Yerel dosya bilgi tabanı
+    try {
+      const kb = JSON.parse(
+        await tools.execute("search_knowledge_base", { query: text }, { callId, callerPhone, settings }),
+      ) as { found?: boolean; results?: { source?: string; content?: string; score?: number }[] };
+      if (kb.found && kb.results?.length) {
+        for (const r of kb.results.slice(0, 2)) {
+          if (r.content) {
+            const clean = String(r.content)
+              .replace(/^#+\s.*$/gm, "")
+              .replace(/Soru:.*\n?/gi, "")
+              .replace(/Cevap:\s*/gi, "")
+              .trim();
+            if (clean) {
+              evidence.push({
+                title: r.source || "İşletme Bilgi Bankası",
+                content: clean,
+                confidence: Math.min(0.92, Math.max(0.65, Number(r.score ?? 0.72))),
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Yerel KB hata verirse devam
+    }
+  }
+
+  evidence.sort((a, b) => b.confidence - a.confidence);
+  const topEvidence = evidence.slice(0, 3);
+  const bestConfidence = topEvidence[0]?.confidence ?? 0;
+
+  // 8) Onaylı kaynak varsa AWS Bedrock (eu. profili) ile yanıt üret ve çıktı doğrulayıcıdan geçir
+  if (topEvidence.length > 0 && bestConfidence >= 0.55) {
+    const allowedContext = topEvidence.map((e) => e.content).join("\n");
+    let reply = "";
+    let llmCalled = false;
+
+    if (envStr("LLM_PROVIDER", "mock") === "bedrock") {
+      try {
+        const system = [
+          buildVoiceSystemPrompt(settings),
+          "Yalnızca aşağıdaki onaylı bilgi parçalarına dayanarak 1-2 cümlelik net Türkçe yanıt ver.",
+          "Bilgi tabanında olmayan fiyat, tarih veya kupon kodu ASLA uydurma.",
+          "",
+          "ONAYLI BİLGİ KAYNAKLARI:",
+          ...topEvidence.map((e, i) => `[${i + 1} - ${e.title}] ${e.content}`),
+        ].join("\n");
+        const turns = [
+          ...history
+            .filter((h) => (h.role === "user" || h.role === "assistant") && h.content)
+            .slice(-6)
+            .map((h) => ({ role: h.role as "user" | "assistant", text: h.content! })),
+        ];
+        if (!turns.length || turns[turns.length - 1]?.text !== text) {
+          turns.push({ role: "user", text });
+        }
+        const out = await converseChat({ system, turns, maxTokens: 180, temperature: 0.3 });
+        reply = out.text.trim();
+        llmCalled = true;
+      } catch (err) {
+        console.error("[voice-engine] Bedrock converseChat hatası:", err);
+      }
+    }
+
+    if (!reply) {
+      reply = topEvidence[0]!.content.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+    }
+
+    const validation = validateAssistantOutput(reply, allowedContext);
+    if (!validation.ok) {
+      console.warn("[voice-engine] Çıktı doğrulayıcı uydurma/sızıntı yakaladı:", validation);
+      reply = topEvidence[0]!.content.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+    }
+
+    return {
+      reply: stripInternalLeaks(reply),
+      intent: intentRes.intent,
+      intentLabel,
+      sources: topEvidence.map((e) => ({ title: e.title, confidence: Number(e.confidence.toFixed(2)) })),
+      handoff: false,
+      // Gerçek LLM çağrısı yapılmadıysa 0 token (sahte maliyet yok)
+      inputTokens: llmCalled ? Math.ceil(allowedContext.length / 4) : 0,
+      outputTokens: llmCalled ? Math.ceil(reply.length / 4) : 0,
+    };
+  }
+
+  // 9) Bilgi tabanında karşılık yok / düşük güven -> dürüst gerekçeli aktarma + görev + cevapsız soru kaydı
+  await recordUnansweredQuestion(rawBrandId, text, intentRes.intent, "kaynak_yok");
+  if (settings.features.staffNotesEnabled) {
+    await tools
+      .execute(
         "take_staff_note",
         {
           callerName: "Arayan Müşteri",
           callerPhone,
-          category: lower.includes("şikayet") ? "complaint" : "callback",
-          urgency: lower.includes("acil") ? "high" : "normal",
-          summary: text,
+          category: "callback",
+          urgency: "normal",
+          summary: `[${intentLabel}] ${text}`,
         },
         { callId, callerPhone, settings },
-      );
-      return {
-        reply:
-          "Notunuzu aldım ve görevli ekibimize ilettim. En kısa sürede size dönüş yapılacaktır.",
-        inputTokens: 70,
-        outputTokens: 30,
-      };
-    }
+      )
+      .catch(() => undefined);
   }
+  await createVoiceCallbackRequest({
+    brandId: rawBrandId,
+    callerPhone,
+    topic: `${intentLabel}: ${text.slice(0, 140)}`,
+  }).catch(() => undefined);
 
-  if (settings.features.knowledgeBaseEnabled) {
-    const kb = JSON.parse(
-      await tools.execute(
-        "search_knowledge_base",
-        { query: text },
-        { callId, callerPhone, settings },
-      ),
-    );
-    if (kb.found && kb.results?.[0]?.content) {
-      const clean = String(kb.results[0].content)
-        .replace(/^#+\s.*$/gm, "")
-        .replace(/Soru:.*\n?/gi, "")
-        .replace(/Cevap:\s*/gi, "")
-        .trim();
-      return {
-        reply: clean.split(/(?<=[.!?])\s+/).slice(0, 2).join(" "),
-        inputTokens: 90,
-        outputTokens: 40,
-      };
-    }
-  }
+  const intentSpecificHandoff: Record<AssistantIntent, string> = {
+    fiyat:
+      "Güncel kampanya ve paket fiyatlarımız marka bilgi tabanında henüz onaylı değil. Fiyat bilgisi için notunuzu ekibimize ilettim; size en geç 2 saat içinde dönüş yapılacak.",
+    iade:
+      "İade ve değişim koşulları bilgi tabanında henüz tanımlı değil. Talebinizi kaydettim; müşteri temsilcimiz size en geç 2 saat içinde dönüş yapacak.",
+    kargo:
+      "Kargo kaydınızı doğrulayabilmem için notunuzu lojistik ekibimize ilettim; en geç 2 saat içinde size dönüş yapılacak.",
+    basvuru: CREATOR_APPLICATION_REPLY,
+    kampanya_durumu: CAMPAIGN_STATUS_VERIFY_REPLY,
+    sikayet: COMPLAINT_HANDOFF_MESSAGE,
+    diger:
+      "Bu konuda onaylı bilgi tabanımızda kayıt bulamadım. Notunuzu alıp görevli ekibimize ilettim; size en geç 2 saat içinde dönüş yapılacak.",
+  };
 
   return {
-    reply:
-      "Anladım. İsterseniz bu konuda notunuzu alıp görevli ekibimize hemen iletebilirim.",
-    inputTokens: 50,
-    outputTokens: 20,
+    reply: intentSpecificHandoff[intentRes.intent],
+    intent: intentRes.intent,
+    intentLabel,
+    sources: [],
+    handoff: true,
+    inputTokens: 0,
+    outputTokens: 0,
   };
 }
 
@@ -326,94 +600,41 @@ function createRuntime(brandId: string, brandName?: string): VoiceAssistantRunti
       state.history.push({ role: "user", content: message });
       callLogStore.appendTurn(callId, "caller", message);
 
-      let reply = "";
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) {
-        const fallback = await runFallbackReply(
-          message,
-          state.callerPhone,
-          callId,
-          settings,
-          assistantTools,
-        );
-        reply = fallback.reply;
-        inputTokens = fallback.inputTokens;
-        outputTokens = fallback.outputTokens;
-      } else {
-        const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-        const tools = assistantTools.getEnabledToolDefinitions(settings);
-        const working = [...state.history];
-        for (let round = 0; round < 3; round++) {
-          const res = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model,
-              messages: working,
-              tools: tools.length > 0 ? tools : undefined,
-              max_tokens: settings.conversation.maxResponseTokens,
-              temperature: 0.4,
-            }),
-          });
-          if (!res.ok) break;
-          const data = (await res.json()) as {
-            usage?: { prompt_tokens?: number; completion_tokens?: number };
-            choices: Array<{ message: ChatMessage }>;
-          };
-          inputTokens += data.usage?.prompt_tokens || 0;
-          outputTokens += data.usage?.completion_tokens || 0;
-          const msg = data.choices[0]?.message;
-          if (!msg) break;
-          working.push(msg);
-          if (msg.tool_calls && msg.tool_calls.length > 0) {
-            for (const tc of msg.tool_calls) {
-              let parsedArgs: Record<string, unknown> = {};
-              try {
-                parsedArgs = JSON.parse(tc.function.arguments || "{}");
-              } catch {
-                parsedArgs = {};
-              }
-              const out = await assistantTools.execute(
-                tc.function.name,
-                parsedArgs,
-                { callId, callerPhone: state.callerPhone, settings },
-              );
-              working.push({
-                role: "tool",
-                tool_call_id: tc.id,
-                content: out,
-              });
-            }
-            continue;
-          }
-          reply = (msg.content || "").trim();
-          break;
-        }
-        if (!reply) {
-          reply = "Anlıyorum, talebinizi hemen görevli ekibimize iletiyorum.";
-        }
-      }
-
-      const usage = costTracker.recordUsage(
+      const routed = await runUnifiedVoiceTurn(
+        brandId,
+        message,
+        state.callerPhone,
         callId,
-        { llmInputTokens: inputTokens, llmOutputTokens: outputTokens },
         settings,
+        assistantTools,
+        state.history,
       );
-      state.history.push({ role: "assistant", content: reply });
+
+      const usage =
+        routed.inputTokens > 0 || routed.outputTokens > 0
+          ? costTracker.recordUsage(
+            callId,
+            { llmInputTokens: routed.inputTokens, llmOutputTokens: routed.outputTokens },
+            settings,
+          )
+          : { estimatedCostUsd: 0 };
+
+      state.history.push({ role: "assistant", content: routed.reply });
       callLogStore.appendTurn(
         callId,
         "assistant",
-        reply,
+        routed.reply,
         usage.estimatedCostUsd,
       );
 
-      return { sessionId: callId, reply };
+      return {
+        sessionId: callId,
+        reply: routed.reply,
+        intent: routed.intent,
+        intentLabel: routed.intentLabel,
+        sources: routed.sources,
+        handoff: routed.handoff,
+      };
     },
   };
 }

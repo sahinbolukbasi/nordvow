@@ -234,7 +234,7 @@ async function CampaignAgentsView({
                 {igAccounts.map((a) => (
                   <tr key={a.handle}>
                     <td className="py-2 pr-4 font-medium text-fg">{a.influencer}</td>
-                    <td className="py-2 pr-4 text-fg-muted">@{a.handle}</td>
+                    <td className="py-2 pr-4 text-fg-muted">@{a.handle.replace(/^@+/, "")}</td>
                     <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
                     <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                     <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>
@@ -339,7 +339,7 @@ async function InstagramOnlyView() {
                       {a.influencer.name}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4 text-fg-muted">@{a.handle}</td>
+                  <td className="py-2 pr-4 text-fg-muted">@{a.handle.replace(/^@+/, "")}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                   <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>
