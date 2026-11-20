@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma, type Prisma } from "@infulancer/core/db";
 import { roleLabels } from "@infulancer/core/domain/labels";
-import { StaffRoleButton, StaffUserForm, UserStatusButton } from "@/components/forms/user-status-button";
+import { DirectUserForm, StaffRoleButton, UserStatusButton } from "@/components/forms/user-status-button";
 import { SearchIcon } from "@/components/icons";
 import { DataTable } from "@/components/ui/data-table";
 import { ButtonLink, Input } from "@/components/ui/form";
@@ -39,7 +39,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
     ...(durum ? { status: durum } : {}),
     ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] } : {}),
   };
-  const [users, byRole, byStatus] = await Promise.all([
+  const [users, byRole, byStatus, brands] = await Promise.all([
     prisma.user.findMany({
       where,
       orderBy: [{ role: "asc" }, { createdAt: "desc" }],
@@ -59,6 +59,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
     }),
     prisma.user.groupBy({ by: ["role"], _count: true }),
     prisma.user.groupBy({ by: ["status"], _count: true }),
+    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }),
   ]);
   const roleCount = Object.fromEntries(byRole.map((r) => [r.role, r._count]));
   const statusCount = Object.fromEntries(byStatus.map((s) => [s.status, s._count]));
@@ -79,9 +80,9 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         }
       />
       <details className="rounded-3xl border border-line bg-glass px-5 py-4">
-        <summary className="cursor-pointer text-sm font-medium">{tt("+ Ajans ekibine kullanıcı ekle")}</summary>
+        <summary className="cursor-pointer text-sm font-medium">{tt("+ Doğrudan Kullanıcı Ekle (Influencer / Marka / Ajans / Admin)")}</summary>
         <div className="mt-4">
-          <StaffUserForm />
+          <DirectUserForm brands={brands} />
         </div>
       </details>
       <div className="flex flex-col gap-3">

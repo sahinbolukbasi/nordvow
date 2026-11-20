@@ -8,9 +8,9 @@ import type { Role } from "@infulancer/core/enums";
 import { PanelIcon } from "@/components/icons";
 import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/tooltip";
-import { isActive, navByRole, navLabel } from "./nav";
+import { getAllPlatformPagesForRole, isActive, isDefaultOpenForRole, navLabel } from "./nav";
 import { useT } from "@/lib/i18n/client";
-import { isPathHidden, type PagePermissionRow } from "@infulancer/core/access/page-visibility";
+import { isPathVisibleForMenu, type PagePermissionRow } from "@infulancer/core/access/page-visibility";
 import type { Role as CoreRole } from "@infulancer/core/enums";
 export type PermCtx = { perms: PagePermissionRow[]; role: CoreRole; userId: string };
 import { BRAND_NAME } from "@/lib/brand";
@@ -51,7 +51,9 @@ export function Sidebar({ role, perm }: { role: Role; perm?: PermCtx }) {
   const pathname = usePathname();
   const t = useT();
   const collapsed = useSyncExternalStore(subscribe, readCollapsed, () => false);
-  const items = navByRole[role].filter((i) => !perm?.perms.length || !isPathHidden(perm.perms, perm.role, perm.userId, i.href));
+  const items = getAllPlatformPagesForRole(role).filter((i) =>
+    perm ? isPathVisibleForMenu(perm.perms, perm.role, perm.userId, i.href, isDefaultOpenForRole(role, i.href)) : isDefaultOpenForRole(role, i.href),
+  );
 
   return (
     <aside

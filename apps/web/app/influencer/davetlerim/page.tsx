@@ -72,7 +72,7 @@ export default async function InfluencerInvitesPage({ searchParams }: { searchPa
                 <div className="mt-2 flex flex-wrap items-center gap-3">
                   {!isPast && e.status !== "IPTAL" && inv.status !== "IPTAL" ? <AttendanceToggle inviteId={inv.id} current={inv.status} /> : null}
                   {ticket ? (
-                    <Link href={`/bilet/${ticket.id}`} className="inline-flex h-8 items-center rounded-full bg-fg px-3 text-[13px] font-medium text-bg hover:opacity-90">{tt("Biletim")}</Link>
+                    <Link href={`/bilet/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center rounded-full bg-fg px-3 text-[13px] font-medium text-bg hover:opacity-90">{tt("Biletim")}</Link>
                   ) : null}
                   <Link href={`/etkinlik/${e.id}`} className="text-[13px] font-medium text-fg-muted hover:text-fg">{tt("Etkinlik sayfası →")}</Link>
                   {ticket ? <a href={`/api/etkinlik/${e.id}/ics`} className="text-[13px] text-fg-muted hover:text-fg">{tt("Takvime ekle")}</a> : null}

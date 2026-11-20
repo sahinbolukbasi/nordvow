@@ -1,22 +1,17 @@
 import { prisma } from "@infulancer/core/db";
-import { issueLinkCode } from "@infulancer/core/bot/link";
 import { unlinkBotChannelAction } from "@/lib/actions/bot";
+import { LinkCodeButton } from "@/components/profile/link-code-button";
 
-/** Profilde 6 haneli kod ve bağlı kanallar. Kod 15 dakika geçerlidir. */
+/** Bağlı kanallar ve tek kullanımlık kod. Kod düz metin olarak saklanmaz. */
 export async function BotLinkPanel({ userId }: { userId: string }) {
-  const now = new Date();
-  const [links, existing] = await Promise.all([
-    prisma.channelAccountLink.findMany({ where: { userId, revokedAt: null }, orderBy: { verifiedAt: "desc" } }),
-    prisma.botLinkCode.findFirst({ where: { userId, usedAt: null, expiresAt: { gt: now } }, orderBy: { createdAt: "desc" } }),
-  ]);
-  const code = existing?.code ?? (await issueLinkCode(userId, now));
+  const links = await prisma.channelAccountLink.findMany({ where: { userId, revokedAt: null }, orderBy: { verifiedAt: "desc" } });
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4" aria-label="Mesaj botu">
       <h2 className="text-[15px] font-semibold">WhatsApp ve Instagram botu</h2>
       <p className="text-[13px] text-fg-muted">
-        WhatsApp’ta kayıtlı telefonunuz eşleşirse hesap otomatik bağlanır. Instagram’da bottan gelen bağlantıyı giriş yapmışken açın veya bu kodu gönderin. Kod 15 dakika geçerlidir. Ayrıntı: /gizlilik
+        Instagram kullanıcı adınızı ve telefonunuzu girerseniz Nordvow botu sizi otomatik tanır. WhatsApp’ta telefon tek hesapla eşleşirse bağlanır. Instagram kullanıcı adı yalnız öneridir; bağlamak için bu kodu yazın. Aynı numara veya kullanıcı adı iki profildeyse tahmin edilmez. Messenger yalnız kod ve bağlantı ile bağlanır. Ayrıntı: /gizlilik
       </p>
-      <p className="font-mono text-2xl tracking-[0.3em]">{code}</p>
+      <LinkCodeButton />
       {links.length === 0 ? <p className="text-[13px] text-fg-passive">Bağlı kanal yok.</p> : (
         <ul className="flex flex-col gap-2 text-sm">
           {links.map((l) => (

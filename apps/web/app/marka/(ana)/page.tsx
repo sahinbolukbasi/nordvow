@@ -57,6 +57,7 @@ export default async function BrandHomePage() {
           <ButtonLink href="/marka/kampanyalar/yeni">{tt("Yeni kampanya")}</ButtonLink>
         }
       />
+      <CopilotHome actor={actor} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label={tt("Aktif kampanya")} value={count("AKTIF")} href="/marka/kampanyalar?durum=AKTIF" />
         <Stat label={tt("Taslak")} value={count("TASLAK")} href="/marka/kampanyalar?durum=TASLAK" hint={tt("Tamamlayıp ajansa gönderin")} />
@@ -114,7 +115,6 @@ export default async function BrandHomePage() {
           )}
         </Card>
       </div>
-      <CopilotHome actor={actor} />
     </Stagger>
   );
 }

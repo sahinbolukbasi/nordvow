@@ -6,7 +6,8 @@ import type { Role } from "@infulancer/core/enums";
 import { auth } from "@/auth";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
-import { isPathHiddenFor } from "@infulancer/core/access/page-permissions";
+import { isPathHiddenFor, loadPagePermissions } from "@infulancer/core/access/page-permissions";
+import { isPathExplicitlyAllowed } from "@infulancer/core/access/page-visibility";
 import { roleHome } from "./roles";
 
 /** Oturumdaki kullanıcıyı core Actor'a çevirir; oturum yoksa null. */
@@ -44,7 +45,13 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
   if (st.status !== "ACTIVE") redirect("/onay-bekliyor");
   // Onay sonrası profil bağları JWT'de olmayabilir; veritabanındaki değerler esas alınır.
   const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
-  if (roles.length > 0 && !roles.includes(actor.role)) redirect(roleHome[actor.role]);
+  if (roles.length > 0 && !roles.includes(actor.role)) {
+    const pathname = (await headers()).get("x-pathname");
+    const perms = pathname ? await loadPagePermissions(actor.staffRole ?? actor.role, actor.userId) : [];
+    if (!pathname || !isPathExplicitlyAllowed(perms, actor.staffRole ?? actor.role, actor.userId, pathname)) {
+      redirect(roleHome[actor.role]);
+    }
+  }
   if (actor.role === "BRAND" && !actor.brandId) redirect("/giris");
   if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/giris");
   await assertPageVisible(actor);

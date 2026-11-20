@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -46,22 +47,59 @@ export function TemplateForm({ eventKey, channel, subject, body, vars }: { event
   );
 }
 
-/** Özel duyuru gönderimi. */
+/** Özel duyuru, giriş pop-up'ı ve AWS SES toplu e-posta gönderimi. */
 export function AnnouncementForm() {
   const tt = useTT();
+  const [audience, setAudience] = useState("all");
   return (
-    <ActionForm action={sendAnnouncementAction} submitLabel={tt("Duyuru gönder")} resetOnSuccess aria-label={tt("Özel duyuru")}>
-      <Field label={tt("Hedef kitle")}>
-        {(p) => (
-          <Select {...p} name="audience" defaultValue="all">
-            <option value="all">{tt("Herkes")}</option>
-            <option value="influencers">{tt("İçerik üreticileri")}</option>
-            <option value="brands">{tt("Markalar")}</option>
-          </Select>
+    <ActionForm action={sendAnnouncementAction} submitLabel={tt("Bildirim / Pop-up / E-posta Gönder")} resetOnSuccess aria-label={tt("Özel duyuru")}>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label={tt("Hedef kitle")}>
+          {(p) => (
+            <Select {...p} name="audience" value={audience} onChange={(e) => setAudience(e.target.value)}>
+              <option value="all">{tt("Tüm aktif kullanıcılar")}</option>
+              <option value="influencers">{tt("Tüm Influencerlar")}</option>
+              <option value="brands">{tt("Tüm Markalar")}</option>
+              <option value="agency">{tt("Ajans & Admin ekibi")}</option>
+              <option value="single">{tt("Tekil kullanıcı (e-posta ile)")}</option>
+            </Select>
+          )}
+        </Field>
+        {audience === "single" ? (
+          <Field label={tt("Kullanıcı e-postası")}>
+            {(p) => <Input {...p} name="targetEmail" type="email" required placeholder="kullanici@ornek.com" />}
+          </Field>
+        ) : (
+          <Field label={tt("Başlık / Konu")}>
+            {(p) => <Input {...p} name="title" required placeholder={tt("Örn. Yeni Kampanya Dönemi Duyurusu")} />}
+          </Field>
         )}
+      </div>
+      {audience === "single" ? (
+        <Field label={tt("Başlık / Konu")}>
+          {(p) => <Input {...p} name="title" required placeholder={tt("Örn. Hesabınız Hakkında Bilgilendirme")} />}
+        </Field>
+      ) : null}
+      <Field label={tt("Mesaj")}>
+        {(p) => <Textarea {...p} name="message" rows={4} required placeholder={tt("Bildirim, pop-up ve e-posta içeriği…")} />}
       </Field>
-      <Field label={tt("Mesaj")}>{(p) => <Textarea {...p} name="message" rows={3} required placeholder={tt("Duyuru metni…")} />}</Field>
-      <Field label={tt("Bağlantı (opsiyonel)")}>{(p) => <Input {...p} name="link" placeholder="https://…" />}</Field>
+      <Field label={tt("Yönlendirme bağlantısı (opsiyonel)")}>
+        {(p) => <Input {...p} name="link" placeholder="/kampanyalar veya https://nordvow.com/..." />}
+      </Field>
+      <div className="flex flex-wrap gap-4 rounded-xl border border-line bg-bg/50 px-4 py-3 text-[13px]">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="sendInApp" value="1" defaultChecked className="h-4 w-4 accent-[var(--color-fg)]" />
+          {tt("Panel bildirim kutusuna at")}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="sendPopup" value="1" defaultChecked className="h-4 w-4 accent-[var(--color-fg)]" />
+          {tt("Giriş yapınca pop-up olarak göster")}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="sendEmail" value="1" defaultChecked className="h-4 w-4 accent-[var(--color-fg)]" />
+          {tt("Kayıtlı e-postaya toplu mail gönder (AWS SES)")}
+        </label>
+      </div>
     </ActionForm>
   );
 }

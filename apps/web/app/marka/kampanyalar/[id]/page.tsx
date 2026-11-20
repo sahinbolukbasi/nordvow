@@ -27,12 +27,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClass } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
-import { ExecutionModeCard } from "@/components/campaign/execution-mode-card";
+import { CampaignHub } from "@/components/campaign/campaign-hub";
 import { StatusDot } from "@/components/ui/status";
 import { requireActor } from "@/lib/auth-guard";
 import { prisma } from "@infulancer/core/db";
 import { CampaignMedia } from "@/components/campaign/campaign-media";
-import { formatMinor } from "@infulancer/core/i18n/regions";
+import { formatDualMinor } from "@infulancer/core/i18n/regions";
+import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
 import { FileUploader } from "@/components/files/file-uploader";
 import { buildCalendarRows, resolveWeek } from "@/lib/calendar";
 import { num, pct, pct1 } from "@/lib/format";
@@ -75,8 +76,16 @@ export default async function BrandCampaignPage({
     include: { uploadedBy: { select: { name: true } } },
   });
   const draft = campaign.status === "TASLAK";
-  const meta = await prisma.campaign.findUniqueOrThrow({ where: { id: campaign.id }, select: { currency: true, executionMode: true } });
+  const [meta, hubData] = await Promise.all([
+    prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+      select: { currency: true, executionMode: true, brand: { select: { defaultExecutionMode: true } } },
+    }),
+    loadCampaignHubData(campaign.id),
+  ]);
   const currency = meta.currency;
+  const effectiveMode = meta.brand.defaultExecutionMode ?? meta.executionMode;
+  const isSelfManaged = effectiveMode === "SELF";
   const mediaCard = (
     <Card interactive={false} className="flex flex-col gap-4" id="medya">
       <CardTitle>{tt("Kampanya fotoğraf ve videoları")}</CardTitle>
@@ -125,7 +134,12 @@ export default async function BrandCampaignPage({
             {fmtDate(campaign.startsAt)} – {fmtDate(campaign.endsAt)}
           </dd>
           <dt className="text-fg-passive">{tt("Toplam ödenen")}</dt>
-          <dd className="tabular-nums">{formatMinor(Number(campaign.brandTotalFeeKurus), currency)}</dd>
+          <dd className="tabular-nums">
+            {formatDualMinor(Number(campaign.brandTotalFeeKurus), currency, {
+              fx: hubData.fx,
+              showGlobalEquivalents: true,
+            })}
+          </dd>
           <dt className="text-fg-passive">{tt("Erişim")}</dt>
           <dd className="tabular-nums">{num.format(report.totals.reach)}</dd>
           <dt className="text-fg-passive">{tt("Tıklama")}</dt>
@@ -340,19 +354,60 @@ export default async function BrandCampaignPage({
           </span>
         }
         actions={
-          draft ? (
-            <Link href={`${base}/olustur?adim=ozet`} className={buttonClass("primary")}>{tt("Kampanyayı düzenle")}</Link>
-          ) : (
-            <a href={`/api/raporlar/kampanya/${campaign.id}/pdf`} download className={buttonClass("primary")}>{tt("Raporu indir (PDF)")}</a>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            {isSelfManaged && campaign.status !== "KAPANDI" && campaign.status !== "IPTAL" ? (
+              <>
+                <Link href={`${base}/kurulum`} className={buttonClass("secondary", "sm")}>
+                  {tt("Influencer & Görev Kurulumu")}
+                </Link>
+                <Link href={`${base}/olustur?adim=ozet`} className={buttonClass("secondary", "sm")}>
+                  {tt("Kampanya Sihirbazı")}
+                </Link>
+              </>
+            ) : null}
+            {!draft ? (
+              <a href={`/api/raporlar/kampanya/${campaign.id}/pdf`} download className={buttonClass("primary", "sm")}>
+                {tt("Raporu indir (PDF)")}
+              </a>
+            ) : null}
+          </div>
         }
       />
       {gonderildi ? (
         <p role="status" className="rounded-2xl bg-emerald-500/10 px-4 py-3 text-[14px] text-emerald-700 dark:text-emerald-400">{tt("Kampanya kaydedildi ve ajansa gönderildi. Ajans influencer atamalarını ve bedelleri onayladığında bildirim alacaksınız.")}</p>
       ) : null}
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-line bg-surface p-4 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-1">
+          <span className="text-[14px] font-semibold text-fg">
+            {isSelfManaged
+              ? tt("Yönetim Yetkisi: Marka Yönetimi (Kendim Yöneteceğim)")
+              : tt("Yönetim Yetkisi: Ajans Yönetimi — Süreci Takip Et")}
+          </span>
+          <span className="text-[13px] text-fg-muted">
+            {isSelfManaged
+              ? tt("Kampanya ekibini, influencer tekliflerini, görev atamalarını ve Story/içerik grafiklerini doğrudan yönetebilirsiniz.")
+              : tt("Kampanyalarınız Ajans Tarafından Yürütülüyor. Süreci, teklif durumlarını ve canlı veritabanı metriklerini bu ekrandan anlık takip edebilirsiniz.")}
+          </span>
+        </div>
+        <Link href="/profil" className={buttonClass("secondary", "sm")}>
+          {tt("Yönetim Tercihini Değiştir (Profil)")}
+        </Link>
+      </div>
       <CampaignLifecycle campaignId={campaign.id} />
-      <ExecutionModeCard campaignId={campaign.id} mode={meta.executionMode} status={campaign.status} />
       {summary}
+      <CampaignHub
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        campaignCurrency={currency}
+        viewerRole="BRAND"
+        canManage={isSelfManaged}
+        executionMode={effectiveMode}
+        fx={hubData.fx}
+        rows={hubData.rows}
+        archivedKeys={hubData.archivedKeys}
+        messages={hubData.messages}
+        storyRows={hubData.storyRows}
+      />
       {mediaCard}
       {drafts}
       {report.deliverables.length === 0 ? <EmptyState message={tt("Bu kampanyada henüz planlanmış içerik yok.")} /> : calendar}

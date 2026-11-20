@@ -24,21 +24,43 @@ const ALL: Aspect[] = ["9:16", "1:1", "4:5", "16:9"];
 const VID: Aspect[] = ["9:16", "1:1", "16:9"];
 
 const SPECS: Record<string, Spec> = {
+  // 1. Görsel Modelleri
   "flux-schnell": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, image_size: SIZE[aspect], num_images: 1, num_inference_steps: 4, output_format: "jpeg" }) },
+  "flux-dev": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, image_size: SIZE[aspect], num_images: 1, num_inference_steps: 28, output_format: "jpeg" }) },
+  "seedream-v4-5": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1 }) },
   "nano-banana": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1, output_format: "png" }) },
+  "flux-3": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1, output_format: "jpeg" }) },
   "nano-banana-2": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1, resolution: "1K", output_format: "png" }) },
+  "seedream-v5-pro": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1 }) },
   "nano-banana-pro": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, num_images: 1, resolution: "1K", output_format: "png" }) },
   "recraft-v3": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, image_size: SIZE[aspect], style: "realistic_image" }) },
   "ideogram-v3": { aspects: ALL, build: ({ prompt, aspect }) => ({ prompt, image_size: SIZE[aspect], rendering_speed: "BALANCED", num_images: 1 }) },
+
+  // 2. Video Modelleri (Reels & Story)
+  "minimax-h3-max-turbo": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds) }) },
+  "minimax-h3-max": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds) }) },
   "ltxv-distilled": { durations: [5], aspects: VID, build: ({ prompt, aspect }) => ({ prompt, aspect_ratio: aspect, resolution: "720p", num_frames: 121, frame_rate: 24 }) },
   "hailuo-02-standard": { durations: [6, 10], build: ({ prompt, seconds }) => ({ prompt, duration: String(seconds), prompt_optimizer: true }) },
+  "wan-v3": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds), resolution: "720p" }) },
   "kling-v2-5-turbo-pro": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds) }) },
-  // Ses kapalı: fal sesli üretimi %50 daha pahalı fiyatlar ($0.168/sn); fiyatımız sessize göre.
+  "gemini-omni-flash": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds) }) },
   "kling-v3-pro": { durations: [5, 10, 15], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds), generate_audio: false }) },
+  "wan-v3-1080p": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds), resolution: "1080p" }) },
+  "veo-3-1": { durations: [5, 10], aspects: VID, build: ({ prompt, aspect, seconds }) => ({ prompt, aspect_ratio: aspect, duration: String(seconds), generate_audio: true }) },
+
+  // 3. Seslendirme (TTS) & 4. Arka Plan Müziği Modelleri
+  "kokoro-en": { build: ({ prompt }) => ({ text: prompt, voice: "af_heart" }) },
+  "dia-tts": { build: ({ prompt }) => ({ text: prompt }) },
+  "f5-tts": { build: ({ prompt }) => ({ gen_text: prompt }) },
   "elevenlabs-turbo-2-5": { build: ({ prompt }) => ({ text: prompt, language_code: "tr" }) },
+  "elevenlabs-v3": { build: ({ prompt }) => ({ text: prompt, language_code: "tr" }) },
   "elevenlabs-multilingual-v2": { build: ({ prompt }) => ({ text: prompt }) },
-  // MiniMax varsayılanı "hex" döndürür; dosya URL'i için "url" şart.
   "minimax-speech-2-8-turbo": { build: ({ prompt }) => ({ prompt, language_boost: "Turkish", output_format: "url" }) },
+  "ace-step": { build: ({ prompt }) => ({ prompt, duration: 30 }) },
+  "cassetteai-music": { build: ({ prompt }) => ({ prompt, duration: 30 }) },
+  "lyria-3": { build: ({ prompt }) => ({ prompt }) },
+  "minimax-music-2-6": { build: ({ prompt }) => ({ prompt }) },
+  "elevenlabs-music": { build: ({ prompt }) => ({ prompt, duration_seconds: 30 }) },
 };
 
 export function modelSpec(key: string): Spec | null {

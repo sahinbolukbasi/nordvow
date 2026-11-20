@@ -5,10 +5,11 @@ import { SendBlockedError, sendMessage } from "../messaging/send";
 import { assignConversation } from "../messaging/inbox";
 import { applyGuardrails } from "./guardrails";
 import { retrieveWithConfidence } from "./rag";
+import { invokeAgentCore, isAgentCoreEnabled } from "./agentcore";
 
 /**
- * Agent çalışma zamanı (Lambda + Bedrock Converse ile başlar; AgentCore kullanılmaz).
- * Agent döngüsü bu arayüzün arkasındadır — ileride Runtime'a taşımak kolay kalsın.
+ * Agent çalışma zamanı: `AGENTCORE_RUNTIME_ARN` tanımlıysa AWS Bedrock AgentCore Runtime
+ * kullanılır; aksi hâlde veya hata durumunda Bedrock Converse (`getLlm()`) ile devam edilir.
  * İnsana aktarma tetiklendiğinde agent cevap üretmeyi BIRAKIR (yarım yanıt yok).
  */
 export type AgentDecision =
@@ -97,13 +98,33 @@ export async function decide(tenantId: string, conversationId: string, text: str
   const confidence = hits[0]?.confidence ?? 0;
   if (confidence < Number(cfg.confidenceThreshold)) return { kind: "handoff", reason: "dusuk_guven" };
 
-  const llm = await getLlm().completeText({
-    system: cfg.systemPrompt,
-    promptVersion: `agent-${cfg.agentId}@1`,
-    prompt: `Bilgi parçaları:\n${hits.map((h, i) => `[${i + 1}] ${h.content}`).join("\n")}\n\nSoru: ${input.text}`,
-  });
-  // Mock sağlayıcı şablon metni döndürür; en ilgili parça doğrudan yanıt olarak kullanılır.
-  const draft = llm.text.startsWith("[Otomatik") ? hits[0]!.content : llm.text;
+  const ragPrompt = `Bilgi parçaları:\n${hits.map((h, i) => `[${i + 1}] ${h.content}`).join("\n")}\n\nSoru: ${input.text}`;
+  let draft = "";
+
+  if (isAgentCoreEnabled()) {
+    try {
+      const ac = await invokeAgentCore({
+        sessionId: conversationId,
+        prompt: ragPrompt,
+        systemPrompt: cfg.systemPrompt,
+        metadata: { tenantId, agentId: cfg.agentId, confidence },
+      });
+      if (ac?.text) draft = ac.text;
+    } catch (err) {
+      console.warn("[assistant/runtime] AgentCore fallback to Bedrock Converse:", (err as Error).message);
+    }
+  }
+
+  if (!draft) {
+    const llm = await getLlm().completeText({
+      system: cfg.systemPrompt,
+      promptVersion: `agent-${cfg.agentId}@1`,
+      prompt: ragPrompt,
+    });
+    // Mock sağlayıcı şablon metni döndürür; en ilgili parça doğrudan yanıt olarak kullanılır.
+    draft = llm.text.startsWith("[Otomatik") ? hits[0]!.content : llm.text;
+  }
+
   const out = await applyGuardrails(draft, "OUTPUT");
   if (out.action === "BLOCKED" || !out.text.trim()) return { kind: "handoff", reason: "guardrail" };
   return { kind: "reply", text: out.text, confidence };

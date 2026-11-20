@@ -202,6 +202,8 @@ model User {
   /// Davetle kayıt olanlar admin onayına kadar PENDING; mevcut kullanıcılar ACTIVE.
   status       UserStatus  @default(ACTIVE)
   phone        String?
+  /// Instagram kullanıcı adı, @ olmadan, küçük harf. Otomatik bağlama önerisi için.
+  instagramHandle String? @unique @map("instagram_handle")
   /// Kullanıcının yüklediği profil fotoğrafı (S3 anahtarı). Yoksa influencer sosyal hesabından türetilir.
   avatarKey    String?
   /// Arayüz dili (tr, en, de, fr) ve ülke (ISO2); ilk girişte otomatik algılanır, kullanıcı değiştirebilir.
@@ -225,8 +227,12 @@ model User {
   invitesCreated       Invite[]                  @relation("InviteCreatedBy")
   application          SignupApplication?        @relation("ApplicationUser")
   applicationsReviewed SignupApplication[]       @relation("ApplicationReviewer")
+  organizationId       String?                   @map("organization_id")
+  organization         Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  mediaJobs            MediaJob[]
+  biometricConsents    BiometricLegalConsent[]
   legalAcceptances     LegalAcceptance[]
-  channelLinks         ChannelAccountLink[]
+  channelAccountLinks  ChannelAccountLink[]
   botLinkCodes         BotLinkCode[]
 
   @@index([brandId])
@@ -265,6 +271,8 @@ model Brand {
   competitorBrandIds String[]
   /// Markanın varsayılan çalışma modu: yeni kampanyalar bu modla açılır (marka değiştirebilir).
   defaultExecutionMode ExecutionMode @default(AJANS)
+  /// Marka ajansla çalışmayı seçtiyse tercih edilen ajans kullanıcısı (User.id, role=AGENCY).
+  preferredAgencyUserId String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -316,7 +324,7 @@ model SocialAccount {
   followers      Int
   engagementRate Decimal    @db.Decimal(6, 4)
   demographics   Json
-  /// Senkron: manual | instagram_business_discovery | youtube_data | tiktok_oauth
+  /// META_API | INSTAGRAM_OAUTH | INSTAGRAM_PUBLIC | NONE | manual | youtube_data | tiktok_oauth | mock
   syncSource     String     @default("manual")
   externalId     String?
   profileUrl     String?
@@ -326,14 +334,23 @@ model SocialAccount {
   avgComments    Int?
   avgViews       Int?
   verified       Boolean    @default(false)
+  /// Business Discovery'den gelen ad ve kısa biyografi
+  displayName    String?    @map("display_name")
+  bioSnippet     String?    @map("bio_snippet")
   /// TikTok OAuth token'ı kasada (Secrets Manager); burada yalnız referans
   tokenRef       String?
   lastSyncedAt   DateTime?
   syncError      String?
+  /// TOKEN_INVALID | MISSING_PERMISSION | TARGET_NOT_DISCOVERABLE | RATE_LIMITED | UNKNOWN
+  lastErrorClass String?
+  /// Public yola düşüş nedeni (TOKEN_INVALID, MISSING_PERMISSION, RATE_LIMITED, TARGET_NOT_DISCOVERABLE, NOT_CONFIGURED)
+  syncReason     String?
+  retryCount     Int        @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
   snapshots SocialAccountSnapshot[]
+  syncEvents SocialSyncEvent[]
 
   @@unique([influencerId, platform])
 }
@@ -348,6 +365,29 @@ model SocialAccountSnapshot {
   takenAt         DateTime
 
   @@index([socialAccountId, takenAt])
+}
+
+/// Hesap başına senkron telemetrisi. Belirteç ve Graph gövdesi yazılmaz.
+model SocialSyncEvent {
+  id              String        @id @default(cuid())
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  durationMs      Int
+  errorClass      String?
+  /// Neden bu kaynak kullanıldı (ör. TOKEN_INVALID olduğu için INSTAGRAM_PUBLIC). Belirteç yok.
+  reason          String?
+  source          String
+  ok              Boolean
+  createdAt       DateTime      @default(now())
+
+  @@index([socialAccountId, createdAt])
+}
+
+/// EventBridge ve yerel zamanlayıcının aynı anda social-sync çalıştırmasını engeller.
+model SocialSyncLock {
+  id        String   @id
+  owner     String
+  expiresAt DateTime
 }
 
 // ───────────── Kampanya ─────────────
@@ -1495,8 +1535,11 @@ model Offer {
   items        Json
   totalKurus   Int
   publishBy    DateTime?
-  /// GONDERILDI | KABUL | RED | GERI_CEKILDI | SURESI_DOLDU | KAMPANYAYA_EKLENDI
+  /// GONDERILDI | KARSI_TEKLIF | KABUL | RED | GERI_CEKILDI | SURESI_DOLDU | KAMPANYAYA_EKLENDI
   status       String    @default("GONDERILDI")
+  counterKurus Int?
+  counterNote  String?
+  counterByRole String?
   responseNote String?
   respondedAt  DateTime?
   expiresAt    DateTime
@@ -1874,19 +1917,80 @@ model ChannelAccountLink {
   @@map("channel_account_links")
 }
 
-/// Profilde gösterilen 6 haneli bağlama kodu.
+/// Profilde üretilen 6 haneli bağlama kodu. Düz metin tutulmaz.
 model BotLinkCode {
   id        String    @id @default(cuid())
   userId    String    @map("user_id")
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  code      String
+  codeHash  String    @map("code_hash")
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
-  @@index([code])
-  @@index([userId])
+  @@index([userId, expiresAt])
   @@map("bot_link_codes")
+}
+
+/// Yanlış bağlama kodu denemesi. Pencere dolunca kilit.
+model BotLinkAttempt {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId, createdAt])
+  @@map("bot_link_attempts")
+}
+
+/// Bağlama, koparma ve başarısız deneme. Kod değeri yazılmaz.
+model BotLinkEvent {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String?         @map("user_id")
+  action     String
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("bot_link_events")
+}
+
+/// Bağlı olmayan göndericinin talep taslağı.
+model BotGuestDraft {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  step       String
+  name       String?
+  intent     String?
+  email      String?
+  phone      String?
+  org        String?
+  note       String?
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@unique([channel, externalId])
+  @@map("bot_guest_drafts")
+}
+
+/// Bağlı olmayan kişiden gelen yeni müşteri talebi.
+model BotLead {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  name       String
+  intent     String
+  email      String?
+  phone      String?
+  org        String?
+  note       String
+  status     String          @default("YENI")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@index([channel, externalId, createdAt])
+  @@index([status, createdAt])
+  @@map("bot_leads")
 }
 
 /// Onay bekleyen bot işlemi (EVET denmeden çalışmaz).
@@ -1932,6 +2036,20 @@ model BotSettings {
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("bot_settings")
+}
+
+/// Otomatik bağlamada çakışan Instagram kullanıcı adı. Bot bağlama yapmaz.
+model BotLinkFlag {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  handle     String
+  reason     String
+  userIds    String[]        @map("user_ids")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId])
+  @@map("bot_link_flags")
 }
 
 /// Meta veri silme callback kaydı (onay kodu + durum sayfası).
@@ -2069,4 +2187,188 @@ model CreditLedger {
   createdAt    DateTime @default(now()) @map("created_at")
   @@index([tenantId, createdAt])
   @@map("credit_ledger")
+}
+
+// ───────────── NORDVOW CREATIVE AI KATMANI ─────────────
+
+enum OrgType {
+  AGENCY
+  BRAND
+  INFLUENCER_STUDIO
+  ENTERPRISE
+}
+
+enum MediaCapability {
+  IMAGE_GENERATION
+  IMAGE_EDIT
+  VIDEO_GENERATION
+  VIDEO_EDIT
+  TTS
+  LIP_SYNC
+  AVATAR
+  UPSCALE
+  REMOVE_BACKGROUND
+}
+
+enum MediaJobStatus {
+  PENDING_RESERVATION
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum BiometricConsentType {
+  VOICE_CLONING
+  AVATAR_LIPSYNC
+  DIGITAL_TWIN
+  IMAGE_RIGHTS
+}
+
+enum LegalConsentStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+/// Organizasyon & White-Label & Çoklu Kiracılık Modeli
+model Organization {
+  id                     String                  @id @default(cuid())
+  name                   String
+  type                   OrgType                 @default(BRAND)
+  tier                   String                  @default("standard")
+  whiteLabelEnabled      Boolean                 @default(false) @map("white_label_enabled")
+  whiteLabelConfig       Json?                   @map("white_label_config") // { logoUrl, brandColor, customDomain, companyName }
+  creditMarginMultiplier Decimal                 @default(1.0) @map("credit_margin_multiplier") @db.Decimal(5, 3) // Agency wholesale indirim/marj katsayısı
+  maxConcurrentJobs      Int                     @default(5) @map("max_concurrent_jobs")
+  monthlyBudgetCapUsd    Decimal?                @map("monthly_budget_cap_usd") @db.Decimal(12, 2)
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  users                  User[]
+  mediaJobs              MediaJob[]
+  legalConsents          BiometricLegalConsent[]
+
+  @@map("organizations")
+}
+
+/// Biyometrik ve Hukuki Rıza Kayıtları (KVKK / GDPR Uyum Katmanı)
+model BiometricLegalConsent {
+  id                String               @id @default(cuid())
+  userId            String               @map("user_id")
+  organizationId    String?              @map("organization_id")
+  consentType       BiometricConsentType @map("consent_type")
+  legalTextVersion  String               @map("legal_text_version")
+  legalTextHash     String               @map("legal_text_hash")
+  ipAddress         String               @map("ip_address")
+  userAgent         String               @map("user_agent")
+  signatureEvidence String?              @map("signature_evidence")
+  status            LegalConsentStatus   @default(ACTIVE)
+  consentedAt       DateTime             @default(now()) @map("consented_at")
+  expiresAt         DateTime?            @map("expires_at")
+  revokedAt         DateTime?            @map("revoked_at")
+
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization      Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  mediaJobs         MediaJob[]
+
+  @@index([userId, consentType, status])
+  @@map("biometric_legal_consents")
+}
+
+/// AI Sağlayıcı Sağlık ve Dinamik Durum Tablosu
+model MediaProvider {
+  id              String             @id // "fal", "google", "byteplus", "minimax", "elevenlabs", "kling", "heygen", "recraft", "ideogram", "replicate"
+  name            String
+  description     String?
+  isEnabled       Boolean            @default(true) @map("is_enabled")
+  healthScore     Decimal            @default(100.0) @map("health_score") @db.Decimal(5, 2)
+  errorRate       Decimal            @default(0.0) @map("error_rate") @db.Decimal(5, 4)
+  avgLatencyMs    Int                @default(500) @map("avg_latency_ms")
+  rateLimitPerMin Int?               @map("rate_limit_per_min")
+  lastCheckedAt   DateTime           @default(now()) @map("last_checked_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  primaryModels   MediaModelConfig[] @relation("PrimaryProvider")
+  fallbackModels  MediaModelConfig[] @relation("FallbackProvider")
+
+  @@map("media_providers")
+}
+
+/// Dinamik Model Maliyet, Yönlendirme ve Kredi Fiyatlandırma Tablosu
+model MediaModelConfig {
+  alias                String          @id // "draft-image", "mid-image", "pro-image", "vector-image", "draft-video", "mid-video", "pro-video", "lip-sync", "avatar", "fast-tts", "music-gen"
+  capability           MediaCapability
+  displayName          String          @map("display_name")
+  primaryProviderId    String          @map("primary_provider_id")
+  primaryModelId       String          @map("primary_model_id")
+  fallbackProviderId   String?         @map("fallback_provider_id")
+  fallbackModelId      String?         @map("fallback_model_id")
+  officialCostUsd      Decimal         @map("official_cost_usd") @db.Decimal(10, 6)
+  loadedMultiplier     Decimal         @default(1.15) @map("loaded_multiplier") @db.Decimal(4, 2)
+  retailMultiplier     Decimal         @default(3.00) @map("retail_multiplier") @db.Decimal(4, 2)
+  creditPrice          Decimal         @map("credit_price") @db.Decimal(10, 3)
+  unitType             String          @map("unit_type") // "image", "second", "1000_chars", "minute"
+  minRole              Role            @default(INFLUENCER) @map("min_role")
+  isDraftFirstRequired Boolean         @default(false) @map("is_draft_first_required")
+  isBatchSupported     Boolean         @default(false) @map("is_batch_supported")
+  isActive             Boolean         @default(true) @map("is_active")
+  featureFlag          String?         @map("feature_flag")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  primaryProvider      MediaProvider   @relation("PrimaryProvider", fields: [primaryProviderId], references: [id])
+  fallbackProvider     MediaProvider?  @relation("FallbackProvider", fields: [fallbackProviderId], references: [id])
+  mediaJobs            MediaJob[]
+
+  @@map("media_model_configs")
+}
+
+/// Asenkron Medya Üretim ve Yönlendirme İş Kaydı
+model MediaJob {
+  id                String                 @id @default(cuid())
+  organizationId    String?                @map("organization_id")
+  userId            String                 @map("user_id")
+  alias             String
+  capability        MediaCapability
+  prompt            String
+  negativePrompt    String?                @map("negative_prompt")
+  promptHash        String                 @map("prompt_hash")
+  parameters        Json
+  status            MediaJobStatus         @default(PENDING_RESERVATION)
+  providerUsed      String?                @map("provider_used")
+  modelUsed         String?                @map("model_used")
+  fallbackTriggered Boolean                @default(false) @map("fallback_triggered")
+  retryCount        Int                    @default(0) @map("retry_count")
+  creditsReserved   Decimal                @map("credits_reserved") @db.Decimal(14, 3)
+  creditsCharged    Decimal                @default(0) @map("credits_charged") @db.Decimal(14, 3)
+  officialCostUsd   Decimal?               @map("official_cost_usd") @db.Decimal(10, 6)
+  loadedCostUsd     Decimal?               @map("loaded_cost_usd") @db.Decimal(10, 6)
+  marginPercentage  Decimal?               @map("margin_percentage") @db.Decimal(5, 2)
+  inputMediaUrls    String[]               @map("input_media_urls")
+  outputMediaUrls   String[]               @map("output_media_urls")
+  c2paManifestId    String?                @map("c2pa_manifest_id")
+  moderationPassed  Boolean                @default(false) @map("moderation_passed")
+  moderationFlag    String?                @map("moderation_flag")
+  consentRecordId   String?                @map("consent_record_id")
+  queueJobId        String?                @map("queue_job_id")
+  inferenceMs       Int?                   @map("inference_ms")
+  totalLatencyMs    Int?                   @map("total_latency_ms")
+  errorMessage      String?                @map("error_message")
+  submittedAt       DateTime?              @map("submitted_at")
+  completedAt       DateTime?              @map("completed_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  organization      Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  modelConfig       MediaModelConfig       @relation(fields: [alias], references: [alias])
+  consentRecord     BiometricLegalConsent? @relation(fields: [consentRecordId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([promptHash, status])
+  @@index([alias, status])
+  @@map("media_jobs")
 }

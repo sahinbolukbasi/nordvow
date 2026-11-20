@@ -2,8 +2,8 @@
 import { useTT } from "@/lib/i18n/tt-client";
 import { startTransition, useMemo, useState } from "react";
 import type { Role } from "@infulancer/core/enums";
-import { isPathHidden, type PagePermissionRow } from "@infulancer/core/access/page-visibility";
-import { navByRole, type NavItem } from "@/components/shell/nav";
+import { isPathVisibleForMenu, type PagePermissionRow } from "@infulancer/core/access/page-visibility";
+import { getAllPlatformPagesForRole, isDefaultOpenForRole, type NavItem } from "@/components/shell/nav";
 import { setUserPageAction, toggleRolePageAction } from "@/lib/actions/page-permissions";
 import { idleState } from "@/lib/action-state";
 import { EyeIcon, EyeOffIcon, SearchIcon } from "@/components/icons";
@@ -33,7 +33,7 @@ export function PermissionsPlanner({ perms: initial, users }: { perms: PagePermi
   const [q, setQ] = useState("");
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const pages: NavItem[] = navByRole[role] ?? [];
+  const pages: NavItem[] = getAllPlatformPagesForRole(role);
   const roleUsers = useMemo(() => users.filter((u) => (role === "AGENCY" ? u.role === "AGENCY" : u.role === role)), [users, role]);
   const exceptionCount = (uid: string) => perms.filter((p) => p.scopeType === "USER" && p.scopeId === uid).length;
   const shownUsers = useMemo(() => {
@@ -43,10 +43,17 @@ export function PermissionsPlanner({ perms: initial, users }: { perms: PagePermi
     // eslint-disable-next-line react-hooks/exhaustive-deps -- perms değişince sayımlar yenilenir
   }, [q, roleUsers, perms]);
   const user = roleUsers.find((u) => u.id === userId) ?? null;
-  // Kod rolü: AGENCY kullanıcıları menüde AGENCY listesini, kurallarda AGENCY rolünü kullanır.
-  const roleHidden = (href: string) => perms.some((p) => p.scopeType === "ROLE" && p.scopeId === role && p.pathPrefix === href && !p.allowed);
+  // Varsayılan olarak kendi rolünün ekranları açık, diğer rollerin ekranları kapalıdır.
+  const roleRule = (href: string) => perms.find((p) => p.scopeType === "ROLE" && p.scopeId === role && p.pathPrefix === href);
+  const roleHidden = (href: string) => {
+    const rr = roleRule(href);
+    return rr ? !rr.allowed : !isDefaultOpenForRole(role, href);
+  };
   const userRule = (href: string) => perms.find((p) => p.scopeType === "USER" && p.scopeId === userId && p.pathPrefix === href);
-  const effectiveHidden = (href: string) => (user ? isPathHidden(perms, role, user.id, href) : roleHidden(href));
+  const effectiveHidden = (href: string) =>
+    user
+      ? !isPathVisibleForMenu(perms, role, user.id, href, isDefaultOpenForRole(role, href))
+      : roleHidden(href);
   const hiddenForRole = pages.filter((p) => roleHidden(p.href)).length;
 
   const run = async (key: string, fn: () => Promise<{ ok?: boolean; error?: string; message?: string }>, optimistic: (rows: PagePermissionRow[]) => PagePermissionRow[]) => {
@@ -70,7 +77,7 @@ export function PermissionsPlanner({ perms: initial, users }: { perms: PagePermi
     fd.set("visible", visible ? "1" : "0");
     void run(`role:${href}`, () => toggleRolePageAction(idleState, fd), (rows) => {
       const rest = rows.filter((p) => !(p.scopeType === "ROLE" && p.scopeId === role && p.pathPrefix === href));
-      return visible ? rest : [...rest, { id: `tmp-${href}`, scopeType: "ROLE", scopeId: role, pathPrefix: href, allowed: false }];
+      return [...rest, { id: `tmp-${href}`, scopeType: "ROLE", scopeId: role, pathPrefix: href, allowed: visible }];
     });
   };
   const setUserMode = (href: string, mode: UserMode) => {
@@ -96,7 +103,10 @@ export function PermissionsPlanner({ perms: initial, users }: { perms: PagePermi
     <div className="flex flex-col gap-5">
       <div role="tablist" aria-label={tt("Rol")} className="grid grid-cols-2 gap-2 md:grid-cols-4">
         {ROLES.map((r) => {
-          const hidden = (navByRole[r.id] ?? []).filter((p) => perms.some((x) => x.scopeType === "ROLE" && x.scopeId === r.id && x.pathPrefix === p.href && !x.allowed)).length;
+          const hidden = getAllPlatformPagesForRole(r.id).filter((p) => {
+            const rule = perms.find((x) => x.scopeType === "ROLE" && x.scopeId === r.id && x.pathPrefix === p.href);
+            return rule ? !rule.allowed : !isDefaultOpenForRole(r.id, p.href);
+          }).length;
           return (
             <button
               key={r.id}

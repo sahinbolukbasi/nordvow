@@ -1,7 +1,9 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db";
 import { processRawWebhook } from "../src/channels/processor";
-import { rawBodies, receiveWebhook, setWebhookEnqueue, verifySignature } from "../src/channels/webhook";
+import { rawBodies, receiveWebhook, setWebhookEnqueue, verifySignature, warnMetaSignature } from "../src/channels/webhook";
 import { makeTenant, resetDb, sign, waTextPayload } from "./helpers";
 
 // Kriter 2: Webhook her koşulda 50 ms içinde 200 döner; duplicate payload ikinci işleme üretmez.
@@ -25,6 +27,26 @@ describe("K2 webhook alımı", () => {
     expect(r.status).toBe(200);
     expect(r.accepted).toBe(true);
     expect(ms).toBeLessThan(50);
+  });
+
+  it("bozuk imzada yalnız neden kodunu loglar", async () => {
+    const body = '{"object":"page","entry":[]}';
+    const header = `sha256=${"ab".repeat(32)}`;
+    const result = await receiveWebhook("meta", body, header);
+    expect(result.accepted).toBe(false);
+    expect(result.reason).toBe("mismatch");
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    warnMetaSignature(result.reason);
+    const logged = spy.mock.calls.map((c) => JSON.stringify(c));
+    expect(logged).toEqual(['["[meta-webhook] signature rejected",{"reason":"mismatch"}]']);
+    for (const line of logged) {
+      expect(line).not.toContain(body);
+      expect(line).not.toContain(header);
+      expect(line).not.toContain("test-app-secret");
+    }
+    const route = readFileSync(path.resolve(process.cwd(), "../../apps/web/app/api/webhooks/meta/route.ts"), "utf8");
+    expect(route).toContain("warnMetaSignature(result.reason)");
+    spy.mockRestore();
   });
 
   it("geçersiz imza, bozuk JSON veya aşırı büyük payload'da da 200 döner", async () => {

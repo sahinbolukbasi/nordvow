@@ -78,16 +78,29 @@ resource "aws_iam_role_policy" "task" {
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.assets.arn] },
       { Effect = "Allow", Action = ["sqs:SendMessage"], Resource = [aws_sqs_queue.agent_events.arn] },
       {
-        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar)
+        # Tenant kanal token'ları (channel_connections.token_ref yalnız ARN tutar) + entegrasyon anahtarları
         Effect   = "Allow"
         Action   = ["secretsmanager:CreateSecret", "secretsmanager:PutSecretValue", "secretsmanager:GetSecretValue", "secretsmanager:DeleteSecret", "secretsmanager:TagResource"]
-        Resource = ["arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*"]
+        Resource = [
+          "arn:aws:secretsmanager:${var.region}:${local.account_id}:secret:${local.name}/tenants/*",
+          aws_secretsmanager_secret.integrations.arn,
+        ]
       },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = ["*"] },
       {
         Effect   = "Allow"
         Action   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse"]
         Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:*:${local.account_id}:inference-profile/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["bedrock-agentcore:InvokeAgentRuntime", "bedrock-agentcore:InvokeAgentRuntimeForUser", "bedrock:InvokeAgent"]
+        Resource = ["*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail", "polly:SynthesizeSpeech", "polly:DescribeVoices"]
+        Resource = ["*"]
       },
     ]
   })
@@ -108,6 +121,8 @@ locals {
     { name = "BEDROCK_REGION", value = var.region },
     { name = "BEDROCK_TEXT_MODEL_ID", value = var.bedrock_text_model_id },
     { name = "BEDROCK_VISION_MODEL_ID", value = var.bedrock_vision_model_id },
+    { name = "AGENTCORE_RUNTIME_ARN", value = var.agentcore_runtime_arn },
+    { name = "AGENTCORE_REGION", value = var.region },
     { name = "EVENT_MODE", value = "inline" },
     { name = "AGENT_QUEUE_URL", value = aws_sqs_queue.agent_events.url },
     { name = "LINK_CHECK_MODE", value = "http" },
@@ -121,9 +136,10 @@ locals {
     { name = "VAULT_MODE", value = "aws" },
     { name = "VAULT_SECRET_PREFIX", value = "${local.name}/tenants" },
     { name = "AWS_REGION", value = var.region },
+    # META_API_MODE yalnız mesajlaşma Graph istemcisidir. Sosyal senkron SOCIAL_SYNC_MODE kullanır.
     { name = "META_API_MODE", value = var.meta_api_mode },
     { name = "IYS_MODE", value = "mock" },
-    { name = "FAL_MODE", value = var.fal_mode },
+    { name = "FAL_MODE", value = "http" },
     { name = "C2PA_MODE", value = "mock" },
     { name = "WEBHOOK_REQUIRE_SIGNATURE", value = "true" },
     # Sosyal hesap senkronu: API anahtarları Secrets Manager'a eklenene kadar kapalı (elle girilen veri korunur).

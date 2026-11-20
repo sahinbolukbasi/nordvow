@@ -44,7 +44,7 @@ describe("davetle kayıt ve onay", () => {
     const after = await prisma.user.findUniqueOrThrow({ where: { id: u.id }, include: { influencer: { include: { socialAccounts: true, categories: true, taxProfile: true } } } });
     expect(after.status).toBe("ACTIVE");
     expect(after.influencer?.city).toBe("İzmir");
-    expect(after.influencer?.socialAccounts[0]?.handle).toBe("@yeni.kisi");
+    expect(after.influencer?.socialAccounts[0]?.handle).toBe("yeni.kisi");
     expect(after.influencer?.categories).toHaveLength(1);
     expect(after.influencer?.taxProfile?.status).toBe("diger");
     await expect(approveApplication(admin, u.application!.id)).rejects.toThrow(/sonuçlandırılmış/);

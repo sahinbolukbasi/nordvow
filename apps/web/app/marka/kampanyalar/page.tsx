@@ -5,13 +5,13 @@ import { toBrandCampaignView } from "@infulancer/core/access/dto";
 import { prisma, type CampaignStatus } from "@infulancer/core/db";
 import { countryName } from "@infulancer/core/domain/campaign-plan";
 import { campaignStatusLabels } from "@infulancer/core/domain/labels";
-import { formatMinor } from "@infulancer/core/i18n/regions";
+import { creativePricing } from "@infulancer/core/creative/pricing";
+import { formatDualMinor } from "@infulancer/core/i18n/regions";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { ProgressBar } from "@/components/ui/progress";
-import { DefaultModeCard } from "@/components/campaign/default-mode-card";
 import { StatusDot } from "@/components/ui/status";
 import { requireActor } from "@/lib/auth-guard";
 import { cn } from "@/lib/cn";
@@ -34,23 +34,64 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
   const actor = await requireActor("BRAND");
   const { durum } = await searchParams;
   const status = TABS.find((t) => t.id && t.id === durum)?.id || undefined;
-  const [rows, counts, brand] = await Promise.all([
+  const [rows, counts, brand, pricing] = await Promise.all([
     prisma.campaign.findMany({
       where: { brandId: actor.brandId!, ...(status ? { status } : { status: { not: "IPTAL" } }) },
       orderBy: [{ updatedAt: "desc" }],
       include: { assignments: { include: { influencer: { select: { id: true, name: true } } } } },
     }),
     prisma.campaign.groupBy({ by: ["status"], where: { brandId: actor.brandId! }, _count: true }),
-    prisma.brand.findUniqueOrThrow({ where: { id: actor.brandId! }, select: { defaultExecutionMode: true } }),
+    prisma.brand.findUnique({ where: { id: actor.brandId! }, select: { defaultExecutionMode: true, country: true } }),
+    creativePricing(),
   ]);
+  const isAgencyManaged = (brand?.defaultExecutionMode ?? "AJANS") === "AJANS";
   // Marka ekranına yalnız DTO (influencer bedeli/komisyon yok).
   const campaigns = rows.map((c) => ({ view: toBrandCampaignView(c), raw: c }));
   const scores = await loadCampaignScores(campaigns.filter((c) => c.raw.status !== "TASLAK").map((c) => c.view.id));
   const total = counts.reduce((s, c) => s + (c.status === "IPTAL" ? 0 : c._count), 0);
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={tt("Kampanyalar")} description={tt("Taslakları tamamlayın, aktif kampanyaların skorunu ve raporunu izleyin.")} actions={<ButtonLink href="/marka/kampanyalar/yeni">{tt("Yeni kampanya")}</ButtonLink>} />
-      <DefaultModeCard mode={brand.defaultExecutionMode} />
+      <PageHeader
+        title={tt("Kampanyalar")}
+        description={
+          isAgencyManaged
+            ? tt("Kampanyalarınız Ajans Tarafından Yürütülüyor. Süreci ve performans metriklerini anlık olarak takip edebilirsiniz. Yönetim tercihinizi Profilim → Ayarlar bölümünden değiştirebilirsiniz.")
+            : tt("Kampanyalarınızı kendiniz yönetiyorsunuz (Self-Managed). Yeni kampanya oluşturabilir, influencer seçebilir ve teklif sürecini doğrudan yönetebilirsiniz.")
+        }
+        actions={
+          isAgencyManaged ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                {tt("Kampanyalarınız Ajans Tarafından Yürütülüyor")}
+              </span>
+              <ButtonLink href="/profil" variant="secondary" size="sm">
+                {tt("Yönetim Tercihi (Profil)")}
+              </ButtonLink>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <ButtonLink href="/profil" variant="secondary" size="sm">
+                {tt("Yönetim Tercihi: Kendim Yöneteceğim")}
+              </ButtonLink>
+              <ButtonLink href="/marka/kampanyalar/yeni">{tt("Yeni kampanya")}</ButtonLink>
+            </div>
+          )
+        }
+      />
+      {isAgencyManaged ? (
+        <div className="flex flex-col justify-between gap-3 rounded-2xl border border-line bg-surface p-4 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-1">
+            <p className="text-[14px] font-semibold text-fg">{tt("Ajans Yönetimi Aktif — Süreci Takip Et")}</p>
+            <p className="text-[13px] text-fg-muted">
+              {tt("Kampanya kurulumu, influencer iletişimi, teklif pazarlıkları ve Story/içerik takibi ajans ekibi tarafından yürütülür. Aşağıdaki kampanya kartlarından süreci anlık ve şeffaf biçimde izleyebilirsiniz.")}
+            </p>
+          </div>
+          <ButtonLink href="/profil" variant="secondary" size="sm">
+            {tt("Kendim Yönetmeye Geç →")}
+          </ButtonLink>
+        </div>
+      ) : null}
       <nav aria-label={tt("Durum")} className="inline-flex w-fit flex-wrap rounded-full border border-line bg-glass p-1">
         {TABS.map((t) => {
           const n = t.id ? (counts.find((c) => c.status === t.id)?._count ?? 0) : total;
@@ -68,22 +109,39 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
         })}
       </nav>
       {campaigns.length === 0 ? (
-        <EmptyState message={status ? tt("Bu durumda kampanya yok.") : tt("Henüz kampanyanız yok. İlk kampanyanızı adım adım oluşturun.")} action={{ label: "Yeni kampanya", href: "/marka/kampanyalar/yeni" }} />
+        <EmptyState
+          message={
+            status
+              ? tt("Bu durumda kampanya yok.")
+              : isAgencyManaged
+                ? tt("Kampanyalarınız Ajans Tarafından Yürütülüyor. Ajans ekibimiz kampanyanızı hazırladığında burada anlık olarak takip edebileceksiniz.")
+                : tt("Henüz kampanyanız yok. İlk kampanyanızı adım adım oluşturun.")
+          }
+          action={
+            isAgencyManaged
+              ? { label: "Yönetim Tercihini Değiştir (Profil)", href: "/profil" }
+              : { label: "Yeni kampanya", href: "/marka/kampanyalar/yeni" }
+          }
+        />
       ) : (
         <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {campaigns.map(({ view: c, raw }) => {
             const draft = raw.status === "TASLAK";
             const score = scores.get(c.id)?.score ?? null;
+            const cardHref =
+              !isAgencyManaged && draft && !raw.submittedAt
+                ? `/marka/kampanyalar/${c.id}/olustur?adim=ozet`
+                : `/marka/kampanyalar/${c.id}`;
             return (
               <li key={c.id}>
-                <Link href={draft && !raw.submittedAt ? `/marka/kampanyalar/${c.id}/olustur?adim=ozet` : `/marka/kampanyalar/${c.id}`} className="block h-full rounded-[8px] focus-visible:outline-offset-4">
+                <Link href={cardHref} className="block h-full rounded-[8px] focus-visible:outline-offset-4">
                   <Card className="flex h-full flex-col gap-4">
                     <div className="flex items-start justify-between gap-4">
                       <h2 className="text-section">{c.name}</h2>
                       <StatusDot tone={campaignTone(raw.status)}>{draft && raw.submittedAt ? tt("Ajansta") : campaignStatusLabels[raw.status]}</StatusDot>
                     </div>
                     {draft ? (
-                      <p className="text-[13px] text-fg-muted">{raw.submittedAt ? tt("Ajans influencer atamasını ve bedelleri hazırlıyor.") : tt("Taslak: kalan adımları tamamlayıp ajansa gönderin.")}</p>
+                      <p className="text-[13px] text-fg-muted">{isAgencyManaged || raw.submittedAt ? tt("Ajans influencer atamasını ve bedelleri hazırlıyor.") : tt("Taslak: kalan adımları tamamlayıp yayına alın.")}</p>
                     ) : (
                       <div className="flex flex-col gap-2">
                         <div className="flex items-baseline justify-between">
@@ -99,7 +157,11 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
                         {fmtDate(c.startsAt)} – {fmtDate(c.endsAt)}
                       </dd>
                       <dt className="text-fg-passive">{tt("Bütçe")}</dt>
-                      <dd className="text-fg-muted tabular-nums">{Number(c.brandTotalFeeKurus) > 0 ? formatMinor(c.brandTotalFeeKurus, raw.currency) : "—"}</dd>
+                      <dd className="text-fg-muted tabular-nums">
+                        {Number(c.brandTotalFeeKurus) > 0
+                          ? formatDualMinor(c.brandTotalFeeKurus, raw.currency, { fx: pricing.fx, showGlobalEquivalents: true })
+                          : "—"}
+                      </dd>
                       {raw.targetCountries.length ? (
                         <>
                           <dt className="text-fg-passive">{tt("Ülke")}</dt>
@@ -109,7 +171,13 @@ export default async function BrandCampaignsPage({ searchParams }: { searchParam
                       <dt className="text-fg-passive">{tt("Influencer")}</dt>
                       <dd className="text-fg-muted tabular-nums">{c.influencers.length || (raw.shortlistInfluencerIds.length ? `${raw.shortlistInfluencerIds.length} önerildi` : 0)}</dd>
                     </dl>
-                    <span className="mt-auto text-[13px] font-medium">{draft && !raw.submittedAt ? tt("Devam et →") : tt("Aç →")}</span>
+                    <span className="mt-auto text-[13px] font-medium">
+                      {isAgencyManaged
+                        ? tt("Süreci Takip Et →")
+                        : draft && !raw.submittedAt
+                          ? tt("Adımları Tamamla →")
+                          : tt("Kampanyayı Yönet →")}
+                    </span>
                   </Card>
                 </Link>
               </li>

@@ -7,6 +7,7 @@ import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
 import { KVKK_ACCEPTANCE_DOC, LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "../social/handles";
 
 /**
  * Davetle kayıt. Kayıt yalnız geçerli bir davet koduyla (özel link: /kayit?kod=...) yapılır; kayıt olan
@@ -90,10 +91,8 @@ export type RegisterInput = {
   password: string;
   name: string;
   phone: string;
-  acceptTerms: boolean;
-  /** İsteğe bağlı. Sözleşme kutusundan ayrıdır. */
+  acceptTerms?: boolean;
   acceptOpenConsent?: boolean;
-  /** İsteğe bağlı ticari elektronik ileti onayı. Sözleşme kutusundan ayrıdır. */
   acceptCommercial?: boolean;
   application: InfluencerApplication | BrandApplication;
 };
@@ -177,7 +176,10 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
       });
       if (cats.length) await setInfluencerCategories(tx, inf.id, cats.map((c) => c.id), cats[0]!.id);
       for (const [platform, h] of [["INSTAGRAM", data.instagram], ["TIKTOK", data.tiktok], ["YOUTUBE", data.youtube]] as const) {
-        if (h?.trim()) await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: cleanHandle(h), followers: 0, engagementRate: 0, demographics: {} } });
+        if (!h?.trim()) continue;
+        if (platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, h, inf.id);
+        const stored = platform === "INSTAGRAM" ? normalizeInstagramHandle(h) : cleanHandle(h).replace(/^@/, "");
+        await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: stored, followers: 0, engagementRate: 0, demographics: {} } });
       }
       // Vergi durumu belirlenene kadar ödeme kilitli.
       await tx.influencerTaxProfile.create({ data: { influencerId: inf.id, status: "diger" } });

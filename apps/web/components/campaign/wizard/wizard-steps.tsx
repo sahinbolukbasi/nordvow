@@ -7,6 +7,7 @@ import { COUNTRIES, GENDERS, OBJECTIVES, type ContentPlanItem, type DraftCheck }
 import { MAX_CAMPAIGN_AMOUNT_LABEL } from "@infulancer/core/domain/money";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
+import { formatDualMinor } from "@infulancer/core/i18n/regions";
 import { ActionForm, type FormAction } from "@/components/forms/action-form";
 import { FileUploader } from "@/components/files/file-uploader";
 import { CheckIcon, PlusIcon, SearchIcon, XIcon } from "@/components/icons";
@@ -174,13 +175,16 @@ export function AudienceStep({
               key={c.code}
               on={countries.includes(c.code)}
               onClick={() => {
-                const cur = COUNTRIES.find((x) => x.code === countries[0])?.currency;
-                // Tutarlar çevrilmez: farklı para birimli ülke seçilirse seçim o bölgeye geçer.
-                if (cur && cur !== c.currency && !countries.includes(c.code)) {
-                  setCountries([c.code]);
-                  setCurNote(`Para birimi ${c.currency} oldu. ${cur} kullanan ülkeler için ayrı kampanya açın.`);
+                const next = toggle(countries, c.code);
+                setCountries(next);
+                const selectedCurrencies = new Set(
+                  next.map((code) => COUNTRIES.find((x) => x.code === code)?.currency).filter(Boolean),
+                );
+                if (selectedCurrencies.size > 1) {
+                  setCurNote(
+                    `Çoklu Para Birimi Aktif (${[...selectedCurrencies].join(" + ")}): Yurt dışındaki influencer'lara gönderilen bütçe ve teklifler anlık döviz kuru üzerinden otomatik çevrilir.`,
+                  );
                 } else {
-                  setCountries(toggle(countries, c.code));
                   setCurNote(null);
                 }
               }}
@@ -189,8 +193,14 @@ export function AudienceStep({
             </Chip>
           ))}
         </div>
-        {curNote ? <p role="status" className="text-[12px] text-amber-600">{curNote}</p> : null}
-        <p className="text-[12px] text-fg-passive">{tt("Kampanyanın para birimi seçilen ülkelere göre belirlenir (")}{COUNTRIES.find((x) => x.code === countries[0])?.currency ?? tt("TRY")}{tt("); tutarlar çevrilmez. Yalnız bu ülkelerde kayıtlı influencerlar listelenir ve reklam ibaresi her influencer'ın ülke kuralına göre denetlenir.")}</p>
+        {curNote ? (
+          <p role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] font-medium text-emerald-700 dark:text-emerald-300">
+            {curNote}
+          </p>
+        ) : null}
+        <p className="text-[12px] text-fg-passive">
+          {tt("Yerel ve global ülkeleri aynı anda seçebilirsiniz. Farklı para birimli ülkelerdeki influencer'lar teklif ve bütçeleri kendi yerel/global para birimleri (EUR/USD) cinsinden otomatik dönüştürülmüş olarak görür.")}
+        </p>
       </fieldset>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-label text-fg-muted">{tt("Platformlar")}</legend>
@@ -243,10 +253,15 @@ export function ScheduleStep({
   values: { startsAt: string; endsAt: string; brandTotalFee: string; budget: string; currency?: string };
 }) {
   const tt = useTT();
+  const baseCur = values.currency ?? "TRY";
   const cur = !values.currency || values.currency === "TRY" ? "TL" : values.currency;
   const [startsAt, setStartsAt] = useState(values.startsAt);
   const [endsAt, setEndsAt] = useState(values.endsAt);
+  const [feeStr, setFeeStr] = useState(values.brandTotalFee);
   const days = Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / 86_400_000) + 1;
+  const parsedMajor = Number(String(feeStr || "0").replace(/\./g, "").replace(",", "."));
+  const minorPreview = Number.isFinite(parsedMajor) && parsedMajor > 0 ? Math.round(parsedMajor * 100) : 0;
+
   return (
     <StepForm action={wizardScheduleAction} id={id} backHref={backHref} label={tt("Tarih ve bütçe")}>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -262,12 +277,30 @@ export function ScheduleStep({
         <span className="text-[12px] tabular-nums text-fg-passive">{days > 0 ? `${days} gün` : tt("Bitiş başlangıçtan önce olamaz")}</span>
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field label={`Toplam bütçe (${cur})`} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Ajansa ödeyeceğiniz toplam tutar (influencer bedelleri dahil)."} Kampanyanın para birimi hedef ülkelere göre ${values.currency ?? "TRY"}; tutarlar çevrilmez. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`}>
-          {(p) => <Input {...p} name="brandTotalFee" required inputMode="decimal" defaultValue={values.brandTotalFee} placeholder="250.000" />}
-        </Field>
+        <div className="flex flex-col gap-2">
+          <Field label={`Toplam bütçe (${cur})`} hint={`${isAdmin ? "Markanın ödediği toplam tutar." : "Kampanya toplam bütçeniz (influencer bedelleri dahil)."} Global influencer'lar için güncel kur üzerinden otomatik dönüştürülür.`}>
+            {(p) => (
+              <Input
+                {...p}
+                name="brandTotalFee"
+                required
+                inputMode="decimal"
+                value={feeStr}
+                onChange={(e) => setFeeStr(e.target.value)}
+                placeholder="100.000"
+              />
+            )}
+          </Field>
+          {minorPreview > 0 ? (
+            <div className="rounded-xl border border-line bg-surface-muted/40 px-3 py-2 text-[12px] text-fg-muted">
+              <span className="font-medium text-fg">{tt("Çift Taraflı Kur Önizlemesi:")}</span>{" "}
+              {formatDualMinor(minorPreview, baseCur, { showGlobalEquivalents: true })}
+            </div>
+          ) : null}
+        </div>
         {isAdmin ? (
-          <Field label={`Influencer bütçesi (${cur})`} hint={tt(`Yalnız ajans görür; boşsa kurulumda girilir. En fazla ${MAX_CAMPAIGN_AMOUNT_LABEL}.`)}>
-            {(p) => <Input {...p} name="budget" inputMode="decimal" defaultValue={values.budget} placeholder="200.000" />}
+          <Field label={`Influencer bütçesi (${cur})`} hint={tt("Yalnız ajans görür; boşsa kurulumda girilir.")}>
+            {(p) => <Input {...p} name="budget" inputMode="decimal" defaultValue={values.budget} placeholder="80.000" />}
           </Field>
         ) : null}
       </div>

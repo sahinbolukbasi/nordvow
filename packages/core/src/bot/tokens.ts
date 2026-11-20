@@ -45,14 +45,38 @@ export function randomLinkCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+export const LINK_CODE_TTL_MS = 15 * 60_000;
+export const LINK_FAIL_LIMIT = 5;
+export const LINK_FAIL_WINDOW_MS = 15 * 60_000;
+
+export function hashLinkCode(code: string): string {
+  return createHmac("sha256", secret()).update(code).digest("hex");
+}
+
+export function hashEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
 export function phoneDigits(value: string | null | undefined): string {
   return (value ?? "").replace(/\D/g, "");
 }
 
+/** Türkiye: 00, 90 ve baştaki 0 atılır. 0532…, +90 532… ve 90532… aynı anahtara iner. */
+export function canonicalPhone(value: string | null | undefined): string {
+  let d = phoneDigits(value);
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("90") && d.length > 10) d = d.slice(2);
+  if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
 /** Türkiye numaralarında 90 öneki ve baştaki 0 yok sayılarak eşleştirilir. */
 export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const da = phoneDigits(a).replace(/^90/, "").replace(/^0/, "");
-  const db = phoneDigits(b).replace(/^90/, "").replace(/^0/, "");
+  const da = canonicalPhone(a);
+  const db = canonicalPhone(b);
   return da.length >= 10 && da === db;
 }
 

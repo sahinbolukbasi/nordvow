@@ -22,7 +22,7 @@ export default async function BrandDiscoverPage({ searchParams }: { searchParams
   const brand = await prisma.brand.findUniqueOrThrow({ where: { id: actor.brandId! }, select: { country: true } });
   const country = isRegion(ulke) ? ulke.toUpperCase() : brand.country;
   const counts = await prisma.influencer.groupBy({ by: ["country"], where: { user: { status: "ACTIVE" }, showcaseVisible: true }, _count: true });
-  const [rows, cards, campaigns] = await Promise.all([
+  const [rows, cards, campaigns, assignmentCounts, deliverableRows] = await Promise.all([
     prisma.influencer.findMany({
       where: { user: { status: "ACTIVE" }, showcaseVisible: true, country },
       orderBy: { name: "asc" },
@@ -36,14 +36,33 @@ export default async function BrandDiscoverPage({ searchParams }: { searchParams
         headline: true,
         showPrices: true,
         categories: { include: { category: { include: { parent: { select: { name: true } } } } }, orderBy: { primary: "desc" } },
-        socialAccounts: { select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true } },
+        socialAccounts: { select: { platform: true, handle: true, followers: true, engagementRate: true, avatarUrl: true, avgLikes: true, avgViews: true, lastSyncedAt: true, syncSource: true } },
       },
     }),
     prisma.rateCard.findMany({ where: { active: true } }),
     prisma.campaign.findMany({ where: { brandId: actor.brandId!, status: { in: ["TASLAK", "AKTIF"] } }, select: { id: true, name: true }, orderBy: { startsAt: "desc" } }),
+    prisma.assignment.groupBy({ by: ["influencerId"], where: { contractStatus: "KABUL" }, _count: true }),
+    prisma.deliverable.findMany({
+      where: { status: { in: ["YAYINLANDI", "METRIK_BEKLIYOR", "TAMAMLANDI"] } },
+      select: { assignment: { select: { influencerId: true } } },
+    }),
   ]);
+  const campCountMap = new Map(assignmentCounts.map((a) => [a.influencerId, a._count]));
+  const delivCountMap = new Map<string, number>();
+  for (const d of deliverableRows) {
+    delivCountMap.set(d.assignment.influencerId, (delivCountMap.get(d.assignment.influencerId) ?? 0) + 1);
+  }
   const creators: DiscoverCreator[] = rows.map((i) => {
-    const accounts = i.socialAccounts.map((a) => ({ platform: a.platform, handle: a.handle, followers: a.followers, er: Number(a.engagementRate) }));
+    const accounts = i.socialAccounts.map((a) => ({
+      platform: a.platform,
+      handle: a.handle,
+      followers: a.followers,
+      er: Number(a.engagementRate),
+      avgLikes: a.avgLikes,
+      avgViews: a.avgViews,
+      lastSyncedAt: a.lastSyncedAt ? a.lastSyncedAt.toISOString() : null,
+      syncSource: a.syncSource,
+    }));
     return {
       id: i.id,
       name: i.name,
@@ -53,6 +72,8 @@ export default async function BrandDiscoverPage({ searchParams }: { searchParams
       primaryCategory: i.categories[0] ? categoryLabel(i.categories[0].category) : i.category,
       accounts,
       totalFollowers: accounts.reduce((s, a) => s + a.followers, 0),
+      internalCampaigns: campCountMap.get(i.id) ?? 0,
+      internalDeliverables: delivCountMap.get(i.id) ?? 0,
       headline: i.headline,
       rates: (i.showPrices ? cards : []).filter((c) => c.influencerId === i.id).map((c) => ({ platform: c.platform, contentType: c.contentType, label: `${platformLabels[c.platform]} ${contentTypeLabels[c.contentType]}`, priceKurus: c.priceKurus })),
     };

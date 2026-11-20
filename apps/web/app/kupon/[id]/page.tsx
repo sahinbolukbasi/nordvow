@@ -52,14 +52,10 @@ export default async function CouponPage({ params }: { params: Promise<{ id: str
           qr={<QrImage dataUrl={links.qrDataUrl} alt={allowed ? `Kupon QR kodu ${code}` : tt("Kupon önizleme")} />}
         />
 
-        {allowed ? (
-          <section className="w-full rounded-2xl border border-line bg-surface p-4" aria-label={tt("Cüzdana ekle")}>
-            <WalletButtons appleUrl={links.appleUrl} googleUrl={links.googleUrl} live={links.live} />
-            <a href={`/api/kupon/${id}/pdf`} className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-line px-4 py-2.5 text-[13px] font-medium text-fg hover:border-line-strong">{tt("PDF olarak indir")}</a>
-          </section>
-        ) : (
-          <p className="w-full rounded-2xl border border-line bg-surface p-4 text-[13px] text-fg-muted">{tt("Paylaşılan kod yalnız bu kuponun markasına ve yöneticilere açıktır.")}</p>
-        )}
+        <section className="w-full rounded-2xl border border-line bg-surface p-4" aria-label={tt("Cüzdana ekle")}>
+          <WalletButtons appleUrl={links.appleUrl} googleUrl={links.googleUrl} live={links.live} />
+          <a href={`/api/kupon/${id}/pdf`} target="_blank" rel="noopener noreferrer" className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-line px-4 py-2.5 text-[13px] font-medium text-fg hover:border-line-strong">{tt("Apple Wallet Tarzı PDF İndir")}</a>
+        </section>
 
         {coupon.description || coupon.terms ? (
           <section className="flex w-full flex-col gap-3 rounded-2xl border border-line bg-surface p-4" aria-label={tt("Kupon ayrıntıları")}>

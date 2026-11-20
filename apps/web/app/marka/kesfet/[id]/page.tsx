@@ -13,7 +13,10 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
   const tt = await getTT();
   await requireActor("BRAND");
   const { id } = await params;
-  const inf = await prisma.influencer.findFirst({ where: { id, showcaseVisible: true, user: { status: "ACTIVE" } }, select: { id: true } });
+  const inf = await prisma.influencer.findFirst({
+    where: { id, showcaseVisible: true, user: { status: "ACTIVE" } },
+    select: { id: true },
+  });
   if (!inf) notFound();
   return (
     <div className="flex flex-col gap-4">
@@ -21,7 +24,9 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
       <CreatorShowcase
         influencerId={inf.id}
         actions={
-          <ButtonLink href={`/marka/kesfet?sec=${inf.id}`} className="bg-neon text-black">{tt("Teklif gönder →")}</ButtonLink>
+          <div className="flex flex-wrap items-center gap-2">
+            <ButtonLink href={`/marka/kesfet?sec=${inf.id}`} className="bg-neon text-black">{tt("Teklif gönder →")}</ButtonLink>
+          </div>
         }
       />
     </div>

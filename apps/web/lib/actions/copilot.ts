@@ -69,14 +69,47 @@ export async function requestCampaignAction(_p: ActionState, fd: FormData): Prom
       { title: "Kampanya adı", goal: "Hedef", startsAt: "Başlangıç", endsAt: "Bitiş", budgetKurus: "Bütçe" },
     );
     const brandId = actor.brandId;
+    const brand = await prisma.brand.findUniqueOrThrow({ where: { id: brandId }, select: { name: true, country: true, defaultExecutionMode: true, preferredAgencyUserId: true } });
+    if (brand.defaultExecutionMode === "SELF") {
+      const budgetKurus = BigInt(input.budgetKurus ?? 0);
+      const baseSlug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "kampanya";
+      const slug = `${baseSlug}-${Date.now().toString(36)}`;
+      const campaign = await prisma.campaign.create({
+        data: {
+          brandId,
+          slug,
+          name: input.title,
+          status: "TASLAK",
+          executionMode: "SELF",
+          startsAt: new Date(`${input.startsAt}T00:00:00Z`),
+          endsAt: new Date(`${input.endsAt}T23:59:59Z`),
+          budgetKurus,
+          brandTotalFeeKurus: budgetKurus,
+          targets: [],
+          platforms: input.platforms,
+        },
+        select: { id: true },
+      });
+      await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_CREATED", entityType: "Campaign", entityId: campaign.id, data: { source: "copilot-self", ...input } });
+      return { ok: true, message: "Kampanya taslağınız oluşturuldu! Kampanyalar sayfasından influencer seçip yayına alabilirsiniz." };
+    }
     await prisma.$transaction(async (tx) => {
-      const brand = await tx.brand.findUniqueOrThrow({ where: { id: brandId }, select: { name: true } });
       await audit.append({ actor: toAuditActor(actor), action: "CAMPAIGN_REQUESTED", entityType: "Brand", entityId: brandId, data: input });
       await notifyAdmins(tx, {
         title: `Kampanya talebi: ${brand.name}`,
         body: `“${input.title}” · ${input.startsAt} – ${input.endsAt}${input.budgetKurus != null ? ` · bütçe ~${(input.budgetKurus / 100).toLocaleString("tr-TR")} TL` : ""}${input.platforms.length ? ` · ${input.platforms.join(", ")}` : ""}. Hedef: ${input.goal.slice(0, 300)}`,
         href: `/admin/kampanyalar/yeni?marka=${brandId}`,
       });
+      if (brand.preferredAgencyUserId) {
+        await tx.notification.create({
+          data: {
+            userId: brand.preferredAgencyUserId,
+            title: `Kampanya talebi: ${brand.name}`,
+            body: `“${input.title}” · ${input.startsAt} – ${input.endsAt}`,
+            href: `/admin/kampanyalar/yeni?marka=${brandId}`,
+          },
+        });
+      }
     });
     return { ok: true, message: "Talebiniz ajansa iletildi. Taslak hazırlandığında onayınıza sunulacak." };
   });

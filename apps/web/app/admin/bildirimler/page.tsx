@@ -5,6 +5,9 @@ import { NOTIF_EVENTS } from "@infulancer/core/notify/catalog";
 import { channelStatus } from "@infulancer/core/notify/channels";
 import { envStr } from "@infulancer/core/env";
 import { AnnouncementForm, RuleForm, ShortLinkForm, TemplateForm } from "@/components/notify/notify-forms";
+import { ActionForm } from "@/components/forms/action-form";
+import { deletePopupAction } from "@/lib/actions/notify-admin";
+import type { SystemPopup } from "@/components/notify/announcement-popup";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
 import { StatusCards } from "@/components/ui/status-cards";
@@ -21,12 +24,14 @@ const stTr: Record<string, string> = { QUEUED: "Kuyrukta", SENT: "Gönderildi", 
 export default async function AdminNotificationsPage() {
   const tt = await getTT();
   await requireAdmin();
-  const [rules, templates, logs, links] = await Promise.all([
+  const [rules, templates, logs, links, popupRow] = await Promise.all([
     prisma.notificationRule.findMany(),
     prisma.notificationTemplate.findMany(),
     prisma.notificationLog.findMany({ orderBy: { createdAt: "desc" }, take: 40 }),
     prisma.shortLink.findMany({ orderBy: { createdAt: "desc" }, take: 40 }),
+    prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }),
   ]);
+  const popups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
   const ch = channelStatus();
   const base = envStr("APP_URL", "").replace(/\/$/, "");
   const ruleMap = new Map(rules.map((r) => [r.eventKey, r]));
@@ -46,6 +51,41 @@ export default async function AdminNotificationsPage() {
       <Tabs
         label={tt("Bildirim bölümleri")}
         tabs={[
+          {
+            id: "duyuru",
+            label: "Bildirim, Pop-up & Toplu Mail (AWS SES)",
+            content: (
+              <div className="flex flex-col gap-4">
+                <Card interactive={false} className="flex flex-col gap-3">
+                  <CardTitle>{tt("Bildirim, Giriş Pop-up'ı ve Toplu E-posta Gönder")}</CardTitle>
+                  <p className="text-[13px] text-fg-muted">
+                    {tt("Kullanıcının panel bildirim kutusuna bildirim atabilir, giriş yaptıktan sonra karşısına çıkan pop-up duyuru açabilir ve kayıtlı e-posta adreslerine AWS SES üzerinden toplu mail gönderebilirsiniz.")}
+                  </p>
+                  <AnnouncementForm />
+                </Card>
+                {popups.length ? (
+                  <Card interactive={false} className="flex flex-col gap-3">
+                    <CardTitle>{tt("Aktif Giriş Pop-up Duyuruları")} ({popups.length})</CardTitle>
+                    <ul className="flex flex-col divide-y divide-line text-sm">
+                      {popups.map((p) => (
+                        <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                          <div className="flex flex-col">
+                            <span className="font-medium text-fg">{p.title}</span>
+                            <span className="text-[12px] text-fg-muted">
+                              {p.audience === "single" ? p.targetEmail : p.audience} · {p.message.slice(0, 100)}
+                            </span>
+                          </div>
+                          <ActionForm action={deletePopupAction} submitLabel={tt("Kaldır")} submitVariant="ghost" submitSize="sm">
+                            <input type="hidden" name="id" value={p.id} />
+                          </ActionForm>
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                ) : null}
+              </div>
+            ),
+          },
           {
             id: "kurallar",
             label: "Kurallar ve şablonlar",
@@ -80,17 +120,6 @@ export default async function AdminNotificationsPage() {
                   );
                 })}
               </div>
-            ),
-          },
-          {
-            id: "duyuru",
-            label: "Özel duyuru",
-            content: (
-              <Card interactive={false} className="flex flex-col gap-3">
-                <CardTitle>{tt("Toplu duyuru gönder")}</CardTitle>
-                <p className="text-[13px] text-fg-muted">{tt("Seçilen kitleye ANNOUNCEMENT olayının açık kanallarından duyuru gider.")}</p>
-                <AnnouncementForm />
-              </Card>
             ),
           },
           {

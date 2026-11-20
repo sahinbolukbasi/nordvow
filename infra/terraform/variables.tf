@@ -115,8 +115,6 @@ variable "integration_secret_keys" {
     "APPLE_WALLET_WWDR",
     "APPLE_WALLET_TEAM_ID",
     "APPLE_WALLET_PASS_TYPE_ID",
-    # Aşağıdaki adlar sırda TANIMLI olmalı (değer boş string olabilir). Yoksa görev başlamaz.
-    # Terraform sır değerlerini yazmaz; konsoldan ekleyin.
     "FAL_KEY",
     "META_APP_ID",
     "META_APP_SECRET",
@@ -127,10 +125,17 @@ variable "integration_secret_keys" {
     "WHATSAPP_PHONE_NUMBER_ID",
     "META_IG_TOKEN",
     "INSTAGRAM_ACCESS_TOKEN",
+    "IG_GRAPH_TOKEN",
     "INSTAGRAM_IG_USER_ID",
-    "EMAIL_PROVIDER",
-    "EMAIL_FROM",
+    # META_SYSTEM_USER_TOKEN, IG_GRAPH_TOKEN ve INSTAGRAM_ACCESS_TOKEN aynı süresiz Sayfa token'ını taşır.
+    # Üçü ve INSTAGRAM_IG_USER_ID sırda yoksa ECS görevi açılmaz. IG_BUSINESS_ACCOUNT_ID listeye eklenmez.
   ]
+}
+
+variable "agentcore_runtime_arn" {
+  description = "AWS Bedrock AgentCore Runtime ARN (boşsa Bedrock Converse fallback çalışır)."
+  type        = string
+  default     = ""
 }
 
 variable "domain_name" {

@@ -19,8 +19,19 @@ export type DiscoverCreator = {
   avatarUrl: string | null;
   categories: string[];
   primaryCategory: string;
-  accounts: { platform: Platform; handle: string; followers: number; er: number }[];
+  accounts: {
+    platform: Platform;
+    handle: string;
+    followers: number;
+    er: number;
+    avgLikes?: number | null;
+    avgViews?: number | null;
+    lastSyncedAt?: string | null;
+    syncSource?: string | null;
+  }[];
   totalFollowers: number;
+  internalCampaigns?: number;
+  internalDeliverables?: number;
   rates: { platform: Platform; contentType: string; label: string; priceKurus: number }[];
   headline?: string | null;
 };
@@ -142,16 +153,25 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
                     {c.accounts.map((a) => (
                       <span key={a.platform} className="inline-flex items-center gap-1">
                         <PlatformIcon platform={a.platform} size={12} /> {compact.format(a.followers)} · {pct.format(a.er)}
+                        {a.avgLikes ? ` · ❤ ${compact.format(a.avgLikes)}` : ""}
+                        {a.avgViews ? ` · ▶ ${compact.format(a.avgViews)}` : ""}
                       </span>
                     ))}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
+                    <span>{tt("Platform içi:")}{" "}{c.internalCampaigns ?? 0} {tt("kampanya")} · {c.internalDeliverables ?? 0} {tt("içerik")}</span>
+                    {c.accounts.some((a) => a.syncSource === "META_API" || a.syncSource === "instagram_business_discovery") ? <span>· {tt("Meta API doğrulandı")}</span> : c.accounts.some((a) => a.syncSource === "INSTAGRAM_OAUTH") ? <span>· {tt("Instagram OAuth")}</span> : c.accounts.some((a) => a.syncSource === "INSTAGRAM_PUBLIC") ? <span>· {tt("Public profil verisi")}</span> : null}
                   </span>
                   <span className="mt-auto flex items-center justify-between border-t border-line pt-2 text-[12px]">
                     <span className="text-fg-muted">{c.rates.length ? `${c.rates.length} içerik fiyatı` : tt("Fiyat listesi yok")}</span>
                     {from != null ? <span className="font-semibold text-fg">{tl(from)}{tt("'den başlayan")}</span> : null}
                   </span>
                 </button>
-                <Link href={`/marka/kesfet/${c.id}`} className="flex items-center justify-between border-t border-line px-4 py-2 text-[13px] text-fg-muted transition-standard hover:bg-surface-hover hover:text-fg">{tt("Detaylı profil, iş birlikleri ve işler")}{" "}<span aria-hidden>→</span>
-                </Link>
+                <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+                  <Link href={`/marka/kesfet/${c.id}`} className="text-[13px] text-fg-muted transition-standard hover:text-fg">
+                    {tt("Detaylı profil")} →
+                  </Link>
+                </div>
               </li>
             );
           })}
@@ -201,8 +221,40 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
             ))}
             <button type="button" onClick={() => setItems((x) => [...x, { platform: "TIKTOK", contentType: "VIDEO", qty: 1, priceTl: "" }])} className="w-fit text-[13px] text-fg-muted hover:text-fg">{tt("+ İçerik ekle")}</button>
           </div>
-          <label className="flex items-start gap-2 text-[13px] text-fg-muted">
-            <input type="checkbox" checked={useRates} onChange={(e) => setUseRates(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--color-fg)]" />{tt("Her üreticinin kendi fiyatını kullan (listesi olmayana aşağıdaki fiyat)")}</label>
+          <div className="flex flex-col gap-2">
+            <span className="text-label text-fg-muted">{tt("Fiyatlandırma")}</span>
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-surface p-1" role="radiogroup" aria-label={tt("Fiyatlandırma modu")}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={useRates}
+                onClick={() => setUseRates(true)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-standard",
+                  useRates ? "bg-fg text-bg shadow-sm" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {tt("Üretici fiyatı")}
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!useRates}
+                onClick={() => setUseRates(false)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-standard",
+                  !useRates ? "bg-fg text-bg shadow-sm" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {tt("Özel fiyat")}
+              </button>
+            </div>
+            <p className="text-[12px] text-fg-muted">
+              {useRates
+                ? tt("Her üreticinin kendi fiyatını kullan (listesi olmayana aşağıdaki fiyat)")
+                : tt("Tüm seçili üreticiler için yukarıdaki içerik satırlarına girdiğiniz birim fiyat uygulanır.")}
+            </p>
+          </div>
           {useRates ? (
             <Input value={items[0]?.priceTl ?? ""} onChange={(e) => setItems((x) => x.map((y) => ({ ...y, priceTl: e.target.value })))} placeholder={`Listesi olmayanlar için birim fiyat (${cur})`} inputMode="decimal" aria-label={tt("Varsayılan birim fiyat")} />
           ) : null}

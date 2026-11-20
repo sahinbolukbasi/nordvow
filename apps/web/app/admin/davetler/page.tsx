@@ -2,6 +2,7 @@ import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
+import { DirectUserForm } from "@/components/forms/user-status-button";
 import { CopyLinkButton, CreateInviteForm, ReviewApplicationForm, RevokeInviteButton } from "@/components/signup/invite-forms";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
@@ -34,7 +35,13 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader title={tt("Davetler ve üyelik")} description={tt("Platforma yalnız davetle katılınır. Davet linkiyle kayıt olan kişi siz onaylayana kadar yalnız “üyeliğiniz onay bekliyor” ekranını görür.")} />
+      <PageHeader title={tt("Davetler ve üyelik")} description={tt("Platforma davetle veya yöneticinin doğrudan eklemesiyle katılınır. Davet linkiyle kayıt olan kişi siz onaylayana kadar yalnız “üyeliğiniz onay bekliyor” ekranını görür.")} />
+      <details className="rounded-3xl border border-line bg-glass px-5 py-4">
+        <summary className="cursor-pointer text-sm font-medium">{tt("+ Davet Beklemeden Doğrudan Influencer / Marka / Kullanıcı Ekle")}</summary>
+        <div className="mt-4">
+          <DirectUserForm brands={brands} />
+        </div>
+      </details>
       <PageGuide
         open={false}
         what="Influencer veya marka için tek kullanımlık (veya çok kullanımlık) davet linki oluşturun. Influencer’lar da kendi panellerinden influencer daveti üretebilir; bu başvurular da buraya, sizin onayınıza düşer."
