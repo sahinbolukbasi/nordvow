@@ -13,11 +13,12 @@ export default async function VoiceAssistantPage() {
   const brands =
     actor.role === "ADMIN"
       ? await prisma.brand.findMany({
+          where: { isActive: true },
           orderBy: { name: "asc" },
           select: { id: true, name: true },
         })
       : await prisma.brand.findMany({
-          where: { id: actor.brandId ?? "-" },
+          where: { isActive: true, id: actor.brandId ?? "-" },
           select: { id: true, name: true },
         });
 

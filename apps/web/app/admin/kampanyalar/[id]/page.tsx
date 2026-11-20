@@ -557,6 +557,7 @@ export default async function CampaignDetailPage({
                 <UserPlusIcon size={16} />{" "}{tt("Influencer ekle")}</ButtonLink>
             ) : null}
             <ButtonLink href={`/admin/kampanyalar/${campaign.id}/brief`} variant="secondary">{" "}{tt("Brief")}</ButtonLink>
+            <ButtonLink href={`/api/fatura/${campaign.id}?format=html`} target="_blank" rel="noreferrer" variant="secondary">{" "}{tt("e-Arşiv Fatura")}</ButtonLink>
             {campaign.status !== "KAPANDI" ? (
               <ButtonLink href={`/admin/kampanyalar/${campaign.id}/duzenle`} variant="secondary">{" "}{tt("Düzenle")}</ButtonLink>
             ) : null}

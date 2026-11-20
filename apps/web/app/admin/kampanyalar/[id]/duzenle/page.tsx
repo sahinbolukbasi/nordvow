@@ -17,7 +17,7 @@ export default async function EditCampaignPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const [c, brands] = await Promise.all([
     prisma.campaign.findUnique({ where: { id } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   if (!c) notFound();
   return (

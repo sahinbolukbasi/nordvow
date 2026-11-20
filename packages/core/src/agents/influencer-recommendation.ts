@@ -18,7 +18,7 @@ export async function runInfluencerRecommendation(input: { campaignId: string; b
   const assigned = new Set(campaign.assignments.map((a) => a.influencerId));
 
   const pool = await prisma.influencer.findMany({
-    where: { id: { notIn: [...assigned] } },
+    where: { isActive: true, id: { notIn: [...assigned] } },
     include: {
       socialAccounts: true,
       assignments: { include: { deliverables: { select: { plannedAt: true, status: true } } } },

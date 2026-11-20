@@ -24,7 +24,7 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
   await requireActor("BRAND");
   const { id } = await params;
   const inf = await prisma.influencer.findFirst({
-    where: { id, showcaseVisible: true, user: { status: "ACTIVE" } },
+    where: { id, isActive: true, showcaseVisible: true, user: { status: "ACTIVE" } },
     select: { id: true, socialAccounts: { select: { lastSyncedAt: true } } },
   });
   if (!inf) notFound();

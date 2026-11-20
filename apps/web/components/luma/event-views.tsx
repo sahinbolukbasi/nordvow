@@ -264,8 +264,8 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
   const [organizer, partnerIds, allBrands, influencers, invitedNames, qrScanners] = await Promise.all([
     e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null,
     getEventPartnerIds(e.id),
-    prisma.brand.findMany({ where: e.tenantId ? { id: { not: e.tenantId } } : undefined, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
+    prisma.brand.findMany({ where: { isActive: true, ...(e.tenantId ? { id: { not: e.tenantId } } : {}) }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.influencer.findMany({ where: { isActive: true, user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
     prisma.influencer.findMany({ where: { id: { in: e.invites.map((i) => i.influencerId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
     listQrScannerAccountsForOwner(tenantId ?? e.tenantId ?? null),
   ]);

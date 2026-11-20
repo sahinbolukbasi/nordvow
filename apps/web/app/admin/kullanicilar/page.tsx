@@ -59,7 +59,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
     }),
     prisma.user.groupBy({ by: ["role"], _count: true }),
     prisma.user.groupBy({ by: ["status"], _count: true }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }),
   ]);
   const roleCount = Object.fromEntries(byRole.map((r) => [r.role, r._count]));
   const statusCount = Object.fromEntries(byStatus.map((s) => [s.status, s._count]));

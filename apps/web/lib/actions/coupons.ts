@@ -109,7 +109,7 @@ export async function grantCouponAction(_p: ActionState, fd: FormData): Promise<
     if (!tenantId) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
     let ids = fd.getAll("influencerId").map(String).filter(Boolean);
     if (str(fd, "all") === "true") {
-      ids = (await prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, select: { id: true } })).map((x) => x.id);
+      ids = (await prisma.influencer.findMany({ where: { isActive: true, user: { status: "ACTIVE" } }, select: { id: true } })).map((x) => x.id);
     }
     if (!ids.length) throw new DomainError("DOGRULAMA", "En az bir influencer seçin veya 'tümü'nü işaretleyin.");
     const r = await grantCouponMany(couponId, ids);

@@ -12,7 +12,7 @@ export default async function NewCampaignPage({ searchParams }: { searchParams: 
   const { marka, mod } = await searchParams;
   const actor = await requireActor("ADMIN");
   const [brands, categories] = await Promise.all([
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ select: { name: true }, orderBy: { name: "asc" }, take: 50 }),
   ]);
   if (brands.length === 0) {

@@ -69,53 +69,12 @@ export function RegionSwitcher({ compact = false }: { compact?: boolean }) {
     }
   }, [state, router, pathname, loc, cty]);
 
-  const quickSwitch = (nextLocale: "tr" | "en") => {
-    if (nextLocale === locale) return;
-    writeClientPreference(nextLocale, country);
-    setLoc(nextLocale);
-    const nextUrl = targetLocalizedUrl(pathname, nextLocale);
-    if (nextUrl) {
-      window.location.assign(nextUrl);
-    } else {
-      router.refresh();
-    }
-  };
-
   const r = regionOf(country);
+  const showCountry = r.code.toLowerCase() !== locale.toLowerCase();
 
   return (
-    <div ref={ref} className="relative inline-flex items-center gap-1">
-      {/* Hızlı TR / EN dil seçici — her sayfada görünür */}
-      <div
-        role="group"
-        aria-label={t("region.language", "Dil")}
-        className="inline-flex h-8 items-center rounded-lg border border-border bg-bg/60 p-0.5 text-[11px]"
-      >
-        <button
-          type="button"
-          onClick={() => quickSwitch("tr")}
-          aria-pressed={locale === "tr"}
-          className={cn(
-            "rounded-md px-2 py-1 font-semibold transition-standard",
-            locale === "tr" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
-          )}
-        >
-          TR
-        </button>
-        <button
-          type="button"
-          onClick={() => quickSwitch("en")}
-          aria-pressed={locale === "en"}
-          className={cn(
-            "rounded-md px-2 py-1 font-semibold transition-standard",
-            locale === "en" ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
-          )}
-        >
-          EN
-        </button>
-      </div>
-
-      {/* Ülke / gelişmiş bölge seçici */}
+    <div ref={ref} className="relative">
+      {/* Tek Dil ve Bölge seçici */}
       <button
         type="button"
         aria-haspopup="dialog"
@@ -128,9 +87,10 @@ export function RegionSwitcher({ compact = false }: { compact?: boolean }) {
         aria-label={`${t("region.title", "Dil ve bölge")}: ${LOCALE_LABEL[locale]}, ${r.nativeName}, ${r.currency}`}
       >
         <span aria-hidden className="text-[13px]">🌐</span>
+        <span className="font-medium uppercase">{locale}</span>
         {!compact ? (
           <span className="text-fg-passive">
-            {r.code} · {r.currency}
+            {showCountry ? `· ${r.code} ` : ""}· {r.currency}
           </span>
         ) : null}
       </button>

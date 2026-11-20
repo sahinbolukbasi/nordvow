@@ -19,6 +19,7 @@ export type InfluencerFilters = {
   availableFrom?: Date;
   availableTo?: Date;
   taxStatus?: "istisna_20b" | "kayitli_mukellef" | "diger";
+  status?: "active" | "inactive" | "all";
   sort?: "name" | "followers" | "er" | "risk";
 };
 
@@ -65,12 +66,13 @@ export function parseFilters(sp: Record<string, string | string[] | undefined>):
     availableFrom: day(one("musaitBas")),
     availableTo: day(one("musaitBit")),
     taxStatus: tax === "istisna_20b" || tax === "kayitli_mukellef" || tax === "diger" ? tax : undefined,
+    status: one("durum") === "pasif" ? "inactive" : one("durum") === "tumu" ? "all" : "active",
     sort: sort === "followers" || sort === "er" || sort === "risk" ? sort : "name",
   };
 }
 
 export function activeFilterCount(f: InfluencerFilters): number {
-  return Object.entries(f).filter(([k, v]) => k !== "sort" && (Array.isArray(v) ? v.length > 0 : v != null)).length;
+  return Object.entries(f).filter(([k, v]) => k !== "sort" && k !== "status" && (Array.isArray(v) ? v.length > 0 : v != null)).length;
 }
 
 type Demo = { gender?: { kadin?: number }; ageGroups?: Record<string, number>; topCities?: { city: string; share: number }[] };
@@ -93,6 +95,7 @@ export async function searchInfluencerIds(f: InfluencerFilters): Promise<string[
 
   const where: Prisma.InfluencerWhereInput = {
     AND: [
+      f.status === "inactive" ? { isActive: false } : f.status === "all" ? {} : { isActive: true },
       f.q
         ? { OR: [{ name: { contains: f.q, mode: "insensitive" } }, { socialAccounts: { some: { handle: { contains: f.q.replace(/^@/, ""), mode: "insensitive" } } } }, { city: { contains: f.q, mode: "insensitive" } }] }
         : {},

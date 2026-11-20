@@ -141,6 +141,7 @@ export async function getAutoLandingCreators(limit = 30): Promise<LandingCreator
   try {
     const rows = await prisma.influencer.findMany({
       where: {
+        isActive: true,
         showcaseVisible: true,
         user: { status: "ACTIVE" },
         socialAccounts: { some: {} },

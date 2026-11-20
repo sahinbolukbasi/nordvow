@@ -20,6 +20,7 @@ import { ButtonLink } from "@/components/ui/form";
 import { requireActor } from "@/lib/auth-guard";
 import { WorkHistory } from "@/components/history/work-history";
 import { SyncAccountsButton } from "@/components/forms/agent-job-forms";
+import { InfluencerDeleteButton, InfluencerToggleActiveButton } from "@/components/forms/influencer-lifecycle-buttons";
 import { compact, pct, pct1 } from "@/lib/format";
 import { fmtDate } from "@/lib/time";
 
@@ -102,6 +103,16 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
         </span>
       </div>
 
+      {!inf.isActive ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          <span>{tt("Bu influencer şu an pasif durumda ve sistemde gizli.")}</span>
+          <InfluencerToggleActiveButton influencerId={inf.id} name={inf.name} isActive={inf.isActive} />
+        </div>
+      ) : null}
+
       {/* Marka Vitrini + Instagram Gezgini (AI Analiz, 7G/30G/90G Gelişim Grafikleri, Kaydetme/İzlenme, Marka İşbirlikleri & Admin Kontrolleri) */}
       <CreatorShowcase
         influencerId={inf.id}
@@ -110,6 +121,8 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
           <div className="flex flex-wrap items-center gap-2">
             <SyncAccountsButton influencerId={inf.id} />
             <ButtonLink href={`/admin/influencerlar/${inf.id}/duzenle`}>{tt("Profili Düzenle")}</ButtonLink>
+            <InfluencerToggleActiveButton influencerId={inf.id} name={inf.name} isActive={inf.isActive} />
+            <InfluencerDeleteButton influencerId={inf.id} name={inf.name} redirectToList />
           </div>
         }
       />

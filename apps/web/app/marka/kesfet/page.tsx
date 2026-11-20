@@ -22,10 +22,10 @@ export default async function BrandDiscoverPage({ searchParams }: { searchParams
   // Ülke ayrımı: varsayılan markanın kayıtlı ülkesi; ?ulke= ile başka bölge seçilir.
   const brand = await prisma.brand.findUniqueOrThrow({ where: { id: actor.brandId! }, select: { country: true } });
   const country = isRegion(ulke) ? ulke.toUpperCase() : brand.country;
-  const counts = await prisma.influencer.groupBy({ by: ["country"], where: { user: { status: "ACTIVE" }, showcaseVisible: true }, _count: true });
+  const counts = await prisma.influencer.groupBy({ by: ["country"], where: { isActive: true, user: { status: "ACTIVE" }, showcaseVisible: true }, _count: true });
   const [rows, cards, campaigns, assignmentCounts, deliverableRows] = await Promise.all([
     prisma.influencer.findMany({
-      where: { user: { status: "ACTIVE" }, showcaseVisible: true, country },
+      where: { isActive: true, user: { status: "ACTIVE" }, showcaseVisible: true, country },
       orderBy: { name: "asc" },
       take: 500,
       select: {

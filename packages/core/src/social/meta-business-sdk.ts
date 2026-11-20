@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { envStr } from "../env";
 import { vault } from "../channels/vault";
 import { cleanSocialHandle } from "./handle";
+import { fetchPublicInstagramProfile, type PublicInstagramProfile } from "./instagram-public";
 
 export type SdkComment = {
   id: string;
@@ -53,7 +54,7 @@ export type VerifiedInstagramResult = {
   sdkVersion: string;
   usedOAuth: boolean;
   fallbackFromExpiredOAuth: boolean;
-  source: "meta_sdk_oauth" | "meta_sdk_business_discovery" | "none";
+  source: "meta_sdk_oauth" | "meta_sdk_business_discovery" | "instagram_public" | "none";
   errorCode: number | null;
   errorSubcode: number | null;
   errorMessage: string | null;
@@ -378,12 +379,38 @@ export async function fetchVerifiedInstagramViaSdk(input: {
   handle: string;
   oauthTokenRef?: string | null;
   oauthExternalId?: string | null;
+  allowPublicFallback?: boolean;
 }): Promise<VerifiedInstagramResult> {
   const start = Date.now();
   const cleanHandle = cleanSocialHandle(input.handle, "INSTAGRAM");
   const sdkVersion = FacebookAdsApi.SDK_VERSION;
 
   let oauthExpiredError: { code: number | null; subcode: number | null; message: string } | null = null;
+
+  const toPublicResult = (pub: PublicInstagramProfile): VerifiedInstagramResult => ({
+    ok: true,
+    sdkVersion,
+    usedOAuth: false,
+    fallbackFromExpiredOAuth: Boolean(oauthExpiredError),
+    source: "instagram_public",
+    errorCode: null,
+    errorSubcode: null,
+    errorMessage: null,
+    externalId: input.oauthExternalId ?? null,
+    username: pub.username || cleanHandle,
+    fullName: pub.fullName,
+    biography: pub.biography,
+    avatarUrl: pub.avatarUrl,
+    followers: pub.followers,
+    followsCount: pub.followsCount,
+    postsCount: pub.postsCount,
+    accountInsights: null,
+    demographics: null,
+    media: pub.media,
+    stories: [],
+    comments: pub.media.flatMap((m) => m.comments),
+    durationMs: Date.now() - start,
+  });
 
   // 1. Influencer'ın kendi bağlı Instagram OAuth token'ı varsa SDK (veya IGAA tokenlarda graph.instagram.com) ile tam veri + insights çek
   if (input.oauthTokenRef && input.oauthExternalId) {
@@ -601,6 +628,10 @@ export async function fetchVerifiedInstagramViaSdk(input: {
   // 2. Resmî SDK Business Discovery (Ajans IG Business Hesabı + çoklu token havuzu ile doğrulanmış veri çekimi)
   const creds = await resolveMetaSdkCredentials();
   if (!cleanHandle || creds.pairs.length === 0) {
+    if (cleanHandle && input.allowPublicFallback !== false) {
+      const pub = await fetchPublicInstagramProfile(cleanHandle);
+      if (pub) return toPublicResult(pub);
+    }
     return {
       ok: false,
       sdkVersion,
@@ -761,6 +792,11 @@ export async function fetchVerifiedInstagramViaSdk(input: {
         }
       }
     }
+  }
+
+  if (input.allowPublicFallback !== false) {
+    const pub = await fetchPublicInstagramProfile(cleanHandle);
+    if (pub) return toPublicResult(pub);
   }
 
   const effectiveErr = lastNotBusinessErr ?? lastErr;

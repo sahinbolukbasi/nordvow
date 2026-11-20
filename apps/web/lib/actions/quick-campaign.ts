@@ -286,7 +286,7 @@ export async function loadQuickMatchesAction(campaignId: string): Promise<{
 
     const competitorIds = c.brand.competitorBrandIds ?? [];
     const infs = await prisma.influencer.findMany({
-      where: actor.role === "BRAND" ? { showcaseVisible: true } : {},
+      where: { isActive: true, ...(actor.role === "BRAND" ? { showcaseVisible: true } : {}) },
       take: 150,
       select: {
         id: true,

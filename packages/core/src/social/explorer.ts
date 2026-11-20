@@ -4,7 +4,12 @@ import { cleanSocialHandle } from "./handle";
 import { envStr } from "../env";
 import { converseChat } from "../llm/bedrock";
 import { invokeAgentCore, isAgentCoreEnabled } from "../assistant/agentcore";
-import { fetchVerifiedInstagramViaSdk, type SdkMediaItem, type VerifiedAudienceDemographics } from "./meta-business-sdk";
+import {
+  fetchVerifiedInstagramViaSdk,
+  type SdkMediaItem,
+  type VerifiedAudienceDemographics,
+  type VerifiedInstagramResult,
+} from "./meta-business-sdk";
 import { syncInfluencer } from "./sync";
 
 /**
@@ -278,6 +283,7 @@ async function fetchMetaGraphMedia(
 ): Promise<{
   ok: boolean;
   usedOAuth: boolean;
+  source: VerifiedInstagramResult["source"];
   sdkVersion: string;
   externalId?: string;
   followers?: number;
@@ -303,6 +309,7 @@ async function fetchMetaGraphMedia(
     return {
       ok: false,
       usedOAuth: false,
+      source: sdkRes.source,
       sdkVersion: sdkRes.sdkVersion,
       media: [],
       stories: [],
@@ -314,6 +321,7 @@ async function fetchMetaGraphMedia(
   return {
     ok: true,
     usedOAuth: sdkRes.usedOAuth,
+    source: sdkRes.source,
     sdkVersion: sdkRes.sdkVersion,
     externalId: sdkRes.externalId ?? undefined,
     followers: sdkRes.followers,
@@ -328,7 +336,9 @@ async function fetchMetaGraphMedia(
     durationMs: sdkRes.durationMs,
     detail: sdkRes.usedOAuth
       ? `facebook-nodejs-business-sdk (v${sdkRes.sdkVersion}) OAuth ile @${clean} için ${sdkRes.media.length} medya, ${sdkRes.stories.length} hikâye${sdkRes.demographics ? " + kitle demografisi" : ""} doğrulandı.`
-      : `facebook-nodejs-business-sdk (v${sdkRes.sdkVersion}) Business Discovery ile @${clean} için ${sdkRes.media.length} medya doğrulandı.`,
+      : sdkRes.source === "instagram_public"
+        ? `Meta Business Discovery erişilemedi; açık profil önizleme yedeği ile @${clean} için ${sdkRes.followers.toLocaleString("tr-TR")} takipçi / ${sdkRes.postsCount} gönderi alındı.`
+        : `facebook-nodejs-business-sdk (v${sdkRes.sdkVersion}) Business Discovery ile @${clean} için ${sdkRes.media.length} medya doğrulandı.`,
   };
 }
 
@@ -401,8 +411,12 @@ export async function runInstagramExplorerForInfluencer(
   rawLogs.push({
     timestamp: new Date().toISOString(),
     source: "META_GRAPH_API",
-    endpoint: metaRes.usedOAuth ? `GET /v24.0/${igAcc?.externalId}/media+stories` : `GET /v24.0/business_discovery.username(${handle})`,
-    status: metaRes.ok ? "OK" : "FALLBACK",
+    endpoint: metaRes.usedOAuth
+      ? `GET /v24.0/${igAcc?.externalId}/media+stories`
+      : metaRes.source === "instagram_public"
+        ? `GET https://www.instagram.com/${handle}/ (public-fallback)`
+        : `GET /v24.0/business_discovery.username(${handle})`,
+    status: metaRes.ok && metaRes.source !== "instagram_public" ? "OK" : "FALLBACK",
     itemsScanned: metaRes.media.length + metaRes.stories.length,
     durationMs: metaRes.durationMs,
     detail: metaRes.detail,
@@ -449,7 +463,12 @@ export async function runInstagramExplorerForInfluencer(
           engagementRate: baseEr,
           ...(metaRes.demographics ? { demographics: metaRes.demographics as object } : {}),
           lastSyncedAt: new Date(),
-          syncSource: metaRes.usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
+          syncSource: metaRes.usedOAuth
+            ? "instagram_oauth"
+            : metaRes.source === "instagram_public"
+              ? "instagram_public"
+              : "instagram_business_discovery",
+          syncError: null,
         },
       })
       .catch(() => undefined);
@@ -805,11 +824,12 @@ export async function runInstagramExplorerForInfluencer(
   const aiHighlights: string[] = [];
   const aiRecommendation = "";
 
-  const verificationStatus: VerificationStatus = metaRes.ok
-    ? "META_API_VERIFIED"
-    : igAcc?.syncSource === "instagram_business_discovery"
-      ? "HYBRID_API_BOT"
-      : "EXPLORER_BOT";
+  const verificationStatus: VerificationStatus =
+    metaRes.ok && metaRes.source !== "instagram_public"
+      ? "META_API_VERIFIED"
+      : igAcc?.syncSource === "instagram_business_discovery"
+        ? "HYBRID_API_BOT"
+        : "EXPLORER_BOT";
 
   const report: InfluencerExplorerReport = {
     realDataOnly: true,
@@ -889,6 +909,7 @@ export async function runInstagramExplorerForInfluencer(
 /** Sistemde kayıtlı tüm aktif influencer'lar için Instagram Gezgini taramasını toplu çalıştırır. */
 export async function runInstagramExplorerForAll(limit = 30): Promise<{ scanned: number; verified: number }> {
   const list = await prisma.influencer.findMany({
+    where: { isActive: true },
     take: limit,
     orderBy: { updatedAt: "desc" },
     select: { id: true },

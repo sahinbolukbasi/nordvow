@@ -6,7 +6,6 @@ import { qualityLabel, statusLabel } from "@infulancer/core/messaging/templates"
 import { tierCapacity } from "@infulancer/core/messaging/tiers";
 import { RunJobButton } from "@/components/forms/operations-forms";
 import { InstagramConnectForm, WhatsAppSignupForm } from "@/components/inbox/inbox-forms";
-import { AppShell } from "@/components/shell/app-shell";
 import { Card, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { StatusDot } from "@/components/ui/status";
@@ -26,13 +25,13 @@ const numFmt = new Intl.NumberFormat("tr-TR");
  * WhatsApp TIER/kota kartları ve manuel kanal bağlantı alanları burada toplanır.
  */
 export default async function AdminIletisimPage() {
-  const actor = await requireActor("ADMIN");
+  await requireActor("ADMIN");
 
   const [connections, numbers, templates, brands, assistants, settings, conversations] = await Promise.all([
     prisma.channelConnection.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.whatsAppNumber.findMany(),
     prisma.messageTemplate.findMany({ orderBy: [{ status: "asc" }, { name: "asc" }] }),
-    prisma.brand.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.brand.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.agentConfig.findMany({ orderBy: [{ enabled: "desc" }, { agentId: "asc" }], take: 100 }),
     prisma.tenantSettings.findMany({ select: { tenantId: true, mode: true } }),
     prisma.conversation.findMany({
@@ -68,8 +67,7 @@ export default async function AdminIletisimPage() {
   const quotas = await Promise.all(numbers.map(async (n) => ({ n, q: await freeTierStatus(n.phoneNumberId) })));
 
   return (
-    <AppShell role={actor.role}>
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-title text-fg">Admin · İletişim Yönetimi</h1>
@@ -252,7 +250,6 @@ export default async function AdminIletisimPage() {
           </div>
         </Card>
       </div>
-    </AppShell>
   );
 }
 

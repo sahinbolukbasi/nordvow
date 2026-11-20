@@ -12,9 +12,10 @@ import {
 /**
  * Sosyal hesap senkronu — yalnız RESMÎ API'ler (scraping YOK; platform kurallarına aykırı).
  * - Instagram: Business Discovery (Graph API) — ajansın kendi IG Business hesabı + token'ı ile, Business/Creator
- *   olan herkese açık hesapların takipçi, medya sayısı ve son gönderi etkileşimleri. Influencer girişi gerekmez.
+ *   olan herkese açık hesapların takipçi, medya sayısı ve son gönderi etkileşimleri. Erişilemeyen (kişisel/kısıtlı)
+ *   herkese açık profiller için ikincil mekanizma olarak OpenGraph profil önizlemesi ve opsiyonel yedek sağlayıcı kullanılır.
  * - YouTube: Data API v3 channels/search — herkese açık kanal istatistikleri (API anahtarı).
- * - TikTok: Display API — influencer'ın kendi OAuth bağlantısı (Login Kit) gerekir.
+ * - TikTok: Display API — influencer'ın kendi OAuth bağlantısı (Login Kit) gerekir; yoksa açık profil önizlemesi.
  * - Kitle demografisi hiçbir public API'de yok → influencer'ın yüklediği ekran görüntüsünden (metrik akışı).
  * SOCIAL_SYNC_MODE: http (gerçek API'ler) | mock (yalnız geliştirme/test: deterministik sahte veri) |
  * off (varsayılan: hiçbir veri değiştirilmez; elle girilen değerler korunur).
@@ -31,7 +32,7 @@ export type ProfileStats = {
   avatarUrl: string | null;
   verified: boolean;
   demographics?: VerifiedAudienceDemographics | null;
-  source: "instagram_business_discovery" | "instagram_oauth" | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock";
+  source: "instagram_business_discovery" | "instagram_oauth" | "instagram_public" | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock";
 };
 
 export class SyncError extends Error {
@@ -138,7 +139,7 @@ export const httpSocial: SocialProvider = {
         avatarUrl: sdk.avatarUrl,
         verified: false,
         demographics: sdk.demographics,
-        source: sdk.usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
+        source: sdk.usedOAuth ? "instagram_oauth" : sdk.source === "instagram_public" ? "instagram_public" : "instagram_business_discovery",
       };
     }
     if (platform === "YOUTUBE") {
@@ -265,13 +266,13 @@ export async function syncSocialAccount(accountId: string, now = new Date()): Pr
         data: {
           followers: s.followers,
           engagementRate: Math.min(9.9999, Math.max(0, er)),
-          externalId: s.externalId,
-          postsCount: s.postsCount,
-          avgLikes: s.avgLikes,
-          avgComments: s.avgComments,
-          avgViews: s.avgViews,
+          externalId: s.externalId ?? acc.externalId,
+          postsCount: s.postsCount ?? acc.postsCount,
+          avgLikes: s.avgLikes ?? acc.avgLikes,
+          avgComments: s.avgComments ?? acc.avgComments,
+          avgViews: s.avgViews ?? acc.avgViews,
           profileUrl: s.profileUrl,
-          avatarUrl: s.avatarUrl,
+          avatarUrl: s.avatarUrl ?? acc.avatarUrl,
           verified: s.verified,
           ...(s.demographics ? { demographics: s.demographics as object } : {}),
           syncSource: s.source,
@@ -332,6 +333,7 @@ export const syncSourceLabels: Record<string, string> = {
   manual: "Elle girildi",
   instagram_business_discovery: "Meta Business SDK (Business Discovery)",
   instagram_oauth: "Meta Business SDK (Doğrulanmış OAuth + Insights)",
+  instagram_public: "Instagram (açık profil önizleme)",
   youtube_data: "YouTube API",
   tiktok_oauth: "TikTok (influencer bağlantısı)",
   tiktok_public: "TikTok (açık profil)",

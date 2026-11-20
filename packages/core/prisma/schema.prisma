@@ -253,6 +253,7 @@ model Brand {
   defaultExecutionMode ExecutionMode @default(AJANS)
   /// Marka ajansla çalışmayı seçtiyse tercih edilen ajans kullanıcısı (User.id, role=AGENCY).
   preferredAgencyUserId String?
+  isActive           Boolean   @default(true)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -262,6 +263,8 @@ model Brand {
   categories           BrandCategory[]
   shippingIntegrations BrandShippingIntegration[]
   shipments            Shipment[]
+
+  @@index([isActive])
 }
 
 model Influencer {
@@ -284,6 +287,7 @@ model Influencer {
   showcaseVisible    Boolean   @default(true)
   showCollaborations Boolean   @default(true)
   showPrices         Boolean   @default(true)
+  isActive           Boolean   @default(true)
   riskScore        Int?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -298,6 +302,8 @@ model Influencer {
   addresses      InfluencerAddress[]
   shipments      Shipment[]
   tiktokAccounts TikTokAccount[]
+
+  @@index([isActive])
 }
 
 model SocialAccount {

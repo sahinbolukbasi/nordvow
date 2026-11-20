@@ -30,7 +30,7 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
     prisma.signupApplication.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" }, include: { user: true, invite: { include: { createdBy: { select: { name: true, role: true } } } } } }),
     prisma.signupApplication.findMany({ where: { status: { not: "PENDING" } }, orderBy: { reviewedAt: "desc" }, take: 20, include: { user: { select: { name: true, email: true } } } }),
     prisma.invite.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { createdBy: { select: { name: true, role: true } }, _count: { select: { applications: true } } } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ select: { id: true, name: true } }),
     prisma.configValue.findUnique({ where: { key: "invite.requests" }, select: { value: true } }),
     prisma.configValue.findUnique({ where: { key: "invite.quickWhatsappText" }, select: { value: true } }),

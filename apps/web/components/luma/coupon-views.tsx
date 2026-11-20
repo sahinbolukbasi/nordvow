@@ -170,7 +170,7 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
   if (!c || (tenantId && c.tenantId !== tenantId)) notFound();
   const [brand, influencers, recipientNames] = await Promise.all([
     prisma.brand.findUnique({ where: { id: c.tenantId }, select: { name: true } }),
-    prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
+    prisma.influencer.findMany({ where: { isActive: true, user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
     prisma.influencer.findMany({ where: { id: { in: c.grants.map((g) => g.influencerId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
   ]);
   const names = new Map(recipientNames.map((x) => [x.id, x.name]));

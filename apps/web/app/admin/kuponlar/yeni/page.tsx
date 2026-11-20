@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminNewCouponPage() {
   const tt = await getTT();
   await requireActor("ADMIN");
-  const brands = await prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const brands = await prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } });
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <BackLink href="/admin/kuponlar">{tt("Kuponlar")}</BackLink>

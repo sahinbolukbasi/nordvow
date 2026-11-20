@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
 import { Button, Field, Input, Select } from "@/components/ui/form";
-import { assignBrandUserAction, createBrandUser, deleteBrandAction, detachBrandUserAction, saveBrand } from "@/lib/actions/brands";
+import { assignBrandUserAction, createBrandUser, deleteBrandAction, detachBrandUserAction, saveBrand, toggleBrandActiveAction } from "@/lib/actions/brands";
 import type { CategoryNode } from "@infulancer/core/domain/categories";
 import { CategoryPicker } from "@/components/forms/category-picker";
 import { REGIONS } from "@infulancer/core/i18n/regions";
@@ -103,8 +103,82 @@ export function BrandUserForm({ brandId }: { brandId: string }) {
   );
 }
 
+/** Markayı sistemden gizlemek için pasife çekme / yeniden aktifleştirme butonu. */
+export function BrandToggleActiveButton({
+  brandId,
+  name,
+  isActive,
+}: {
+  brandId: string;
+  name: string;
+  isActive: boolean;
+}) {
+  const tt = useTT();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!isActive) {
+    return (
+      <ActionForm
+        action={toggleBrandActiveAction}
+        submitLabel={tt("Aktifleştir")}
+        submitVariant="secondary"
+        submitSize="sm"
+        aria-label={`${name}: ${tt("Aktifleştir")}`}
+        className="!flex-row items-center gap-1"
+      >
+        <input type="hidden" name="brandId" value={brandId} />
+        <input type="hidden" name="active" value="true" />
+      </ActionForm>
+    );
+  }
+
+  if (!confirming) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setConfirming(true)}
+        aria-label={`${name}: ${tt("Pasife Çek")}`}
+        className="text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+      >
+        {tt("Pasife Çek")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5">
+      <span className="text-[12px] font-medium text-amber-300">
+        {name} {tt("sistemden gizlensin mi?")}
+      </span>
+      <ActionForm
+        action={toggleBrandActiveAction}
+        submitLabel={tt("Evet, Pasife Çek")}
+        submitSize="sm"
+        submitVariant="primary"
+        className="gap-1"
+      >
+        <input type="hidden" name="brandId" value={brandId} />
+        <input type="hidden" name="active" value="false" />
+      </ActionForm>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        {tt("Vazgeç")}
+      </Button>
+    </div>
+  );
+}
+
 /** 2 adımlı onaylı marka silme butonu. */
-export function BrandDeleteButton({ brandId, name }: { brandId: string; name: string }) {
+export function BrandDeleteButton({
+  brandId,
+  name,
+  redirectToList = false,
+}: {
+  brandId: string;
+  name: string;
+  redirectToList?: boolean;
+}) {
   const tt = useTT();
   const [confirming, setConfirming] = useState(false);
 
@@ -130,6 +204,7 @@ export function BrandDeleteButton({ brandId, name }: { brandId: string; name: st
       </span>
       <ActionForm action={deleteBrandAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary" className="gap-1">
         <input type="hidden" name="brandId" value={brandId} />
+        {redirectToList ? <input type="hidden" name="redirectTo" value="/admin/markalar" /> : null}
       </ActionForm>
       <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
         {tt("Vazgeç")}

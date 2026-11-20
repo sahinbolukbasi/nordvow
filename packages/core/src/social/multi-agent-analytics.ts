@@ -290,10 +290,15 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
   if (sdkRes.ok) {
     apiConnected = true;
     usedOAuth = sdkRes.usedOAuth;
-    sdkSource = `${sdkRes.source} (SDK v${sdkRes.sdkVersion})`;
+    sdkSource =
+      sdkRes.source === "instagram_public"
+        ? "instagram_public (Açık Profil Yedeği)"
+        : `${sdkRes.source} (SDK v${sdkRes.sdkVersion})`;
     apiMessage = sdkRes.usedOAuth
       ? `Meta Business SDK OAuth bağlantısı aktif (@${sdkRes.username || handle})${sdkRes.demographics ? " · kitle demografisi doğrulandı" : ""}.`
-      : `Meta Business SDK Business Discovery aktif (@${sdkRes.username || handle})${sdkRes.fallbackFromExpiredOAuth ? " (süresi dolan OAuth yedeği)" : ""}.`;
+      : sdkRes.source === "instagram_public"
+        ? `Meta Business Discovery erişilemeyen hesap için açık profil yedeği kullanıldı (@${sdkRes.username || handle}).`
+        : `Meta Business SDK Business Discovery aktif (@${sdkRes.username || handle})${sdkRes.fallbackFromExpiredOAuth ? " (süresi dolan OAuth yedeği)" : ""}.`;
     externalId = sdkRes.externalId ?? externalId;
     fullName = sdkRes.fullName;
     biography = sdkRes.biography;
@@ -355,7 +360,11 @@ export async function ingestMetaAccountSnapshot(influencerId: string): Promise<I
         engagementRate: erPct / 100,
         ...(verifiedDemographics ? { demographics: verifiedDemographics as object } : {}),
         lastSyncedAt: new Date(),
-        syncSource: usedOAuth ? "instagram_oauth" : "instagram_business_discovery",
+        syncSource: usedOAuth
+          ? "instagram_oauth"
+          : sdkRes.source === "instagram_public"
+            ? "instagram_public"
+            : "instagram_business_discovery",
         syncError: null,
       },
     });
@@ -940,7 +949,7 @@ export async function runOnboardingQuickScan(influencerId: string): Promise<Mult
 /** Faz 2: Zamanlayıcı (Cron) için tüm aktif influencer'larda günlük Multi-Agent pipeline'ını çalıştırır. */
 export async function runMultiAgentSocialPipelineAll(limit = 200): Promise<{ processed: number; withData: number }> {
   const list = await prisma.influencer.findMany({
-    where: { user: { status: "ACTIVE" } },
+    where: { isActive: true, user: { status: "ACTIVE" } },
     take: limit,
     orderBy: { updatedAt: "desc" },
     select: { id: true },

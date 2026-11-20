@@ -14,7 +14,7 @@ import {
 } from "@infulancer/core/domain/labels";
 import { audit } from "@infulancer/core/audit";
 import { kvkkStatus } from "@infulancer/core/compliance/kvkk";
-import { AssignExistingBrandUserForm, BrandUserForm, DetachBrandUserButton } from "@/components/forms/brand-forms";
+import { AssignExistingBrandUserForm, BrandDeleteButton, BrandToggleActiveButton, BrandUserForm, DetachBrandUserButton } from "@/components/forms/brand-forms";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
@@ -37,6 +37,8 @@ export const metadata: Metadata = { title: "Marka profili" };
 const AUDIT_LABELS: Record<string, string> = {
   BRAND_CREATED: "Marka oluşturuldu",
   BRAND_UPDATED: "Marka bilgileri güncellendi",
+  BRAND_DEACTIVATED: "Marka pasife çekildi",
+  BRAND_ACTIVATED: "Marka aktifleştirildi",
   USER_CREATED: "Panel kullanıcısı eklendi",
   CAMPAIGN_CREATED: "Kampanya oluşturuldu",
   CAMPAIGN_UPDATED: "Kampanya güncellendi",
@@ -530,13 +532,25 @@ export default async function BrandProfilePage({
     );
   return (
     <div className="flex flex-col gap-8">
+      {!brand.isActive ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          <span>{tt("Bu marka şu an pasif durumda ve sistemde gizli.")}</span>
+          <BrandToggleActiveButton brandId={brand.id} name={brand.name} isActive={brand.isActive} />
+        </div>
+      ) : null}
+
       <PageHeader
         title={brand.name}
         description={`${brand.categories.find((c) => c.primary)?.category.name ?? brand.category} · VKN ${brand.taxNumber} · ${brand.taxOffice}`}
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <ButtonLink href={`/admin/kampanyalar/yeni?marka=${brand.id}`} variant="secondary">{" "}{tt("Yeni kampanya")}</ButtonLink>
             <ButtonLink href={`/admin/markalar/${brand.id}/duzenle`}>{tt("Düzenle")}</ButtonLink>
+            <BrandToggleActiveButton brandId={brand.id} name={brand.name} isActive={brand.isActive} />
+            <BrandDeleteButton brandId={brand.id} name={brand.name} redirectToList />
           </div>
         }
       />

@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Yeni marka" };
 export default async function NewBrandPage() {
   const tt = await getTT();
   await requireActor("ADMIN");
-  const brands = await prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: true } });
+  const brands = await prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } });
   return (
     <div className="flex flex-col gap-8">
       <PageHeader title={tt("Yeni marka")} />

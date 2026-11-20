@@ -107,7 +107,7 @@ export async function copilotWelcome(actor: Actor): Promise<CopilotWelcome> {
   const [user, steps, brands, brandCfg] = await Promise.all([
     prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } }),
     nextSteps(actor),
-    actor.role === "ADMIN" ? prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }) : Promise.resolve([]),
+    actor.role === "ADMIN" ? prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }) : Promise.resolve([]),
     actor.role === "BRAND" && actor.brandId ? prisma.brand.findUnique({ where: { id: actor.brandId }, select: { defaultExecutionMode: true } }) : Promise.resolve(null),
   ]);
   const first = (user?.name ?? "").split(" ")[0] ?? "";
@@ -353,7 +353,7 @@ async function executeCopilotTool(
     case "list_influencers": {
       if (role === "INFLUENCER") return null;
       const rows = await prisma.influencer.findMany({
-        where: { user: { status: "ACTIVE" } },
+        where: { isActive: true, user: { status: "ACTIVE" } },
         orderBy: { name: "asc" },
         take: 6,
         select: { name: true, category: true, city: true, socialAccounts: { select: { platform: true, followers: true } } },

@@ -33,8 +33,8 @@ export async function loadDmAutomationPageContext() {
     if (inf) tenantOptions = [{ id: inf.id, name: inf.name, kind: "Creator" }];
   } else {
     const [brands, influencers] = await Promise.all([
-      prisma.brand.findMany({ orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
-      prisma.influencer.findMany({ orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
+      prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
+      prisma.influencer.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
     ]);
     tenantOptions = [
       ...brands.map((b): TenantOption => ({ id: b.id, name: b.name, kind: "Marka" })),

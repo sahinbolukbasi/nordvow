@@ -14,7 +14,7 @@ import { cleanSocialHandle } from "@infulancer/core/social/handle";
 import { readCategorySelection } from "@/lib/categories";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, intOrNull, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
-import { requireActor } from "@/lib/auth-guard";
+import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
 import { isValidTimeZone } from "@/lib/time";
 import { isRegion } from "@infulancer/core/i18n/regions";
 
@@ -239,4 +239,124 @@ export async function syncInfluencerAccounts(_prev: ActionState, fd: FormData): 
     if (failed.length === results.length) return { error: failed.map((f) => f.message).join(" ") };
     return { ok: true, message: `${results.length - failed.length}/${results.length} hesap güncellendi.${failed.length ? ` Hata: ${failed.map((f) => f.message).join(" ")}` : ""}` };
   });
+}
+
+const toggleInfluencerSchema = z.object({
+  influencerId: z.string().min(1).max(64),
+  active: z.enum(["true", "false"]),
+});
+
+/** Admin: influencer'ı pasife çeker (sistemden gizler, girişini askıya alır) veya yeniden aktifleştirir. */
+export async function toggleInfluencerActiveAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      toggleInfluencerSchema,
+      { influencerId: str(fd, "influencerId"), active: str(fd, "active") },
+      { influencerId: "Influencer", active: "Durum" },
+    );
+    const nextActive = input.active === "true";
+
+    const name = await prisma.$transaction(async (tx) => {
+      const inf = await tx.influencer.findUnique({
+        where: { id: input.influencerId },
+        select: { id: true, name: true, isActive: true, user: { select: { id: true, status: true } } },
+      });
+      if (!inf) throw new DomainError("BULUNAMADI", "Influencer bulunamadı.");
+
+      await tx.influencer.update({ where: { id: inf.id }, data: { isActive: nextActive } });
+      if (inf.user) {
+        if (!nextActive) {
+          await tx.user.update({ where: { id: inf.user.id }, data: { status: "SUSPENDED" } });
+        } else if (inf.user.status === "SUSPENDED") {
+          await tx.user.update({ where: { id: inf.user.id }, data: { status: "ACTIVE" } });
+        }
+      }
+
+      await audit.append({
+        actor: toAuditActor(actor),
+        action: nextActive ? "INFLUENCER_ACTIVATED" : "INFLUENCER_DEACTIVATED",
+        entityType: "Influencer",
+        entityId: inf.id,
+        data: { name: inf.name, from: inf.isActive, to: nextActive },
+      });
+      return inf.name;
+    });
+
+    revalidateAll();
+    return {
+      ok: true,
+      message: nextActive ? `${name} aktifleştirildi.` : `${name} pasife çekildi ve sistemden gizlendi.`,
+    };
+  });
+}
+
+const deleteInfluencerSchema = z.object({
+  influencerId: z.string().min(1).max(64),
+});
+
+/** Admin: kampanya ataması veya finansal kaydı olmayan influencer'ı kalıcı olarak siler. */
+export async function deleteInfluencerAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  const redirectTo = optStr(fd, "redirectTo");
+  const res = await attempt(async () => {
+    const input = parseInput(
+      deleteInfluencerSchema,
+      { influencerId: str(fd, "influencerId") },
+      { influencerId: "Influencer" },
+    );
+    const inf = await prisma.influencer.findUnique({
+      where: { id: input.influencerId },
+      select: {
+        id: true,
+        name: true,
+        user: { select: { id: true } },
+        _count: { select: { assignments: true, ledgerEntries: true, payoutRequests: true } },
+      },
+    });
+    if (!inf) throw new DomainError("BULUNAMADI", "Influencer bulunamadı.");
+    if (inf._count.assignments > 0 || inf._count.ledgerEntries > 0 || inf._count.payoutRequests > 0) {
+      throw new DomainError(
+        "KURAL_IHLALI",
+        "Bu influencer'a bağlı kampanya ataması veya finansal kayıt (hakediş/ödeme) bulunduğu için kalıcı silinemiyor. Sistemden gizlemek için 'Pasife Çek' seçeneğini kullanabilirsiniz.",
+      );
+    }
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.rateCard.deleteMany({ where: { influencerId: inf.id } });
+        await tx.campaignApplication.deleteMany({ where: { influencerId: inf.id } });
+        if (inf.user) {
+          await tx.user.update({
+            where: { id: inf.user.id },
+            data: { status: "SUSPENDED", influencerId: null },
+          });
+        }
+        await tx.influencer.delete({ where: { id: inf.id } });
+        await audit.append({
+          actor: toAuditActor(actor),
+          action: "INFLUENCER_DELETED",
+          entityType: "Influencer",
+          entityId: inf.id,
+          data: { name: inf.name },
+        });
+      });
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2003") {
+        throw new DomainError(
+          "KURAL_IHLALI",
+          "Bu influencer'a bağlı kayıtlar bulunduğu için kalıcı silinemiyor. Sistemden gizlemek için 'Pasife Çek' seçeneğini kullanabilirsiniz.",
+        );
+      }
+      throw e;
+    }
+
+    revalidateAll();
+    return { ok: true, message: `${inf.name} kalıcı olarak silindi.` };
+  });
+  if (res.ok && redirectTo === "/admin/influencerlar") redirect(redirectTo);
+  return res;
 }

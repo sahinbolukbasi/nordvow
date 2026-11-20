@@ -59,12 +59,12 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
       prisma.modelRegistry.findMany({ orderBy: [{ kind: "asc" }, { creditsPerUnit: "asc" }] }),
       getConfig("features"),
       prisma.brand.findMany({
-        where: isAdmin ? {} : { id: actor.brandId ?? "-" },
+        where: isAdmin ? { isActive: true } : { id: actor.brandId ?? "-" },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),
       prisma.influencer.findMany({
-        where: isAdmin ? {} : { id: actor.influencerId ?? "-" },
+        where: isAdmin ? { isActive: true } : { id: actor.influencerId ?? "-" },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),

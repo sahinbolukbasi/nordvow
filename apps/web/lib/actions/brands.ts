@@ -132,13 +132,63 @@ export async function createBrandUser(_prev: ActionState, fd: FormData): Promise
   });
 }
 
+const toggleBrandSchema = z.object({
+  brandId: z.string().min(1).max(64),
+  active: z.enum(["true", "false"]),
+});
+
+/** Admin: markayı pasife çeker (sistemden gizler, marka kullanıcılarını askıya alır) veya yeniden aktifleştirir. */
+export async function toggleBrandActiveAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      toggleBrandSchema,
+      { brandId: str(fd, "brandId"), active: str(fd, "active") },
+      { brandId: "Marka", active: "Durum" },
+    );
+    const nextActive = input.active === "true";
+
+    const name = await prisma.$transaction(async (tx) => {
+      const brand = await tx.brand.findUnique({
+        where: { id: input.brandId },
+        select: { id: true, name: true, isActive: true },
+      });
+      if (!brand) throw new DomainError("BULUNAMADI", "Marka bulunamadı.");
+
+      await tx.brand.update({ where: { id: brand.id }, data: { isActive: nextActive } });
+      if (!nextActive) {
+        await tx.user.updateMany({ where: { brandId: brand.id, role: "BRAND" }, data: { status: "SUSPENDED" } });
+      } else {
+        await tx.user.updateMany({ where: { brandId: brand.id, role: "BRAND", status: "SUSPENDED" }, data: { status: "ACTIVE" } });
+      }
+
+      await audit.append({
+        actor: toAuditActor(actor),
+        action: nextActive ? "BRAND_ACTIVATED" : "BRAND_DEACTIVATED",
+        entityType: "Brand",
+        entityId: brand.id,
+        data: { name: brand.name, from: brand.isActive, to: nextActive },
+      });
+      return brand.name;
+    });
+
+    revalidateAll();
+    return {
+      ok: true,
+      message: nextActive ? `${name} aktifleştirildi.` : `${name} pasife çekildi ve sistemden gizlendi.`,
+    };
+  });
+}
+
 const deleteBrandSchema = z.object({ brandId: z.string().min(1).max(64) });
 
 /** Admin: markayı kalıcı olarak siler (bağlı kampanyası varsa engeller). */
 export async function deleteBrandAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN");
   assertPlatformAdmin(actor);
-  return attempt(async () => {
+  const redirectTo = optStr(fd, "redirectTo");
+  const res = await attempt(async () => {
     const input = parseInput(deleteBrandSchema, { brandId: str(fd, "brandId") }, { brandId: "Marka" });
     const brand = await prisma.brand.findUnique({
       where: { id: input.brandId },
@@ -146,29 +196,43 @@ export async function deleteBrandAction(_prev: ActionState, fd: FormData): Promi
     });
     if (!brand) throw new DomainError("BULUNAMADI", "Marka bulunamadı.");
     if (brand._count.campaigns > 0) {
-      throw new DomainError("KURAL_IHLALI", `Bu markaya bağlı ${brand._count.campaigns} kampanya bulunduğu için silinemiyor. Önce kampanyaları silin.`);
+      throw new DomainError(
+        "KURAL_IHLALI",
+        `Bu markaya bağlı ${brand._count.campaigns} kampanya bulunduğu için silinemiyor. Önce kampanyaları silin. Kalıcı silmek yerine 'Pasife Çek' ile sistemden gizleyebilirsiniz.`,
+      );
     }
 
     try {
-      await prisma.brand.delete({ where: { id: brand.id } });
+      await prisma.$transaction(async (tx) => {
+        await tx.user.updateMany({
+          where: { brandId: brand.id, role: "BRAND" },
+          data: { status: "SUSPENDED", brandId: null },
+        });
+        await tx.brand.delete({ where: { id: brand.id } });
+        await audit.append({
+          actor: toAuditActor(actor),
+          action: "BRAND_DELETED",
+          entityType: "Brand",
+          entityId: brand.id,
+          data: { name: brand.name },
+        });
+      });
     } catch (e: unknown) {
       const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
       if (code === "P2003") {
-        throw new DomainError("KURAL_IHLALI", "Bu markaya bağlı kayıtlar (kampanya veya İYS kaydı) bulunduğu için silinemiyor.");
+        throw new DomainError(
+          "KURAL_IHLALI",
+          "Bu markaya bağlı kayıtlar (kampanya veya İYS kaydı) bulunduğu için silinemiyor. Kalıcı silmek yerine 'Pasife Çek' ile sistemden gizleyebilirsiniz.",
+        );
       }
       throw e;
     }
 
-    await audit.append({
-      actor: toAuditActor(actor),
-      action: "BRAND_DELETED",
-      entityType: "Brand",
-      entityId: brand.id,
-      data: { name: brand.name },
-    });
     revalidateAll();
     return { ok: true, message: `${brand.name} silindi.` };
   });
+  if (res.ok && redirectTo === "/admin/markalar") redirect(redirectTo);
+  return res;
 }
 
 /** Admin: mevcut bir marka kullanıcısını bu markaya atar (birden fazla kişi aynı marka hesabına giriş yapabilir). */

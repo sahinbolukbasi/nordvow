@@ -42,7 +42,7 @@ export default async function AdminCompliancePage({ searchParams }: { searchPara
     prisma.crossBorderFiling.findMany(),
     prisma.tenantSettings.findMany(),
     prisma.tenantPolicyFlag.findMany(),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.disclosureCheck.findMany({ where: { compliant: false }, orderBy: { checkedAt: "desc" }, take: 100 }),
   ]);
 

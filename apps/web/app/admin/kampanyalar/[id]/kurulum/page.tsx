@@ -69,7 +69,7 @@ export default async function CampaignSetupPage({ params, searchParams }: { para
         },
       },
     }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     pickerPool(id),
     prisma.campaignBrief.findFirst({ where: { campaignId: id }, orderBy: { version: "desc" } }),
     prisma.agentRun.findFirst({ where: { checkType: "INFLUENCER_ONERI", targetType: "Campaign", targetId: id }, orderBy: { createdAt: "desc" } }),

@@ -31,7 +31,7 @@ export default async function AdminChannelsPage() {
     prisma.channelConnection.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.whatsAppNumber.findMany(),
     prisma.messageTemplate.findMany({ orderBy: [{ status: "asc" }, { name: "asc" }] }),
-    prisma.brand.findMany({ select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
   ]);
   const brandName = new Map(brands.map((b) => [b.id, b.name]));
   const [assistants, settings, conversations] = await Promise.all([

@@ -306,7 +306,7 @@ export async function updateShortlist(actor: Actor, id: string, influencerIds: s
   await assertCanEditDraft(actor, id);
   const unique = [...new Set(influencerIds)].slice(0, 200);
   const found = await prisma.influencer.findMany({
-    where: { id: { in: unique }, ...(actor.role === "BRAND" ? { showcaseVisible: true } : {}) },
+    where: { isActive: true, id: { in: unique }, ...(actor.role === "BRAND" ? { showcaseVisible: true } : {}) },
     select: { id: true },
   });
   const ok = new Set(found.map((f) => f.id));
@@ -409,7 +409,7 @@ export async function previewCampaignOffers(
     }),
     prisma.rateCard.findMany({ where: { influencerId: { in: targetIds }, active: true } }),
     prisma.influencer.findMany({
-      where: { id: { in: targetIds } },
+      where: { isActive: true, id: { in: targetIds } },
       select: {
         id: true,
         name: true,

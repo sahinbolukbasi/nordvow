@@ -15,7 +15,7 @@ export default async function BrandNewEventPage() {
   const actor = await requireActor("BRAND");
   const [brand, allBrands, countries, { detectedCountry }] = await Promise.all([
     prisma.brand.findUnique({ where: { id: actor.brandId! }, select: { name: true } }),
-    prisma.brand.findMany({ where: { id: { not: actor.brandId! } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true, id: { not: actor.brandId! } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     listLocations(),
     getPreferences(),
   ]);

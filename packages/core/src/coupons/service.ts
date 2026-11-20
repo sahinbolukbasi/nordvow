@@ -136,7 +136,7 @@ export async function importCouponCodesAndGrant(input: {
       select: { code: true },
     }),
     prisma.influencer.findMany({
-      where: { user: { status: "ACTIVE" } },
+      where: { isActive: true, user: { status: "ACTIVE" } },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,

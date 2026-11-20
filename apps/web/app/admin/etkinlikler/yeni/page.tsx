@@ -15,7 +15,7 @@ export default async function AdminNewEventPage() {
   const [tt, , brands, countries, { detectedCountry }] = await Promise.all([
     getTT(),
     requireActor("ADMIN"),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     listLocations(),
     getPreferences(),
   ]);

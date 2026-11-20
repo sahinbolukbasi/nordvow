@@ -75,7 +75,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
   const tt = await getTT();
   const isBrand = actor.role === "BRAND";
   if (!campaignId) {
-    const brands = isBrand ? undefined : await prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+    const brands = isBrand ? undefined : await prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } });
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <PageHeader title={tt("Yeni kampanya")} description={tt("8 adım: her adım kaydedilir, istediğiniz an çıkıp taslaktan devam edebilirsiniz.")} />
@@ -179,7 +179,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
   } else if (step === "influencer") {
     const rows = await prisma.influencer.findMany({
       // Çoklu ülke ve global influencer seçimi: vitrinde görünür tüm influencerlar listelenir, hedef ülke olanlar üstte sıralanır.
-      where: { ...(isBrand ? { showcaseVisible: true } : {}) },
+      where: { isActive: true, ...(isBrand ? { showcaseVisible: true } : {}) },
       orderBy: { name: "asc" },
       take: 500,
       select: {

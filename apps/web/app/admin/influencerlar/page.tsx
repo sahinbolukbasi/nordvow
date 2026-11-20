@@ -6,6 +6,7 @@ import { computeInfluencerStats } from "@infulancer/core/domain/influencer-stats
 import { categoryTree } from "@infulancer/core/domain/categories";
 import { activeFilterCount, parseFilters, searchInfluencerIds } from "@infulancer/core/domain/influencer-search";
 import { InfluencerFilterBar } from "@/components/influencer/filter-bar";
+import { InfluencerDeleteButton, InfluencerToggleActiveButton } from "@/components/forms/influencer-lifecycle-buttons";
 import { formatKurus, platformLabels } from "@infulancer/core/domain/labels";
 import { PlatformIcon } from "@/components/platform-icon";
 import { DataTable } from "@/components/ui/data-table";
@@ -27,7 +28,14 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const filters = parseFilters(sp);
   const active = activeFilterCount(filters);
-  const [ids, total, tree] = await Promise.all([searchInfluencerIds(filters), prisma.influencer.count(), categoryTree()]);
+  const statusTab = filters.status === "inactive" ? "pasif" : filters.status === "all" ? "tumu" : "aktif";
+  const [ids, activeCount, inactiveCount, tree] = await Promise.all([
+    searchInfluencerIds(filters),
+    prisma.influencer.count({ where: { isActive: true } }),
+    prisma.influencer.count({ where: { isActive: false } }),
+    categoryTree(),
+  ]);
+  const total = statusTab === "pasif" ? inactiveCount : statusTab === "tumu" ? activeCount + inactiveCount : activeCount;
   const [influencersRaw, stats] = await Promise.all([
     prisma.influencer.findMany({
       where: { id: { in: ids } },
@@ -35,6 +43,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
       select: {
         id: true,
         name: true,
+        isActive: true,
         category: true,
         city: true,
         categories: { orderBy: { primary: "desc" }, select: { primary: true, category: { select: { name: true, parent: { select: { name: true } } } } } },
@@ -60,6 +69,27 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
         description={tt("Hesaplar, ER trendi, teslim disiplini, performans, risk ve ödemeler.")}
         actions={<ButtonLink href="/admin/influencerlar/yeni">{tt("Yeni influencer")}</ButtonLink>}
       />
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label={tt("Influencer durumu")}>
+        {(
+          [
+            ["aktif", `Aktif (${activeCount})`],
+            ["pasif", `Pasif (${inactiveCount})`],
+            ["tumu", `Tümü (${activeCount + inactiveCount})`],
+          ] as const
+        ).map(([key, label]) => (
+          <Link
+            key={key}
+            href={`/admin/influencerlar?durum=${key}`}
+            className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-standard ${
+              statusTab === key
+                ? "border-fg bg-fg text-bg"
+                : "border-border text-fg-muted hover:border-fg/40 hover:text-fg"
+            }`}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
       <InfluencerFilterBar categories={tree} sp={sp} count={influencers.length} total={total} active={active} />
       <DataTable
         caption={tt("Influencer takip listesi")}
@@ -75,6 +105,7 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
           { key: "risk", header: "Risk", align: "right", sortable: true },
           { key: "exclusivity", header: "Münhasırlık", sortable: true },
           { key: "paid", header: "Toplam ödenen", align: "right", sortable: true },
+          { key: "manage", header: "Yönetim" },
         ]}
         rows={influencers.map((i) => {
           const st = stats.get(i.id);
@@ -90,7 +121,14 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
                   <Link href={`/admin/influencerlar/${i.id}`} className="flex items-start gap-3 text-fg hover:underline">
                     <Avatar name={i.name} src={pickAvatar(i.socialAccounts)} size={36} />
                     <span className="flex flex-col">
-                    {i.name}
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span>{i.name}</span>
+                      {!i.isActive ? (
+                        <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                          {tt("Pasif")}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="flex flex-wrap gap-1 pt-1">
                       {i.categories.slice(0, 3).map((c, idx) => (
                         <span key={idx} className={`rounded-full border px-2 py-0.5 text-[11px] ${c.primary ? "border-fg-muted text-fg-muted" : "border-border text-fg-passive"}`}>
@@ -170,6 +208,14 @@ export default async function InfluencersPage({ searchParams }: { searchParams: 
                 sort: excl.length,
               },
               paid: { display: formatKurus(st?.totalPaidKurus ?? 0), sort: st?.totalPaidKurus ?? 0 },
+              manage: {
+                display: (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <InfluencerToggleActiveButton influencerId={i.id} name={i.name} isActive={i.isActive} />
+                    <InfluencerDeleteButton influencerId={i.id} name={i.name} />
+                  </div>
+                ),
+              },
             },
             actions: [
               { label: "Profil", href: `/admin/influencerlar/${i.id}`, icon: "open" },

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { BlogAudience } from "@infulancer/core/enums";
+import { ChevronDownIcon, SearchIcon, SparkleIcon, XIcon } from "@/components/icons";
 import { BlogMarkdown } from "./blog-markdown";
 
 export type InAppBlogPost = {
@@ -90,6 +91,15 @@ export function InAppBlogBrowser({
   const [activeTag, setActiveTag] = useState<string | null>(initialTag);
   const [query, setQuery] = useState(initialQuery);
   const [sortBy, setSortBy] = useState<SortKey>("newest");
+  const [showAllTags, setShowAllTags] = useState(false);
+
+  const categoryCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      map.set(p.category, (map.get(p.category) ?? 0) + 1);
+    }
+    return map;
+  }, [posts]);
 
   const postTagsMap = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -324,145 +334,237 @@ export function InAppBlogBrowser({
     );
   }
 
+  const visibleTags = showAllTags ? popularTags : popularTags.slice(0, 8);
+
   return (
     <div className="flex flex-col gap-6 py-4">
-      {/* Üst Detay & Filtreleme Alanı */}
-      <section className="flex flex-col gap-5 rounded-3xl border border-line bg-surface/60 p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
-          <div className="max-w-2xl">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-neon-pink">
-              Nordvow Akademi &amp; Blog
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
-              Büyüme Rehberleri &amp; Strateji Yazıları
-            </h1>
-            <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
-              Markalar ve içerik üreticileri için kampanya kurgusu, içerik üretimi, lojistik ve
-              performans ipuçları. Okumak istediğiniz yazıya tıklayın, içerik bu alanda açılsın.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-xl border border-line bg-bg/70 px-3 py-1.5 text-fg-muted">
-              <strong className="font-semibold text-fg">{filtered.length}</strong> / {posts.length}{" "}
-              yazı
-            </span>
-            <span className="rounded-xl border border-line bg-bg/70 px-3 py-1.5 text-fg-muted">
-              <strong className="font-semibold text-fg">{popularTags.length}</strong> etiket
-            </span>
-          </div>
-        </div>
+      {/* Modern Editorial Hero + Arama & Filtreleme Alanı */}
+      <section className="relative overflow-hidden rounded-3xl border border-line/70 bg-gradient-to-br from-surface/90 via-surface/60 to-bg p-5 sm:p-8">
+        <div aria-hidden className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-neon-pink/12 blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-24 left-12 h-56 w-56 rounded-full bg-neon-cyan/10 blur-3xl" />
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Başlık, konu veya #etiket ile ara (ör. Reels, kargo, ROI)…"
-            aria-label="Blog yazılarında ara"
-            className="h-10 w-full rounded-xl border border-line bg-bg px-3.5 text-sm text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-          />
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            aria-label="Sıralama"
-            className="h-10 rounded-xl border border-line bg-bg px-3 text-xs font-medium text-fg focus:border-fg focus:outline-none"
-          >
-            <option value="newest">En Yeni</option>
-            <option value="popular">En Çok Okunan</option>
-            <option value="shortest">En Kısa Okuma</option>
-          </select>
-          {hasFilters ? (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="h-10 rounded-xl border border-line px-3.5 text-xs font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg"
-            >
-              Filtreleri temizle ✕
-            </button>
-          ) : null}
-        </div>
+        <div className="relative flex flex-col gap-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="max-w-2xl">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-neon-pink/30 bg-neon-pink/10 px-3 py-1 text-[11px] font-semibold tracking-wide text-neon-pink">
+                <SparkleIcon size={12} />
+                Nordvow Journal
+              </span>
+              <h1 className="mt-2.5 text-2xl font-semibold tracking-tight text-fg sm:text-4xl">
+                Büyüme Rehberleri &amp; Strateji
+              </h1>
+              <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
+                Markalar ve içerik üreticileri için kampanya kurgusu, içerik üretimi ve performans ipuçları.
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-line/80 bg-bg/70 px-3.5 py-1.5 text-xs text-fg-muted backdrop-blur-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-neon-pink" aria-hidden />
+              <span>
+                <strong className="font-semibold tabular-nums text-fg">{filtered.length}</strong> yazı
+              </span>
+            </div>
+          </div>
 
-        <div className="flex flex-col gap-3">
-          {/* Hedef Kitle & Kategori Filtresi */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
-              Kitle:
-            </span>
-            {(
-              [
-                ["ALL", "Tümü"],
-                ["BRAND", "Markalar İçin"],
-                ["INFLUENCER", "Influencerlar İçin"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setAudience(key)}
-                className={`rounded-full border px-3 py-1 text-xs transition-standard ${
-                  audience === key
-                    ? "border-fg bg-fg font-medium text-bg"
-                    : "border-line bg-bg/50 text-fg-muted hover:text-fg"
-                }`}
+          {/* Birleşik Arama & Kontrol Çubuğu */}
+          <div className="flex flex-col gap-2 rounded-2xl border border-line/80 bg-bg/85 p-2 shadow-sm backdrop-blur-xl lg:flex-row lg:items-center">
+            <div className="relative flex flex-1 items-center">
+              <SearchIcon
+                size={17}
+                className="pointer-events-none absolute left-3.5 text-fg-passive"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Yazı, strateji veya #etiket ara…"
+                aria-label="Blog yazılarında ara"
+                className="h-11 w-full rounded-xl bg-transparent pr-9 pl-10 text-sm text-fg placeholder:text-fg-passive focus:outline-none"
+              />
+              {query.trim().length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Aramayı temizle"
+                  className="absolute right-2 rounded-lg p-1.5 text-fg-muted transition-standard hover:bg-surface-hover hover:text-fg"
+                >
+                  <XIcon size={14} />
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-2 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-2">
+              {/* Hedef Kitle Segmented Control */}
+              <div
+                role="group"
+                aria-label="Hedef kitle"
+                className="inline-flex items-center rounded-xl border border-line/70 bg-surface/60 p-1"
               >
-                {label}
-              </button>
-            ))}
+                {(
+                  [
+                    ["ALL", "Tümü"],
+                    ["BRAND", "Markalar"],
+                    ["INFLUENCER", "Influencerlar"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setAudience(key)}
+                    aria-pressed={audience === key}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-standard ${
+                      audience === key
+                        ? "bg-fg text-bg shadow-sm"
+                        : "text-fg-muted hover:text-fg"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-            <span className="mx-1.5 text-fg-passive">|</span>
-            <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
-              Kategori:
-            </span>
+              {/* Sıralama Seçici */}
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortKey)}
+                  aria-label="Sıralama"
+                  className="h-9 cursor-pointer appearance-none rounded-xl border border-line/80 bg-surface/60 pr-8 pl-3 text-xs font-medium text-fg transition-standard hover:border-fg/30 focus:border-fg focus:outline-none"
+                >
+                  <option value="newest">En Yeni</option>
+                  <option value="popular">En Popüler</option>
+                  <option value="shortest">Kısa Okuma</option>
+                </select>
+                <ChevronDownIcon
+                  size={14}
+                  className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-fg-muted"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Temiz Kategori Sekmeleri */}
+          <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5 sm:flex-wrap sm:overflow-visible">
             <button
               type="button"
               onClick={() => setCategory("ALL")}
-              className={`rounded-full border px-3 py-1 text-xs transition-standard ${
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-standard ${
                 category === "ALL"
-                  ? "border-fg bg-fg font-medium text-bg"
-                  : "border-line bg-bg/50 text-fg-muted hover:text-fg"
+                  ? "bg-fg text-bg shadow-sm"
+                  : "border border-line/70 bg-bg/60 text-fg-muted hover:border-fg/30 hover:text-fg"
               }`}
             >
-              Tümü
+              <span>Tümü</span>
+              <span className={`tabular-nums text-[11px] ${category === "ALL" ? "opacity-75" : "text-fg-passive"}`}>
+                {posts.length}
+              </span>
             </button>
-            {categories.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCategory(c)}
-                className={`rounded-full border px-3 py-1 text-xs transition-standard ${
-                  category === c
-                    ? "border-fg bg-fg font-medium text-bg"
-                    : "border-line bg-bg/50 text-fg-muted hover:text-fg"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
+            {categories.map((c) => {
+              const count = categoryCounts.get(c) ?? 0;
+              const selected = category === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCategory(c)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-standard ${
+                    selected
+                      ? "bg-fg text-bg shadow-sm"
+                      : "border border-line/70 bg-bg/60 text-fg-muted hover:border-fg/30 hover:text-fg"
+                  }`}
+                >
+                  <span>{c}</span>
+                  <span className={`tabular-nums text-[11px] ${selected ? "opacity-75" : "text-fg-passive"}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Hashtag Filtresi */}
+          {/* Trend Etiketler */}
           {popularTags.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 text-[11px] font-medium uppercase tracking-wider text-fg-passive">
-                Etiketler:
-              </span>
-              {popularTags.map(({ label, count }) => {
+              <span className="mr-1 text-[11px] font-medium text-fg-passive">Öne çıkan etiketler:</span>
+              {visibleTags.map(({ label, count }) => {
                 const isSelected = activeTag?.toLocaleLowerCase("tr") === label.toLocaleLowerCase("tr");
                 return (
                   <button
                     key={label}
                     type="button"
                     onClick={() => filterByTag(label)}
-                    className={`rounded-full border px-2.5 py-0.5 text-xs transition-standard ${
+                    className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-standard ${
                       isSelected
                         ? "border-neon-pink bg-neon-pink/15 font-medium text-neon-pink"
-                        : "border-line bg-bg/40 text-fg-muted hover:border-neon-pink/40 hover:text-fg"
+                        : "border-line/70 bg-bg/40 text-fg-muted hover:border-neon-pink/40 hover:text-fg"
                     }`}
                   >
-                    #{label} <span className="opacity-60">({count})</span>
+                    #{label} <span className="opacity-60">{count}</span>
                   </button>
                 );
               })}
+              {popularTags.length > 8 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTags((v) => !v)}
+                  className="rounded-full px-2.5 py-0.5 text-[11px] font-medium text-fg-muted transition-standard hover:text-fg"
+                >
+                  {showAllTags ? "Daha az" : `+${popularTags.length - 8} daha`}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Aktif Filtre Şeridi */}
+          {hasFilters ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-3 text-xs">
+              <span className="text-[11px] font-medium text-fg-passive">Aktif filtreler:</span>
+              {query.trim().length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="inline-flex items-center gap-1 rounded-full border border-line bg-bg/80 px-2.5 py-0.5 text-fg-muted hover:text-fg"
+                >
+                  <span>&ldquo;{query.trim()}&rdquo;</span>
+                  <XIcon size={12} />
+                </button>
+              ) : null}
+              {audience !== "ALL" ? (
+                <button
+                  type="button"
+                  onClick={() => setAudience("ALL")}
+                  className="inline-flex items-center gap-1 rounded-full border border-line bg-bg/80 px-2.5 py-0.5 text-fg-muted hover:text-fg"
+                >
+                  <span>{AUDIENCE_LABEL[audience]}</span>
+                  <XIcon size={12} />
+                </button>
+              ) : null}
+              {category !== "ALL" ? (
+                <button
+                  type="button"
+                  onClick={() => setCategory("ALL")}
+                  className="inline-flex items-center gap-1 rounded-full border border-line bg-bg/80 px-2.5 py-0.5 text-fg-muted hover:text-fg"
+                >
+                  <span>{category}</span>
+                  <XIcon size={12} />
+                </button>
+              ) : null}
+              {activeTag ? (
+                <button
+                  type="button"
+                  onClick={() => setActiveTag(null)}
+                  className="inline-flex items-center gap-1 rounded-full border border-neon-pink/40 bg-neon-pink/10 px-2.5 py-0.5 text-neon-pink hover:bg-neon-pink/20"
+                >
+                  <span>#{activeTag}</span>
+                  <XIcon size={12} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="ml-auto text-[11px] font-medium text-fg-muted underline underline-offset-4 hover:text-fg"
+              >
+                Tümünü temizle
+              </button>
             </div>
           ) : null}
         </div>

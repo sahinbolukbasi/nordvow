@@ -4,10 +4,11 @@ import type { Role } from "@infulancer/core/enums";
 import {
   AlertIcon,
   BookOpenIcon,
-  FileIcon,
   GridIcon,
   NewspaperIcon,
+  PhoneIcon,
   SettingsIcon,
+  TruckIcon,
   UserIcon,
   BellIcon,
   BuildingIcon,
@@ -33,7 +34,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/kampanyalar", label: "Kampanyalar", icon: MegaphoneIcon, section: "Operasyon", order: 20 },
     { href: "/admin/teklifler", label: "Teklifler", icon: WalletIcon, section: "Operasyon", order: 30 },
     { href: "/admin/takvim", label: "Takvim", icon: CalendarIcon, section: "Operasyon", order: 40 },
-    { href: "/admin/kargo", label: "Kargo yönetimi", icon: FileIcon, section: "Operasyon", order: 50 },
+    { href: "/admin/kargo", label: "Kargo yönetimi", icon: TruckIcon, section: "Operasyon", order: 50 },
 
     // 2. Taraflar & İletişim
     { href: "/admin/influencerlar", label: "Influencerlar", icon: UsersIcon, section: "Taraflar ve İletişim", order: 100 },
@@ -52,7 +53,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/qr-giris", label: "QR Giriş & Biletler", icon: GridIcon, section: "Pazarlama ve Araçlar", order: 225 },
     { href: "/admin/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 230 },
     { href: "/admin/linkler", label: "Linkler", icon: LinkIcon, section: "Pazarlama ve Araçlar", order: 240 },
-    { href: "/dashboard/voice-assistant", label: "Sesli asistan", icon: BellIcon, section: "Pazarlama ve Araçlar", order: 250 },
+    { href: "/dashboard/voice-assistant", label: "Sesli asistan", icon: PhoneIcon, section: "Pazarlama ve Araçlar", order: 250 },
 
     // 4. Finans & Kredi
     { href: "/admin/finans", label: "Finans", icon: WalletIcon, section: "Finans ve Kredi", order: 300 },

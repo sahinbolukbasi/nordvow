@@ -52,8 +52,8 @@ export default async function CreditsManagementPage({
 
   const [starterCreditsTry, brands, influencers, accounts, users] = await Promise.all([
     getConfig("creative.starterCreditsTry"),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, country: true, contactEmail: true } }),
-    prisma.influencer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, country: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, country: true, contactEmail: true } }),
+    prisma.influencer.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, country: true } }),
     prisma.creditAccount.findMany(),
     prisma.user.findMany({
       where: { OR: [{ brandId: { not: null } }, { influencerId: { not: null } }] },
