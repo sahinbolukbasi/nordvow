@@ -32,7 +32,7 @@ export async function saveBrandAddressAction(_p: ActionState, fd: FormData): Pro
       taxOffice: optStr(fd, "taxOffice"),
       taxNumber: optStr(fd, "taxNumber"),
       isBilling: fd.get("isBilling") === "on",
-      isShipping: fd.get("isShipping") === "on",
+      isShipping: false,
     });
     await updateBrandTaxProfile(brandId, {
       taxpayerType: optStr(fd, "taxpayerType"),

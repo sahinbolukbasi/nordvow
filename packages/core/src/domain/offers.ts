@@ -165,10 +165,16 @@ export async function acceptCounterByBrand(offerId: string, brandId: string, now
   });
 }
 
-/** Marka teklifi geri çeker (yalnız yanıt bekleyen). */
-export async function withdrawOffer(offerId: string, brandId: string) {
+/** Teklif sahibi veya alıcısı, yalnız yanıt bekleyen teklifi geri çekebilir. */
+export async function withdrawOffer(offerId: string, party: { role: "BRAND" | "INFLUENCER"; brandId?: string; influencerId?: string }) {
   const o = await prisma.offer.findUnique({ where: { id: offerId } });
-  if (!o || o.brandId !== brandId) throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  if (
+    !o ||
+    (party.role === "BRAND" && o.brandId !== party.brandId) ||
+    (party.role === "INFLUENCER" && o.influencerId !== party.influencerId)
+  ) {
+    throw new DomainError("BULUNAMADI", "Teklif bulunamadı.");
+  }
   if (o.status !== "GONDERILDI") throw new DomainError("GECERSIZ_GECIS", "Yalnız yanıt bekleyen teklif geri çekilebilir.");
   return prisma.offer.update({ where: { id: o.id }, data: { status: "GERI_CEKILDI" } });
 }

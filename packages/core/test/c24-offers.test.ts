@@ -36,8 +36,8 @@ describe("fiyat listesi ve teklifler", () => {
     await expect(respondOffer(offA.id, b, "KABUL", null)).rejects.toThrow(/bulunamadı/);
     await expect(respondOffer(offB.id, b, "RED", "")).rejects.toThrow(/not/);
     expect((await respondOffer(offA.id, a, "KABUL", null)).status).toBe("KABUL");
-    await expect(withdrawOffer(offA.id, brandId)).rejects.toThrow();
-    expect((await withdrawOffer(offB.id, brandId)).status).toBe("GERI_CEKILDI");
+    await expect(withdrawOffer(offA.id, { role: "BRAND", brandId })).rejects.toThrow();
+    expect((await withdrawOffer(offB.id, { role: "BRAND", brandId })).status).toBe("GERI_CEKILDI");
   });
   it("süresi dolan teklifler kapanır", async () => {
     await sendOffers({ brandId, createdById: userId, influencerIds: [b], title: "Kış", message: "x", publishBy: null, campaignId: null, items: [{ platform: "TIKTOK", contentType: "VIDEO", qty: 1, priceKurus: 500_000 }], perInfluencerPricing: false });

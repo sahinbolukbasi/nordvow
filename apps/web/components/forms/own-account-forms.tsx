@@ -14,7 +14,7 @@ export function OwnAccountForm() {
           <option value="INSTAGRAM">{tt("Instagram")}</option>
           <option value="YOUTUBE">{tt("YouTube")}</option>
         </Select>
-        <Input name="handle" required placeholder={tt("@kullaniciadi veya profil bağlantısı")} aria-label={tt("Kullanıcı adı")} />
+        <Input name="handle" placeholder={tt("@kullaniciadi veya profil bağlantısı")} aria-label={tt("Kullanıcı adı")} />
       </div>
       <p className="text-[12px] text-fg-passive">{tt("Instagram hesabı Business veya Creator olmalı. Şifre istenmez.")}</p>
     </ActionForm>

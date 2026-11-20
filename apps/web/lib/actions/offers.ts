@@ -258,10 +258,16 @@ export async function respondOfferAction(_p: ActionState, fd: FormData): Promise
 }
 
 export async function withdrawOfferAction(_p: ActionState, fd: FormData): Promise<ActionState> {
-  const actor = await requireActor("BRAND");
+  const actor = await requireActor("BRAND", "INFLUENCER");
   return attempt(async () => {
-    const o = await withdrawOffer(str(fd, "id"), actor.brandId!);
-    await notifyInfluencer(prisma, o.influencerId, { title: "Teklif geri çekildi", body: o.title, href: "/influencer/teklifler" });
+    const party =
+      actor.role === "BRAND"
+        ? { role: "BRAND" as const, brandId: actor.brandId ?? undefined }
+        : { role: "INFLUENCER" as const, influencerId: actor.influencerId ?? undefined };
+    const o = await withdrawOffer(str(fd, "id"), party);
+    if (actor.role === "BRAND") {
+      await notifyInfluencer(prisma, o.influencerId, { title: "Teklif geri çekildi", body: o.title, href: "/influencer/teklifler" });
+    }
     await audit.append({ actor: toAuditActor(actor), action: "OFFER_WITHDRAWN", entityType: "Offer", entityId: o.id, data: {} });
     revalidateAll();
     return { ok: true, message: "Teklif geri çekildi." };

@@ -35,7 +35,6 @@ export function InfluencerAddressForm({
             name="recipientName"
             defaultValue={initial?.recipientName ?? ""}
             placeholder="Ad Soyad"
-            required
           />
         )}
       </Field>
@@ -46,7 +45,6 @@ export function InfluencerAddressForm({
             name="recipientPhone"
             defaultValue={initial?.recipientPhone ?? ""}
             placeholder="05XX XXX XX XX"
-            required
           />
         )}
       </Field>
@@ -57,7 +55,6 @@ export function InfluencerAddressForm({
             name="city"
             defaultValue={initial?.city ?? ""}
             placeholder="İstanbul"
-            required
           />
         )}
       </Field>
@@ -68,7 +65,6 @@ export function InfluencerAddressForm({
             name="district"
             defaultValue={initial?.district ?? ""}
             placeholder="Kadıköy"
-            required
           />
         )}
       </Field>
@@ -92,7 +88,6 @@ export function InfluencerAddressForm({
             name="addressLine"
             defaultValue={initial?.addressLine ?? ""}
             placeholder="Mahalle, sokak, bina ve daire no"
-            required
           />
         )}
       </Field>

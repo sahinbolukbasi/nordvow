@@ -37,6 +37,15 @@ export default async function EditCampaignPage({ params }: { params: Promise<{ i
             endsAt: localDay(c.endsAt, AGENCY_TZ),
             status: c.status,
             targets: parseTargets(c.targets),
+            description: c.description,
+            objective: c.objective,
+            targetCountries: c.targetCountries,
+            platforms: c.platforms,
+            audienceAgeMin: c.audienceAgeMin,
+            audienceAgeMax: c.audienceAgeMax,
+            audienceGender: c.audienceGender,
+            audienceInterests: c.audienceInterests,
+            contentPlan: c.contentPlan,
           }}
         />
       </Card>

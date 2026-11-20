@@ -5,6 +5,7 @@ import { z } from "zod";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
+import { Prisma } from "@infulancer/core/db";
 import { targetsSchema } from "@infulancer/core/domain/campaign-score";
 import { assertCampaignCanGoLive, CampaignGateError } from "@infulancer/core/compliance/disclosure";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
@@ -28,6 +29,15 @@ const campaignSchema = z
     endsAt: z.string().refine(isDay, { error: "Geçerli bir tarih girin." }),
     status: z.enum(["TASLAK", "AKTIF", "IPTAL"], { error: "Durum seçin (kapatma için 'Kampanyayı kapat' kullanın)." }),
     targets: targetsSchema,
+    description: z.string().max(5000).optional(),
+    objective: z.string().max(80).optional(),
+    targetCountries: z.array(z.string().max(2)).max(50).optional(),
+    platforms: z.array(z.enum(["INSTAGRAM", "TIKTOK", "YOUTUBE"])).max(3).optional(),
+    audienceAgeMin: z.number().int().min(13).max(100).nullable().optional(),
+    audienceAgeMax: z.number().int().min(13).max(100).nullable().optional(),
+    audienceGender: z.string().max(30).nullable().optional(),
+    audienceInterests: z.array(z.string().max(80)).max(30).optional(),
+    contentPlan: z.unknown().nullable().optional(),
   })
   .refine((v) => v.endsAt >= v.startsAt, { error: "Bitiş tarihi başlangıçtan önce olamaz.", path: ["endsAt"] });
 
@@ -41,6 +51,7 @@ const labels: Record<string, string> = {
   endsAt: "Bitiş",
   status: "Durum",
   targets: "Hedefler",
+  description: "Açıklama",
 };
 
 function slugify(v: string): string {
@@ -92,6 +103,15 @@ export async function saveCampaign(_prev: ActionState, fd: FormData): Promise<Ac
       endsAt: str(fd, "endsAt"),
       status: str(fd, "status"),
       targets: parseTargetsJson(str(fd, "targets")),
+      description: optStr(fd, "description"),
+      objective: optStr(fd, "objective"),
+      targetCountries: str(fd, "targetCountries").split(",").map((v) => v.trim()).filter(Boolean),
+      platforms: str(fd, "platforms").split(",").filter((v): v is "INSTAGRAM" | "TIKTOK" | "YOUTUBE" => v === "INSTAGRAM" || v === "TIKTOK" || v === "YOUTUBE"),
+      audienceAgeMin: optStr(fd, "audienceAgeMin") ? Number(str(fd, "audienceAgeMin")) : null,
+      audienceAgeMax: optStr(fd, "audienceAgeMax") ? Number(str(fd, "audienceAgeMax")) : null,
+      audienceGender: optStr(fd, "audienceGender"),
+      audienceInterests: str(fd, "audienceInterests").split(",").map((v) => v.trim()).filter(Boolean),
+      contentPlan: optStr(fd, "contentPlan") ? (JSON.parse(str(fd, "contentPlan")) as Prisma.InputJsonValue) : null,
     };
     const input = parseInput(campaignSchema, raw, labels);
     const existing = id ? await prisma.campaign.findUnique({ where: { id }, select: { status: true } }) : null;
@@ -115,6 +135,7 @@ export async function saveCampaign(_prev: ActionState, fd: FormData): Promise<Ac
     const slug = await uniqueSlug(input.slug, id);
     const data = {
       ...input,
+      contentPlan: input.contentPlan == null ? Prisma.JsonNull : (input.contentPlan as Prisma.InputJsonValue),
       slug,
       startsAt: zonedToUtc(input.startsAt, "00:00", AGENCY_TZ),
       endsAt: zonedToUtc(input.endsAt, "23:59", AGENCY_TZ),

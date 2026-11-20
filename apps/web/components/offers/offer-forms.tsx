@@ -127,10 +127,25 @@ export function BrandOfferActions({
 
 export function WithdrawOffer({ id }: { id: string }) {
   const tt = useTT();
+  const [open, setOpen] = useState(false);
   return (
-    <ActionForm action={withdrawOfferAction} submitLabel={tt("Geri çek")} submitVariant="ghost" submitSize="sm" aria-label={tt("Teklifi geri çek")} className="gap-1">
-      <input type="hidden" name="id" value={id} />
-    </ActionForm>
+    <>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={tt("Teklifi geri çek")}>{tt("Geri çek")}</Button>
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+          <div className="flex w-full max-w-sm flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-xl">
+            <h2 className="font-semibold text-fg">{tt("Teklifi geri çek?")}</h2>
+            <p className="text-sm text-fg-muted">{tt("Bu işlem teklifi yanıt bekleyenler listesinden kaldırır.")}</p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(false)}>{tt("Vazgeç")}</Button>
+              <ActionForm action={withdrawOfferAction} submitLabel={tt("Evet, geri çek")} submitSize="sm">
+                <input type="hidden" name="id" value={id} />
+              </ActionForm>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -39,7 +39,7 @@ export function ProfileForm({ name, phone }: { name: string; phone: string | nul
       }
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" required defaultValue={name} autoComplete="name" />}</Field>
+        <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" defaultValue={name} autoComplete="name" />}</Field>
         <Field label={tt("Telefon")}>{(p) => <Input {...p} name="phone" type="tel" defaultValue={phone ?? ""} autoComplete="tel" placeholder="+90 5__ ___ __ __" />}</Field>
       </div>
     </ActionForm>

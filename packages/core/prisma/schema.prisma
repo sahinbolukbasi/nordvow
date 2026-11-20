@@ -1456,6 +1456,8 @@ model CreativeJob {
   prompt       String
   promptHash   String
   units        Decimal           @db.Decimal(10, 3)
+  /// Sağlayıcının webhook/uzlaştırma ile bildirdiği gerçek maliyet; yoksa model fiyatı tahmin olarak kullanılır.
+  actualCostUsd Decimal?         @map("actual_cost_usd") @db.Decimal(10, 6)
   requestId    String?           @unique
   creditHoldId String?
   /// Düzenleme işlerinde kaynak dosya (kullanıcı yüklemesi); üretimde null.

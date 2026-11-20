@@ -6,15 +6,12 @@ import { prisma } from "@infulancer/core/db";
 import { cleanSocialHandle } from "@infulancer/core/social/handle";
 import { syncInfluencer, syncSocialAccount } from "@infulancer/core/social/sync";
 import type { ActionState } from "@/lib/action-state";
-import { attempt, parseInput, revalidateAll, str } from "@/lib/action-utils";
+import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
 
 const schema = z.object({
   platform: z.enum(["INSTAGRAM", "YOUTUBE"]),
-  handle: z
-    .string()
-    .transform((v) => cleanSocialHandle(v))
-    .pipe(z.string().regex(/^[a-z0-9._-]{2,40}$/, { error: "Geçerli bir kullanıcı adı girin (ör. @kullanici)." })),
+  handle: z.string().transform((v) => cleanSocialHandle(v)).optional(),
 });
 
 /**
@@ -24,7 +21,11 @@ const schema = z.object({
 export async function saveOwnAccountAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("INFLUENCER");
   return attempt(async () => {
-    const input = parseInput(schema, { platform: str(fd, "platform"), handle: str(fd, "handle") }, { handle: "Kullanıcı adı" });
+    const input = parseInput(schema, { platform: str(fd, "platform"), handle: optStr(fd, "handle") }, { handle: "Kullanıcı adı" });
+    if (!input.handle) {
+      revalidateAll();
+      return { ok: true, message: "Kullanıcı adı boş bırakıldı; mevcut bilgiler korunuyor." };
+    }
     const influencerId = actor.influencerId!;
     const prev = await prisma.socialAccount.findUnique({ where: { influencerId_platform: { influencerId, platform: input.platform } } });
     const acc = prev

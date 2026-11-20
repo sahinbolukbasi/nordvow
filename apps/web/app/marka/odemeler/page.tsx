@@ -5,6 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { listBrandPaymentNotices } from "@infulancer/core/finance/brand-payments";
 import { BrandPaymentAction } from "@/components/finance/brand-payments-client";
+import { EInvoiceButton } from "@/components/finance/e-invoice-button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { PageHeader, Stagger } from "@/components/ui/layout";
@@ -74,6 +75,12 @@ export default async function BrandPaymentsPage() {
   ]);
 
   if (!brand) notFound();
+  const missingInvoice = [
+    !brand.taxNumber ? "Vergi no / TCKN" : "",
+    !brand.name ? "Resmi ünvan" : "",
+    !brand.contactPhone ? "Telefon" : "",
+    !brand.contactEmail ? "Fatura e-postası" : "",
+  ].filter(Boolean);
 
   const unpaid = campaigns.filter((c) => !c.brandPaymentReceivedAt);
   const paid = campaigns.filter((c) => !!c.brandPaymentReceivedAt);
@@ -143,12 +150,7 @@ export default async function BrandPaymentsPage() {
             },
             invoice: {
               display: (
-                <Link
-                  href={`/marka/odemeler/fatura/${c.id}`}
-                  className="inline-flex h-8 items-center rounded-[8px] border border-border px-2.5 text-[12px] font-medium text-fg hover:border-border-strong"
-                >
-                  {tt("Fatura Görüntüle")}
-                </Link>
+                <EInvoiceButton href={`/marka/odemeler/fatura/${c.id}`} missing={missingInvoice} />
               ),
             },
             action: {
@@ -201,12 +203,7 @@ export default async function BrandPaymentsPage() {
               status: { display: <StatusDot tone="active">{tt("Ödendi")}</StatusDot> },
               invoice: {
                 display: (
-                  <Link
-                    href={`/marka/odemeler/fatura/${c.id}`}
-                    className="inline-flex h-8 items-center rounded-[8px] border border-border px-2.5 text-[12px] font-medium text-fg hover:border-border-strong"
-                  >
-                    {tt("Fatura Görüntüle")}
-                  </Link>
+                  <EInvoiceButton href={`/marka/odemeler/fatura/${c.id}`} missing={missingInvoice} />
                 ),
               },
             },

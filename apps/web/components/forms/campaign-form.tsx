@@ -19,6 +19,15 @@ export type CampaignFormValues = {
   endsAt: string;
   status: "TASLAK" | "AKTIF" | "KAPANDI" | "IPTAL";
   targets: { kpi: Kpi; target: number; weight: number; windowDays: number }[];
+  description?: string | null;
+  objective?: string | null;
+  targetCountries?: string[];
+  platforms?: string[];
+  audienceAgeMin?: number | null;
+  audienceAgeMax?: number | null;
+  audienceGender?: string | null;
+  audienceInterests?: string[];
+  contentPlan?: unknown;
 };
 
 /** Hedef şablonları: seçince KPI hedefleri hazır doldurulur (gelişmiş bölümde düzenlenebilir). */
@@ -107,6 +116,10 @@ export function CampaignForm({ campaign, brands, returnTo, defaultBrandId }: { r
       {campaign ? <input type="hidden" name="id" value={campaign.id} /> : null}
       {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
       <input type="hidden" name="targets" value={JSON.stringify(rows)} />
+      <input type="hidden" name="targetCountries" value={(campaign?.targetCountries ?? []).join(",")} />
+      <input type="hidden" name="platforms" value={(campaign?.platforms ?? []).join(",")} />
+      <input type="hidden" name="audienceInterests" value={(campaign?.audienceInterests ?? []).join(",")} />
+      <input type="hidden" name="contentPlan" value={campaign?.contentPlan ? JSON.stringify(campaign.contentPlan) : ""} />
 
       <Section n={1} title={tt("Kampanyanın hedefi ne?")}>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4" role="radiogroup" aria-label={tt("Kampanya hedefi")}>
@@ -177,6 +190,19 @@ export function CampaignForm({ campaign, brands, returnTo, defaultBrandId }: { r
             <span className="text-[12px] text-fg-passive tabular-nums">{tl(fee) ? `%${fmt((margin / tl(fee)) * 100)} marj` : "—"}</span>
           </div>
         </div>
+      </Section>
+
+      <Section n={4} title={tt("Kampanya özeti ve hedef kitle")}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label={tt("Amaç")}>{(p) => <Input {...p} name="objective" defaultValue={campaign?.objective ?? ""} placeholder="Bilinirlik, satış, etkileşim..." />}</Field>
+          <Field label={tt("Cinsiyet")}>{(p) => <Input {...p} name="audienceGender" defaultValue={campaign?.audienceGender ?? ""} placeholder="hepsi / kadın / erkek" />}</Field>
+          <Field label={tt("Minimum yaş")}>{(p) => <Input {...p} name="audienceAgeMin" type="number" defaultValue={campaign?.audienceAgeMin ?? ""} />}</Field>
+          <Field label={tt("Maksimum yaş")}>{(p) => <Input {...p} name="audienceAgeMax" type="number" defaultValue={campaign?.audienceAgeMax ?? ""} />}</Field>
+          <Field label={tt("Hedef ülkeler")}>{(p) => <Input {...p} name="targetCountriesDisplay" defaultValue={(campaign?.targetCountries ?? []).join(", ")} readOnly />}</Field>
+          <Field label={tt("Platformlar")}>{(p) => <Input {...p} name="platformsDisplay" defaultValue={(campaign?.platforms ?? []).join(", ")} readOnly />}</Field>
+        </div>
+        <Field label={tt("Kampanya açıklaması")}>{(p) => <textarea {...p} name="description" rows={4} defaultValue={campaign?.description ?? ""} className="min-h-24 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg" />}</Field>
+        <p className="text-xs text-fg-muted">{tt("Hızlı kampanya sihirbazında kaydedilen hedef kitle, platform ve açıklama bilgileri burada düzenlenebilir.")}</p>
       </Section>
 
       <details className="rounded-3xl border border-line px-5 py-4">

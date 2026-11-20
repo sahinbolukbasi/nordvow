@@ -83,16 +83,22 @@ export function QuickCampaignWizard({
   defaultBrandId,
   defaultBrandName,
   categoryOptions = [],
+  catalog = [],
+  initialCampaignId,
+  initialCampaignName,
 }: {
   role: "ADMIN" | "BRAND";
   brands?: { id: string; name: string }[];
   defaultBrandId?: string;
   defaultBrandName?: string;
   categoryOptions?: string[];
+  catalog?: { id: string; kind: "sector" | "template"; name: string; sector?: string; active: boolean }[];
+  initialCampaignId?: string;
+  initialCampaignName?: string;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [campaignId, setCampaignId] = useState<string | null>(null);
+  const [campaignId, setCampaignId] = useState<string | null>(initialCampaignId ?? null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -100,7 +106,7 @@ export function QuickCampaignWizard({
 
   // Ekran 1: Ne istiyorsun?
   const [brandId, setBrandId] = useState(defaultBrandId ?? brands?.[0]?.id ?? "");
-  const [campaignName, setCampaignName] = useState("");
+  const [campaignName, setCampaignName] = useState(initialCampaignName ?? "");
   const [objective, setObjective] = useState<Objective>("satis");
   const [secondaryObjective, setSecondaryObjective] = useState<Objective | "">("");
   const [sector, setSector] = useState<CampaignSectorId>("kozmetik");
@@ -155,6 +161,8 @@ export function QuickCampaignWizard({
   const allInterests = useMemo(() => {
     return [...new Set([...categoryOptions, ...INTEREST_TAGS, ...interests].map((x) => x.toLocaleLowerCase("tr")))];
   }, [categoryOptions, interests]);
+  const catalogSectors = useMemo(() => catalog.filter((x) => x.kind === "sector" && x.active), [catalog]);
+  const catalogTemplates = useMemo(() => catalog.filter((x) => x.kind === "template" && x.active), [catalog]);
 
   const budgetMajor = Math.max(0, Number(budgetStr.replace(/[^\d]/g, "")) || 0);
   const budgetKurus = budgetMajor * 100;
@@ -179,7 +187,15 @@ export function QuickCampaignWizard({
   const applyTemplate = (key: string) => {
     setTemplateKey(key);
     const tpl = CAMPAIGN_TEMPLATES.find((t) => t.key === key);
-    if (!tpl) return;
+    if (!tpl) {
+      const custom = catalogTemplates.find((t) => t.id === key);
+      if (custom) {
+        const customSector = custom.sector || catalogSectors[0]?.id || "kozmetik";
+        setSector(customSector as CampaignSectorId);
+        if (!campaignName.trim()) setCampaignName(`${activeBrandName} · ${custom.name}`);
+      }
+      return;
+    }
     setSector(tpl.sector);
     setObjective(tpl.objective);
     setPlatforms([...tpl.defaultPlatforms]);
@@ -492,7 +508,7 @@ export function QuickCampaignWizard({
             <Field label="Hazır şablon (sektör × hedef)" hint="Brief, içerik planı ve hedef kitleyi otomatik doldurur.">
               {(p) => (
                 <Select {...p} value={templateKey} onChange={(e) => applyTemplate(e.target.value)}>
-                  {CAMPAIGN_TEMPLATES.map((t) => (
+                  {[...CAMPAIGN_TEMPLATES, ...catalogTemplates.map((t) => ({ key: t.id, sectorLabel: t.sector ?? "Özel", objectiveLabel: "Kampanya", title: t.name }))].map((t) => (
                     <option key={t.key} value={t.key}>
                       {t.sectorLabel} · {t.objectiveLabel} — {t.title}
                     </option>
@@ -503,7 +519,7 @@ export function QuickCampaignWizard({
             <Field label="Sektör">
               {(p) => (
                 <Select {...p} value={sector} onChange={(e) => setSector(e.target.value as CampaignSectorId)}>
-                  {SECTORS.map((s) => (
+                  {[...SECTORS, ...catalogSectors.map((s) => ({ id: s.id, label: s.name }))].map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.label}
                     </option>

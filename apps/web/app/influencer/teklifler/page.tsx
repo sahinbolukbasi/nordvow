@@ -7,7 +7,7 @@ import { creativePricing } from "@infulancer/core/creative/pricing";
 import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { ApplyForm } from "@/components/campaigns/open-call-forms";
 import { Pill, StatStrip } from "@/components/luma/primitives";
-import { RespondOffer } from "@/components/offers/offer-forms";
+import { RespondOffer, WithdrawOffer } from "@/components/offers/offer-forms";
 import { OfferAcceptWithShipment } from "@/components/shipping/offer-shipment-modal";
 import { listInfluencerAddresses } from "@infulancer/core/shipping/service";
 import { parseProductDetails } from "@infulancer/core/shipping/types";
@@ -165,6 +165,7 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                       <RespondOffer id={o.id} />
                     )
                   ) : null}
+                  {actionable && o.status === "GONDERILDI" ? <WithdrawOffer id={o.id} /> : null}
                 </div>
               </div>
             </li>

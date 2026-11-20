@@ -31,7 +31,6 @@ export function BrandBillingAddressForm({ initialAddress }: { initialAddress?: {
       <input name="postalCode" defaultValue={initialAddress?.postalCode ?? ""} placeholder="Posta kodu" className="h-10 rounded-lg border border-line bg-bg px-3" />
       <textarea name="addressLine" defaultValue={initialAddress?.addressLine ?? ""} placeholder="Açık adres" required className="min-h-24 rounded-lg border border-line bg-bg px-3 py-2 md:col-span-2" />
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isBilling" defaultChecked /> Fatura adresi</label>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="isShipping" defaultChecked /> Gönderici adresi</label>
       {state.message ? <p className={state.ok ? "text-sm text-emerald-500 md:col-span-2" : "text-sm text-red-400 md:col-span-2"}>{state.message}</p> : null}
       <button disabled={pending} className="h-10 rounded-lg bg-fg px-4 text-sm font-semibold text-bg md:col-span-2">{pending ? "Kaydediliyor..." : "Adres ve fatura bilgilerini kaydet"}</button>
     </form>

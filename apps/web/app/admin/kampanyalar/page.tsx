@@ -5,7 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { campaignStatusLabels } from "@infulancer/core/domain/labels";
 import { formatMinor } from "@infulancer/core/i18n/regions";
 import { DataTable } from "@/components/ui/data-table";
-import { CampaignActionsMenu } from "@/components/campaign/campaign-hub";
+import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader, Stagger } from "@/components/ui/layout";
 import { StatusDot } from "@/components/ui/status";
@@ -166,12 +166,11 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
               },
               more: {
                 display: (
-                  <CampaignActionsMenu
-                    campaignId={c.id}
-                    campaignName={c.name}
-                    viewHref={`/admin/kampanyalar/${c.id}`}
-                    editHref={c.status !== "KAPANDI" ? `/admin/kampanyalar/${c.id}/duzenle` : undefined}
-                  />
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <Link href={`/admin/kampanyalar/${c.id}`} className="text-xs font-medium text-fg hover:underline">{tt("Aç")}</Link>
+                    {c.status !== "KAPANDI" ? <Link href={`/admin/kampanyalar/${c.id}/duzenle`} className="text-xs font-medium text-fg hover:underline">{tt("Düzenle")}</Link> : null}
+                    <CampaignDeleteButton campaignId={c.id} campaignName={c.name} inline />
+                  </div>
                 ),
               },
             },
@@ -179,7 +178,6 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
               { label: "Kampanyayı aç", href: `/admin/kampanyalar/${c.id}`, icon: "open" as const },
               ...(open ? [{ label: "Influencer ekle", href: `/admin/kampanyalar/${c.id}?sekme=influencerlar`, icon: "add" as const }] : []),
               { label: "Brief", href: `/admin/kampanyalar/${c.id}/brief`, icon: "file" as const },
-              ...(open ? [{ label: "Kurulum adımları", href: `/admin/kampanyalar/${c.id}/kurulum`, icon: "settings" as const }] : []),
               ...(c.status !== "KAPANDI" ? [{ label: "Düzenle", href: `/admin/kampanyalar/${c.id}/duzenle`, icon: "edit" as const }] : []),
             ],
           };

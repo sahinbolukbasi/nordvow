@@ -39,7 +39,7 @@ export async function getAdminAiAnalytics(): Promise<AdminAiAnalytics> {
     prisma.creativeJob.findMany({
       orderBy: { createdAt: "desc" },
       take: 1000,
-      select: { modelKey: true, status: true, units: true, createdAt: true },
+      select: { modelKey: true, status: true, units: true, actualCostUsd: true, createdAt: true },
     }),
     prisma.videoPipelineJob.findMany({
       orderBy: { createdAt: "desc" },
@@ -86,7 +86,7 @@ export async function getAdminAiAnalytics(): Promise<AdminAiAnalytics> {
   for (const j of creativeJobs) {
     const m = modelMeta.get(j.modelKey);
     const provider = m?.provider ?? "fal";
-    const cost = j.status === "COMPLETED" ? Number(m?.unitPriceUsd ?? 0) * Number(j.units) : 0;
+    const cost = j.status === "COMPLETED" ? Number(j.actualCostUsd ?? Number(m?.unitPriceUsd ?? 0) * Number(j.units)) : 0;
     addProvider(provider, 1, 0, cost);
     addDaily(j.createdAt, cost);
 

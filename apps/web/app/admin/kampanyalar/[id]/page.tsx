@@ -15,6 +15,7 @@ import {
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
 import { CampaignActionsMenu, CampaignHub } from "@/components/campaign/campaign-hub";
+import { EInvoiceButton } from "@/components/finance/e-invoice-button";
 import { etiketle } from "@/lib/iletisim/etiketler";
 import { CampaignShippingDashboard } from "@/components/shipping/campaign-shipping-dashboard";
 import { getCampaignShipmentsDashboard } from "@infulancer/core/shipping/service";
@@ -77,7 +78,7 @@ export default async function CampaignDetailPage({
   const campaign = await prisma.campaign.findUnique({
     where: { id },
     include: {
-      brand: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true, taxNumber: true, taxOffice: true, contactPhone: true, contactEmail: true, addresses: { where: { isBilling: true }, take: 1, select: { id: true } } } },
       briefs: { orderBy: { version: "desc" }, take: 1 },
       assets: { where: { uploadStatus: "TAMAM" }, orderBy: { createdAt: "desc" }, include: { uploadedBy: { select: { name: true } } } },
       assignments: {
@@ -540,6 +541,13 @@ export default async function CampaignDetailPage({
     shippingDash.config.requiresProductShipment ||
     shippingDash.shipments.length > 0 ||
     campaign.objective === "urun_gonderimi";
+  const missingInvoice = [
+    !campaign.brand.taxNumber ? "Vergi no / TCKN" : "",
+    !campaign.brand.name ? "Resmi ünvan" : "",
+    !campaign.brand.addresses.length ? "Fatura adresi" : "",
+    !campaign.brand.contactPhone ? "Telefon" : "",
+    !campaign.brand.contactEmail ? "Fatura e-postası" : "",
+  ].filter(Boolean);
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
@@ -557,7 +565,7 @@ export default async function CampaignDetailPage({
                 <UserPlusIcon size={16} />{" "}{tt("Influencer ekle")}</ButtonLink>
             ) : null}
             <ButtonLink href={`/admin/kampanyalar/${campaign.id}/brief`} variant="secondary">{" "}{tt("Brief")}</ButtonLink>
-            <ButtonLink href={`/api/fatura/${campaign.id}?format=html`} target="_blank" rel="noreferrer" variant="secondary">{" "}{tt("e-Arşiv Fatura")}</ButtonLink>
+            <EInvoiceButton href={`/api/fatura/${campaign.id}?format=html`} missing={missingInvoice} />
             {campaign.status !== "KAPANDI" ? (
               <ButtonLink href={`/admin/kampanyalar/${campaign.id}/duzenle`} variant="secondary">{" "}{tt("Düzenle")}</ButtonLink>
             ) : null}

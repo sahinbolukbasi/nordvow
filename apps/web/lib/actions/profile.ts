@@ -14,7 +14,7 @@ export async function updateProfileAction(_p: ActionState, fd: FormData): Promis
   const actor = await requireActor();
   return attempt(async () => {
     const input = parseInput(
-      z.object({ name: z.string().trim().min(2).max(120), phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, { error: "Geçerli bir telefon girin." }).nullable() }),
+      z.object({ name: z.string().trim().max(120), phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, { error: "Geçerli bir telefon girin." }).nullable() }),
       { name: str(fd, "name"), phone: optStr(fd, "phone") },
       { name: "Ad soyad", phone: "Telefon" },
     );

@@ -8,8 +8,10 @@ import { shipmentStatusLabels } from "@infulancer/core/shipping/types";
 import { Card, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/layout";
+import { BrandSenderAddressForm } from "@/components/shipping/brand-sender-address-form";
 import { requireActor } from "@/lib/auth-guard";
 import { fmtDateTime } from "@/lib/time";
+import type { SenderAddress } from "@infulancer/core/shipping/types";
 
 export const metadata: Metadata = { title: "Kargo yönetimi" };
 export const dynamic = "force-dynamic";
@@ -27,7 +29,7 @@ const statusTone: Record<ShipmentStatus, string> = {
 export default async function BrandShippingPage() {
   const actor = await requireActor("BRAND");
   if (!actor.brandId) return null;
-  const [shipments, summary] = await Promise.all([
+  const [shipments, summary, integration] = await Promise.all([
     prisma.shipment.findMany({
       where: { brandId: actor.brandId },
       orderBy: { updatedAt: "desc" },
@@ -47,7 +49,13 @@ export default async function BrandShippingPage() {
       },
     }),
     getBrandWalletSummary(actor.brandId),
+    prisma.brandShippingIntegration.findFirst({
+      where: { brandId: actor.brandId, isActive: true },
+      orderBy: { updatedAt: "desc" },
+      select: { senderAddress: true },
+    }),
   ]);
+  const senderAddress = (integration?.senderAddress as SenderAddress | null | undefined) ?? null;
   const stats = {
     total: shipments.length,
     pending: shipments.filter((s) => ["PENDING_ADDRESS", "READY_TO_SHIP"].includes(s.status)).length,
@@ -64,6 +72,13 @@ export default async function BrandShippingPage() {
         description="Kampanyalarınızın gönderilerini, barkodlarını, takip numaralarını ve teslimat durumlarını tek ekrandan yönetin."
         actions={<Link href="/marka/ayarlar/kargo" className="rounded-full border border-line px-3 py-2 text-sm">Kargo entegrasyonları</Link>}
       />
+      <Card interactive={false} className="flex flex-col gap-3">
+        <CardTitle>Varsayılan gönderici bilgileri</CardTitle>
+        <p className="text-sm text-fg-muted">
+          Kampanyalarınızdan gönderilecek ürünlerde kullanılacak adresi burada tanımlayın.
+        </p>
+        <BrandSenderAddressForm initial={senderAddress} />
+      </Card>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
         {[
           ["Toplam gönderi", stats.total],

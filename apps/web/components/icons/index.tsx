@@ -240,6 +240,12 @@ export const GridIcon = (p: IconProps) => (
     <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
   </Base>
 );
+export const QrCodeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" />
+    <path d="M14 14h3v3h-3zM18 18h2v2h-2zM17 14h3M14 20h3" />
+  </Base>
+);
 export const NewspaperIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h11A1.5 1.5 0 0 1 18 5.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />

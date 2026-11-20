@@ -833,7 +833,7 @@ function DeliverableTimestampReviewer({ deliverableId, brandName }: { deliverabl
 /**
  * Kampanyayı silme butonu (onay modalı ile kazara silmeyi önler).
  */
-export function CampaignDeleteButton({ campaignId, campaignName }: { campaignId: string; campaignName: string }) {
+export function CampaignDeleteButton({ campaignId, campaignName, inline = false }: { campaignId: string; campaignName: string; inline?: boolean }) {
   const tt = useTT();
   const [open, setOpen] = useState(false);
 
@@ -844,9 +844,9 @@ export function CampaignDeleteButton({ campaignId, campaignName }: { campaignId:
         variant="ghost"
         size="sm"
         onClick={() => setOpen(true)}
-        className="w-full justify-start text-critical hover:bg-critical/10"
+        className={inline ? "text-xs font-medium text-critical hover:underline" : "w-full justify-start text-critical hover:bg-critical/10"}
       >
-        {tt("Kampanyayı Sil")}
+        {tt("Sil")}
       </Button>
       {open ? (
         <div

@@ -920,7 +920,13 @@ export async function submitCreative(input: {
   }
 }
 
-export type FalWebhook = { request_id: string; status: "OK" | "ERROR"; payload?: { images?: { url: string }[]; image?: { url: string }; video?: { url: string }; audio?: { url: string } }; metrics?: { inference_time?: number }; error?: string };
+export type FalWebhook = {
+  request_id: string;
+  status: "OK" | "ERROR";
+  payload?: { images?: { url: string }[]; image?: { url: string }; video?: { url: string }; audio?: { url: string } };
+  metrics?: { inference_time?: number; cost_usd?: number; cost?: number };
+  error?: string;
+};
 
 /** fal webhook işleyicisi — idempotent. */
 export async function handleFalWebhook(w: FalWebhook) {
@@ -990,7 +996,16 @@ export async function handleFalWebhook(w: FalWebhook) {
         }
       }
       if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
-      await tx.creativeJob.update({ where: { id: job.id }, data: { status: "COMPLETED", completedAt: new Date(), inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null } });
+      const reportedCost = w.metrics?.cost_usd ?? w.metrics?.cost;
+      await tx.creativeJob.update({
+        where: { id: job.id },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null,
+          actualCostUsd: typeof reportedCost === "number" && Number.isFinite(reportedCost) && reportedCost >= 0 ? reportedCost : undefined,
+        },
+      });
       return a;
     });
   } catch (e) {
