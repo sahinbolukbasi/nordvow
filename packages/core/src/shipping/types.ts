@@ -80,7 +80,10 @@ export function buildCarrierTrackingUrl(
   if (!code) return "";
   const c = (carrierOrProvider ?? "").toUpperCase();
   const enc = encodeURIComponent(code);
-  if (c.includes("YURTICI") || c.includes("YURTİÇİ")) {
+  if (c.includes("NAVLUNGO")) {
+    return `https://domestic-track.navlungo.com/${enc}`;
+  }
+  if (c.includes("YURTICI") || c.includes("YURTİÇİ") || c.includes("YURTIÇI")) {
     return `https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=${enc}`;
   }
   if (c.includes("ARAS")) {

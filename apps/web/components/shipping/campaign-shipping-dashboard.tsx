@@ -73,7 +73,7 @@ export function CampaignShippingDashboard({
     const activeIntegrated = integrations.find(
       (i) => i.isActive && i.provider !== "CUSTOM_MANUAL",
     );
-    if (shippingMode === "INTEGRATED_CARGO" && activeIntegrated) {
+    if (activeIntegrated) {
       return activeIntegrated.provider;
     }
     return "CUSTOM_MANUAL";

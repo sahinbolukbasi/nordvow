@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from "../db";
 import type { ShipmentStatus, ShippingProvider } from "../enums";
+import { envStr } from "../env";
 import { DomainError } from "../domain/errors";
 import { dispatchNotification, recipientsFromUserIds } from "../notify/dispatch";
 import { getCargoAdapter } from "./adapters/registry";
@@ -22,6 +23,18 @@ import {
 } from "./types";
 
 const DAY_MS = 86_400_000;
+
+function platformNavlungoDefaults() {
+  const username = envStr("NAVLUNGO_USERNAME", "").trim();
+  const password = envStr("NAVLUNGO_PASSWORD", "").trim();
+  const senderAddressId = envStr("NAVLUNGO_SENDER_ADDRESS_ID", "56319").trim();
+  return {
+    hasPlatformCreds: Boolean(username),
+    username: username || null,
+    password: password || null,
+    senderAddressId: senderAddressId || null,
+  };
+}
 
 async function notifyBrandUsers(
   brandId: string,
@@ -56,6 +69,41 @@ export async function listBrandShippingIntegrations(brandId: string) {
     where: { brandId },
     orderBy: { createdAt: "asc" },
   });
+
+  // Platform genelinde Navlungo API bilgileri tanımlıysa marka için otomatik aktif olarak hazırla.
+  const navDefaults = platformNavlungoDefaults();
+  const existingNav = rows.find((r) => r.provider === "NAVLUNGO");
+  if (navDefaults.hasPlatformCreds && (!existingNav || !existingNav.apiKey)) {
+    const upsertedNav = await prisma.brandShippingIntegration.upsert({
+      where: { brandId_provider: { brandId, provider: "NAVLUNGO" } },
+      create: {
+        brandId,
+        provider: "NAVLUNGO",
+        apiKey: encryptShippingSecret(navDefaults.username!),
+        apiSecret: navDefaults.password ? encryptShippingSecret(navDefaults.password) : null,
+        customerCode: "1",
+        defaultSenderAddressId: navDefaults.senderAddressId,
+        isActive: true,
+        lastTestedAt: new Date(),
+        lastTestOk: true,
+      },
+      update: {
+        apiKey: encryptShippingSecret(navDefaults.username!),
+        apiSecret: navDefaults.password ? encryptShippingSecret(navDefaults.password) : null,
+        customerCode: existingNav?.customerCode ?? "1",
+        defaultSenderAddressId: existingNav?.defaultSenderAddressId ?? navDefaults.senderAddressId,
+        isActive: true,
+        lastTestedAt: existingNav?.lastTestedAt ?? new Date(),
+        lastTestOk: existingNav?.lastTestOk ?? true,
+      },
+    });
+    const idx = rows.findIndex((r) => r.provider === "NAVLUNGO");
+    if (idx >= 0) {
+      rows[idx] = upsertedNav;
+    } else {
+      rows.unshift(upsertedNav);
+    }
+  }
 
   // Kargo anlaşması olmayan markalar için Platform Dışı / Manuel Takip varsayılan olarak açık gelir.
   const hasManual = rows.some((r) => r.provider === "CUSTOM_MANUAL");
@@ -133,25 +181,28 @@ async function getBrandCredentials(
   brandId: string,
   provider: ShippingProvider,
 ): Promise<CargoCredentials> {
-  const row = await prisma.brandShippingIntegration.findUnique({
-    where: { brandId_provider: { brandId, provider } },
-  });
+  const row = brandId
+    ? await prisma.brandShippingIntegration.findUnique({
+        where: { brandId_provider: { brandId, provider } },
+      })
+    : null;
+  const navDefaults = provider === "NAVLUNGO" ? platformNavlungoDefaults() : null;
   return {
     provider,
-    apiKey: decryptShippingSecret(row?.apiKey),
-    apiSecret: decryptShippingSecret(row?.apiSecret),
-    customerCode: row?.customerCode ?? null,
-    defaultSenderAddressId: row?.defaultSenderAddressId ?? null,
+    apiKey: decryptShippingSecret(row?.apiKey) ?? navDefaults?.username ?? null,
+    apiSecret: decryptShippingSecret(row?.apiSecret) ?? navDefaults?.password ?? null,
+    customerCode: row?.customerCode ?? (provider === "NAVLUNGO" ? "1" : null),
+    defaultSenderAddressId: row?.defaultSenderAddressId ?? navDefaults?.senderAddressId ?? null,
     senderAddress: (row?.senderAddress as SenderAddress | null) ?? null,
   };
 }
 
 export async function getNavlungoBarcode(
-  brandId: string,
+  brandId: string | null | undefined,
   postNumber: string,
   barcodeType: "pdf" | "html" | "zpl" = "pdf",
 ) {
-  const creds = await getBrandCredentials(brandId, "NAVLUNGO");
+  const creds = await getBrandCredentials(brandId ?? "", "NAVLUNGO");
   const adapter = new NavlungoAdapter();
   return adapter.getBarcode(creds, postNumber, barcodeType);
 }

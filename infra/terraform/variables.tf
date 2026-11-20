@@ -125,6 +125,11 @@ variable "integration_secret_keys" {
     "TIKTOK_REDIRECT_URI",
     "TIKTOK_APP_AUDITED",
     "TOKEN_ENCRYPTION_KEY",
+    "NAVLUNGO_USERNAME",
+    "NAVLUNGO_PASSWORD",
+    "NAVLUNGO_API_URL",
+    "NAVLUNGO_API_V21_URL",
+    "NAVLUNGO_SENDER_ADDRESS_ID",
   ]
 }
 
