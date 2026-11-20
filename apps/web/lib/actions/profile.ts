@@ -5,7 +5,7 @@ import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
-import { assertUniqueInstagramHandle, normalizeSocialHandle } from "@infulancer/core/social/handles";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "@infulancer/core/social/handles";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -23,7 +23,7 @@ export async function updateProfileAction(_p: ActionState, fd: FormData): Promis
       { name: str(fd, "name"), phone: optStr(fd, "phone"), instagram: optStr(fd, "instagram") },
       { name: "Ad soyad", phone: "Telefon", instagram: "Instagram" },
     );
-    const instagramHandle = input.instagram ? normalizeSocialHandle(input.instagram) : null;
+    const instagramHandle = input.instagram ? normalizeInstagramHandle(input.instagram) : null;
     if (instagramHandle && !/^[a-z0-9._]{1,30}$/.test(instagramHandle)) throw new DomainError("DOGRULAMA", "Geçerli bir Instagram kullanıcı adı girin.");
     if (instagramHandle) {
       const taken = await prisma.user.findFirst({ where: { instagramHandle, NOT: { id: actor.userId } }, select: { id: true } });

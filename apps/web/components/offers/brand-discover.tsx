@@ -160,7 +160,7 @@ export function BrandDiscover({ creators, options, campaigns, initialSelected = 
                   </span>
                   <span className="flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
                     <span>{tt("Platform içi:")}{" "}{c.internalCampaigns ?? 0} {tt("kampanya")} · {c.internalDeliverables ?? 0} {tt("içerik")}</span>
-                    {c.accounts.some((a) => a.lastSyncedAt) ? <span>· {tt("Canlı API")}</span> : null}
+                    {c.accounts.some((a) => a.syncSource === "META_API" || a.syncSource === "instagram_business_discovery") ? <span>· {tt("Meta API doğrulandı")}</span> : c.accounts.some((a) => a.syncSource === "INSTAGRAM_OAUTH") ? <span>· {tt("Instagram OAuth")}</span> : c.accounts.some((a) => a.syncSource === "INSTAGRAM_PUBLIC") ? <span>· {tt("Public profil verisi")}</span> : null}
                   </span>
                   <span className="mt-auto flex items-center justify-between border-t border-line pt-2 text-[12px]">
                     <span className="text-fg-muted">{c.rates.length ? `${c.rates.length} içerik fiyatı` : tt("Fiyat listesi yok")}</span>

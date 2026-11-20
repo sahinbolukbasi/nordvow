@@ -231,6 +231,9 @@ model User {
   organization         Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   mediaJobs            MediaJob[]
   biometricConsents    BiometricLegalConsent[]
+  legalAcceptances     LegalAcceptance[]
+  channelAccountLinks  ChannelAccountLink[]
+  botLinkCodes         BotLinkCode[]
 
   @@index([brandId])
 }
@@ -321,7 +324,7 @@ model SocialAccount {
   followers      Int
   engagementRate Decimal    @db.Decimal(6, 4)
   demographics   Json
-  /// Senkron: manual | instagram_business_discovery | youtube_data | tiktok_oauth
+  /// META_API | INSTAGRAM_OAUTH | INSTAGRAM_PUBLIC | NONE | manual | youtube_data | tiktok_oauth | mock
   syncSource     String     @default("manual")
   externalId     String?
   profileUrl     String?
@@ -338,10 +341,16 @@ model SocialAccount {
   tokenRef       String?
   lastSyncedAt   DateTime?
   syncError      String?
+  /// TOKEN_INVALID | MISSING_PERMISSION | TARGET_NOT_DISCOVERABLE | RATE_LIMITED | UNKNOWN
+  lastErrorClass String?
+  /// Public yola düşüş nedeni (TOKEN_INVALID, MISSING_PERMISSION, RATE_LIMITED, TARGET_NOT_DISCOVERABLE, NOT_CONFIGURED)
+  syncReason     String?
+  retryCount     Int        @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
   snapshots SocialAccountSnapshot[]
+  syncEvents SocialSyncEvent[]
 
   @@unique([influencerId, platform])
 }
@@ -356,6 +365,29 @@ model SocialAccountSnapshot {
   takenAt         DateTime
 
   @@index([socialAccountId, takenAt])
+}
+
+/// Hesap başına senkron telemetrisi. Belirteç ve Graph gövdesi yazılmaz.
+model SocialSyncEvent {
+  id              String        @id @default(cuid())
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  durationMs      Int
+  errorClass      String?
+  /// Neden bu kaynak kullanıldı (ör. TOKEN_INVALID olduğu için INSTAGRAM_PUBLIC). Belirteç yok.
+  reason          String?
+  source          String
+  ok              Boolean
+  createdAt       DateTime      @default(now())
+
+  @@index([socialAccountId, createdAt])
+}
+
+/// EventBridge ve yerel zamanlayıcının aynı anda social-sync çalıştırmasını engeller.
+model SocialSyncLock {
+  id        String   @id
+  owner     String
+  expiresAt DateTime
 }
 
 // ───────────── Kampanya ─────────────

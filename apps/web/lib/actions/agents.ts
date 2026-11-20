@@ -248,7 +248,7 @@ export async function syncCampaignInstagramAction(_p: ActionState, fd: FormData)
     let ok = 0;
     let total = 0;
     for (const id of ids) {
-      const res = await syncInfluencer(id, "INSTAGRAM");
+      const res = await syncInfluencer(id, "INSTAGRAM", { force: true });
       for (const r of res) {
         total++;
         if (r.ok) ok++;
@@ -279,18 +279,18 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
         revalidateAll();
         return {
           ok: true,
-          message: `@${report.handle}: Uyum Skoru ${report.scores.overallScore}/100 · ${report.followers.toLocaleString("tr-TR")} takipçi`,
+          message: `@${report.handle}: ${report.followers.toLocaleString("tr-TR")} takipçi`,
           data: {
             handle: report.handle,
             influencerId: report.influencerId,
             followers: report.followers.toLocaleString("tr-TR"),
             postsCount: String(report.organicVsSponsored.organicCount + report.organicVsSponsored.sponsoredCount),
-            avgViews: report.avgReelsViews.toLocaleString("tr-TR"),
-            avgLikes: report.avgLikes.toLocaleString("tr-TR"),
-            avgComments: report.avgComments.toLocaleString("tr-TR"),
-            avgSaves: report.avgSaves.toLocaleString("tr-TR"),
-            er: `%${report.avgErPct.toFixed(2)}`,
-            score: `${report.scores.overallScore}/100 (${report.scores.priorityTier})`,
+            avgViews: report.avgReelsViews != null ? report.avgReelsViews.toLocaleString("tr-TR") : "—",
+            avgLikes: report.avgLikes != null ? report.avgLikes.toLocaleString("tr-TR") : "—",
+            avgComments: report.avgComments != null ? report.avgComments.toLocaleString("tr-TR") : "—",
+            avgSaves: "—",
+            er: report.avgErPct != null ? `%${report.avgErPct.toFixed(2)}` : "—",
+            score: report.scores.known && report.scores.overallScore != null ? `${report.scores.overallScore}/100 (${report.scores.priorityTier})` : "—",
             collabs: report.brandCollaborations.map((b) => b.brandName).join(", "),
             summary: report.aiExecutiveSummary,
           },
@@ -299,8 +299,6 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
     }
 
     const data = await inspectInstagramHandle(rawHandle);
-    const estSaves = data.avgLikes != null ? Math.round(data.avgLikes * 0.16) : null;
-    const estViews = data.avgViews ?? Math.round(data.followers * 0.45);
     return {
       ok: true,
       message: `@${data.handle}: ${data.followers.toLocaleString("tr-TR")} takipçi · ${data.postsCount ?? 0} gönderi`,
@@ -309,14 +307,14 @@ export async function inspectInstagramAction(_p: ActionState, fd: FormData): Pro
         influencerId: "",
         followers: data.followers.toLocaleString("tr-TR"),
         postsCount: data.postsCount != null ? String(data.postsCount) : "—",
-        avgViews: estViews.toLocaleString("tr-TR"),
+        avgViews: data.avgViews != null ? data.avgViews.toLocaleString("tr-TR") : "—",
         avgLikes: data.avgLikes != null ? data.avgLikes.toLocaleString("tr-TR") : "—",
         avgComments: data.avgComments != null ? data.avgComments.toLocaleString("tr-TR") : "—",
-        avgSaves: estSaves != null ? estSaves.toLocaleString("tr-TR") : "—",
+        avgSaves: "—",
         er: data.engagementRate != null ? `%${(data.engagementRate * 100).toFixed(2)}` : "—",
-        score: "86/100 (A UYGUN)",
-        collabs: "Caption & @mention taraması tamamlandı",
-        summary: `@${data.handle} hesabı canlı tarandı: ort. ${estViews.toLocaleString("tr-TR")} Reels izlenmesi ve tahmini ${estSaves?.toLocaleString("tr-TR") ?? "—"} kaydetme performansı tespit edildi.`,
+        score: "—",
+        collabs: "—",
+        summary: `@${data.handle} Business Discovery ile okundu. İzlenme ve kaydetme bu çağrıda yok; uydurulmadı.`,
       },
     };
   });
@@ -346,7 +344,7 @@ export async function triggerInfluencerExplorerAction(_p: ActionState, fd: FormD
     revalidateAll();
     return {
       ok: true,
-      message: `Canlı tarama tamamlandı (@${report.handle}): Meta API + Instagram Gezgini Bot verileri ve 90 günlük grafikler güncellendi.`,
+      message: `Tarama tamamlandı (@${report.handle}). Yalnız resmî kayıttaki takipçi ve beğeni kullanıldı.`,
     };
   });
 }

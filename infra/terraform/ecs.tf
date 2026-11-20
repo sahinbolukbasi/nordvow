@@ -136,6 +136,7 @@ locals {
     { name = "VAULT_MODE", value = "aws" },
     { name = "VAULT_SECRET_PREFIX", value = "${local.name}/tenants" },
     { name = "AWS_REGION", value = var.region },
+    # META_API_MODE yalnız mesajlaşma Graph istemcisidir. Sosyal senkron SOCIAL_SYNC_MODE kullanır.
     { name = "META_API_MODE", value = var.meta_api_mode },
     { name = "IYS_MODE", value = "mock" },
     { name = "FAL_MODE", value = "http" },
