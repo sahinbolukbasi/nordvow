@@ -16,8 +16,13 @@ resource "aws_wafv2_web_acl" "edge" {
     }
     statement {
       rate_based_statement {
-        limit              = 600
-        aggregate_key_type = "IP"
+        limit              = 10000
+        aggregate_key_type = "FORWARDED_IP"
+
+        forwarded_ip_config {
+          header_name       = "X-Forwarded-For"
+          fallback_behavior = "MATCH"
+        }
       }
     }
     visibility_config {
