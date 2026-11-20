@@ -21,7 +21,6 @@ locals {
     "ads-budget-batch"          = "cron(0 * * * ? *)"
     "webhook-dedupe-ttl"        = "cron(30 3 * * ? *)"
     "social-sync"               = "rate(6 hours)"
-    "social-multi-agent"        = "cron(0 8 * * ? *)"
     "daily-social-flow"         = "cron(0 8 * * ? *)"
     "fx-refresh"                = "rate(6 hours)"
     "trackers"                  = "rate(1 hour)"

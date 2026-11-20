@@ -355,7 +355,7 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
 
         {/* İçerik üreticileri */}
         <section id="ureticiler" className="mx-auto max-w-6xl px-6 pt-28">
-          <SectionTitle eyebrow={tt("Platformdaki içerik üreticileri")} title={tt("Markana uygun profili keşfet")} text={tt("Takipçi, etkileşim, şehir ve kategoriye göre karşılaştır; birlikte çalıştığı markaları gör.")} />
+          <SectionTitle eyebrow={tt("Platformdaki içerik üreticileri")} title={tt("Markana uygun profili keşfet")} text={tt("Takipçi ve kategoriye göre içerik üreticilerini keşfet.")} />
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {data.creators.slice(0, 8).map((c, i) => (
               <Reveal as="li" key={`${c.handle}-${i}`} delay={(i % 4) * 90}>
@@ -375,22 +375,17 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
                         <span className="truncate text-sm font-medium">{c.handle}</span>
                         <span className="flex items-center gap-1.5 text-[12px] text-fg-passive">
                           <BrandLogo name={c.platform === "TikTok" ? "tiktok" : c.platform === "YouTube" ? "youtube" : "instagram"} size={12} />
-                          {[c.platform, c.city].filter(Boolean).join(" · ")}
+                          {c.platform}
                         </span>
                       </span>
                     </div>
                     <span className="w-fit rounded-full border border-line px-2.5 py-0.5 text-[11px] text-fg-muted">{tt(c.niche)}</span>
-                    <dl className="mt-auto grid grid-cols-2 gap-2 border-t border-line pt-3">
+                    <dl className="mt-auto border-t border-line pt-3">
                       <div>
                         <dt className="text-[11px] text-fg-passive">{tt("Takipçi")}</dt>
                         <dd className="text-lg font-semibold tabular-nums">{c.followers}</dd>
                       </div>
-                      <div>
-                        <dt className="text-[11px] text-fg-passive">{tt("Etkileşim")}</dt>
-                        <dd className="text-gradient text-lg font-semibold tabular-nums">{c.engagement || "—"}</dd>
-                      </div>
                     </dl>
-                    {c.brand ? <p className="text-[12px] text-fg-muted">{tt("Çalıştığı marka:")}{" "}{c.brand}</p> : null}
                   </div>
                 </Tilt>
               </Reveal>

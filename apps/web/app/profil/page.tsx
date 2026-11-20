@@ -81,7 +81,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   if (actor.role === "INFLUENCER" && actor.influencerId) {
     const id = actor.influencerId;
     const now = new Date();
-    const [inf, balances, offers, accounts, cards, portfolio, published, savedAddresses] = await Promise.all([
+    const [inf, balances, offers, initialAccounts, cards, portfolio, published, savedAddresses] = await Promise.all([
       prisma.influencer.findUniqueOrThrow({ where: { id }, select: { iban: true, ibanHolder: true, taxStatus: true, city: true, avatarKey: true, headline: true, bio: true, showcaseVisible: true, showPrices: true, showCollaborations: true, socialAccounts: { select: { platform: true, avatarUrl: true } } } }),
       computeBalances(id, now),
       prisma.offer.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
@@ -96,8 +96,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       }),
       listInfluencerAddresses(id),
     ]);
+    let accounts = initialAccounts;
     avatar = pickAvatar(inf.socialAccounts, inf.avatarKey);
-    if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < now.getTime() - 3_600_000)) {
+    if (accounts.some((a) => a.syncError || a.followers === 0)) {
+      await syncInfluencer(id).catch(() => {});
+      accounts = await prisma.socialAccount.findMany({ where: { influencerId: id }, orderBy: { platform: "asc" } });
+    } else if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < now.getTime() - 3_600_000)) {
       void syncInfluencer(id).catch(() => {});
     }
     headline = `İçerik üreticisi${inf.city ? ` · ${inf.city}` : ""}`;

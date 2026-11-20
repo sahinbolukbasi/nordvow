@@ -12,6 +12,11 @@ TAG="$(git -C "$ROOT" rev-parse --short HEAD)"
 VARS=(-var "aws_profile=$PROFILE" -var "region=$REGION" -var "image_tag=$TAG")
 export AWS_PROFILE="$PROFILE" AWS_REGION="$REGION"
 
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "Hata: çalışma ağacı temiz değil. Önce değişiklikleri commit edin; deploy yalnızca commit edilmiş kaynak paketini yayınlar." >&2
+  exit 1
+fi
+
 echo "==> 1/4 Altyapı"
 $TF init -input=false >/dev/null
 # Kesintisiz: servis zaten çalışıyorsa altyapı güncellemesi mevcut imajla yapılır, yeni imaj derlendikten

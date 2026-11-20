@@ -107,15 +107,17 @@ export const httpSocial: SocialProvider = {
         if (msg.includes("yapılandırılmadı")) throw new SyncError(msg, "NOT_CONFIGURED");
         if (sdk.errorSubcode === 2207013 || sdk.errorCode === 110) {
           throw new SyncError(
-            `@${handle} Meta Business Discovery'de bulunamadı (Kişisel/Gizli hesap, yaş/bölge kısıtı veya değişmiş kullanıcı adı olabilir; herkese açık Business/Creator veya Instagram OAuth gerekir).`,
+            `@${handle} Meta Business Discovery'de bulunamadı; herkese açık profil/agent yedeği de sonuç vermedi (Kişisel/Gizli hesap, yaş/bölge kısıtı veya değişmiş kullanıcı adı olabilir; herkese açık Business/Creator veya Instagram OAuth gerekir).`,
             "NOT_BUSINESS",
           );
         }
         throw new SyncError(msg, "API");
       }
       const media = sdk.media.slice(0, 12);
-      const avgLikes = media.length ? Math.round(media.reduce((s, m) => s + m.likes, 0) / media.length) : null;
-      const avgComments = media.length ? Math.round(media.reduce((s, m) => s + m.commentsCount, 0) / media.length) : null;
+      const likedMedia = media.filter((m) => m.likes > 0);
+      const commentedMedia = media.filter((m) => m.commentsCount > 0);
+      const avgLikes = likedMedia.length ? Math.round(likedMedia.reduce((s, m) => s + m.likes, 0) / likedMedia.length) : null;
+      const avgComments = commentedMedia.length ? Math.round(commentedMedia.reduce((s, m) => s + m.commentsCount, 0) / commentedMedia.length) : null;
       const viewList = media.map((m) => m.plays || m.reach).filter((v) => v > 0);
       const avgViews = viewList.length
         ? Math.round(viewList.reduce((s, v) => s + v, 0) / viewList.length)

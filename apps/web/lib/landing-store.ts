@@ -2,7 +2,7 @@ import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@infulancer/core/db";
 import { resolveAvatar } from "@/lib/avatar";
-import { fmtEr, fmtFollowers, formatHandle } from "@/lib/format";
+import { fmtFollowers, formatHandle } from "@/lib/format";
 import { LANDING_CREATORS, LANDING_REFERENCES, LANDING_VIDEOS, type LandingReference, type LandingVideo } from "@/lib/landing-content";
 
 /** Tanıtım sayfası içeriği admin panelinden düzenlenir; kayıt yoksa landing-content.ts varsayılanları kullanılır. */
@@ -183,11 +183,10 @@ export async function getAutoLandingCreators(limit = 30): Promise<LandingCreator
       const handle = (formatHandle(acc.handle) || formatHandle(inf.name) || "@influencer").slice(0, 40);
       const niche = (inf.category?.trim() || "İçerik Üreticisi").slice(0, 24);
       const followers = fmtFollowers(acc.followers).slice(0, 12);
-      const erVal = Number(acc.engagementRate);
-      const engagement = Number.isFinite(erVal) && erVal > 0 ? fmtEr(erVal).slice(0, 10) : "";
       const platform = acc.platform === "TIKTOK" ? "TikTok" : acc.platform === "YOUTUBE" ? "YouTube" : "Instagram";
-      const city = (inf.city?.trim() ?? "").slice(0, 30);
-      const brand = inf.showCollaborations ? (inf.assignments[0]?.campaign.brand.name?.trim() ?? "").slice(0, 40) : "";
+      const city = "";
+      const engagement = "";
+      const brand = "";
       const avatar = resolveAvatar(inf.avatarKey, acc.avatarUrl) ?? "";
       return {
         handle,

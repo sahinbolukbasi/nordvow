@@ -802,7 +802,7 @@ export async function fetchVerifiedInstagramViaSdk(input: {
   const effectiveErr = lastNotBusinessErr ?? lastErr;
   const notBusinessAccount = Boolean(lastNotBusinessErr);
   const finalErrorMessage = notBusinessAccount
-    ? `@${cleanHandle} Meta Business Discovery'de bulunamadı (Kod ${effectiveErr?.code ?? 110}/${effectiveErr?.subcode ?? 2207013}). Hesap Kişisel/Gizli olabilir, yaş/bölge kısıtı içerebilir veya kullanıcı adı değişmiş olabilir; herkese açık Business/Creator hesapları sorgulanabilir (kişisel/kısıtlı hesaplar için Instagram OAuth gerekir).`
+    ? `@${cleanHandle} Meta Business Discovery'de bulunamadı; herkese açık profil/agent yedeği de sonuç vermedi (Kod ${effectiveErr?.code ?? 110}/${effectiveErr?.subcode ?? 2207013}). Hesap Kişisel/Gizli olabilir, yaş/bölge kısıtı içerebilir veya kullanıcı adı değişmiş olabilir; herkese açık Business/Creator hesapları sorgulanabilir (kişisel/kısıtlı hesaplar için Instagram OAuth gerekir).`
     : (effectiveErr?.message ?? "Meta Business SDK üzerinden hesap verisi alınamadı.");
 
   return {

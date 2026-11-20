@@ -429,12 +429,10 @@ export function LandingEditor({
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{c.handle}</div>
                         <div className="truncate text-[12px] text-fg-muted">
-                          {[c.platform, c.niche, c.city].filter(Boolean).join(" · ")}
+                          {[c.platform, c.niche].filter(Boolean).join(" · ")}
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-fg-passive">
                           <span>{c.followers} takipçi</span>
-                          {c.engagement ? <span>· {c.engagement} etkileşim</span> : null}
-                          {c.brand ? <span>· {c.brand}</span> : null}
                         </div>
                       </div>
                     </div>
