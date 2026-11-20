@@ -6,6 +6,8 @@ import { dispatchNotification, recipientsFromUserIds } from "../notify/dispatch"
 import { getCargoAdapter } from "./adapters/registry";
 import { NavlungoAdapter } from "./adapters/navlungo";
 import { decryptShippingSecret, encryptShippingSecret, maskShippingSecret } from "./crypto";
+import { getBrandDefaultAddresses } from "../profile/addresses";
+import { chargeBrandWallet } from "../finance/brand-wallet";
 import {
   brandShippingIntegrationSchema,
   buildCarrierTrackingUrl,
@@ -187,13 +189,26 @@ async function getBrandCredentials(
       })
     : null;
   const navDefaults = provider === "NAVLUNGO" ? platformNavlungoDefaults() : null;
+  const defaults = brandId ? await getBrandDefaultAddresses(brandId) : { shipping: null };
+  const shipping = defaults.shipping;
   return {
     provider,
     apiKey: decryptShippingSecret(row?.apiKey) ?? navDefaults?.username ?? null,
     apiSecret: decryptShippingSecret(row?.apiSecret) ?? navDefaults?.password ?? null,
     customerCode: row?.customerCode ?? (provider === "NAVLUNGO" ? "1" : null),
     defaultSenderAddressId: row?.defaultSenderAddressId ?? navDefaults?.senderAddressId ?? null,
-    senderAddress: (row?.senderAddress as SenderAddress | null) ?? null,
+    senderAddress:
+      (row?.senderAddress as SenderAddress | null) ??
+      (shipping
+        ? {
+            senderName: shipping.companyName ?? shipping.recipientName ?? "Gönderici",
+            senderPhone: shipping.phone,
+            addressLine: [shipping.neighborhood, shipping.addressLine].filter(Boolean).join(", "),
+            city: shipping.city,
+            district: shipping.district,
+            postalCode: shipping.postalCode,
+          }
+        : null),
   };
 }
 
@@ -526,11 +541,28 @@ export async function dispatchSingleShipment(params: {
     manualTrackingNumber: params.manualTrackingNumber,
   });
 
+  if (created.costKurus && created.costKurus > 0) {
+    await chargeBrandWallet({
+      brandId: params.brandId,
+      amountKurus: created.costKurus,
+      type: "SHIPPING",
+      referenceType: "Shipment",
+      referenceId: shipment.id,
+      idempotencyKey: `shipment:${shipment.id}:shipping`,
+      note: `${created.carrierName} kargo ücreti`,
+    });
+  }
+
   const updated = await prisma.shipment.update({
     where: { id: shipment.id },
     data: {
       provider: params.provider,
       carrierName: created.carrierName,
+      carrierId: params.provider,
+      shippingCostKurus: created.costKurus ?? null,
+      shippingRateSnapshot: (created.costKurus != null
+        ? { carrierName: created.carrierName, costKurus: created.costKurus }
+        : null) as Prisma.InputJsonValue,
       trackingNumber: created.trackingNumber,
       trackingUrl: created.trackingUrl || buildCarrierTrackingUrl(created.carrierName ?? params.provider, created.trackingNumber),
       barcodeLabelUrl: created.barcodeLabelUrl,

@@ -18,6 +18,8 @@ import { shipmentStatusLabels, type SenderAddress } from "@infulancer/core/shipp
 import { listInfluencerAddresses } from "@infulancer/core/shipping/service";
 import { BrandSenderAddressForm } from "@/components/shipping/brand-sender-address-form";
 import { InfluencerAddressForm } from "@/components/shipping/influencer-address-form";
+import { BrandBillingAddressForm } from "@/components/profile/brand-billing-address-form";
+import { listBrandAddresses } from "@infulancer/core/profile/addresses";
 import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { TikTokCreatorPanel } from "@/components/tiktok/tiktok-creator-panel";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
@@ -258,7 +260,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   let brandModeSettings: { mode: "SELF" | "AJANS"; selectedAgencyId: string | null; agencies: AgencyOption[] } | null = null;
   if (actor.role === "BRAND" && actor.brandId) {
     const brandId = actor.brandId;
-    const [campaigns, offers, brandCfg, agencies, shippingIntegrations, brandShipments] = await Promise.all([
+    const [campaigns, offers, brandCfg, agencies, shippingIntegrations, brandShipments, brandAddresses] = await Promise.all([
       prisma.campaign.findMany({ where: { brandId }, orderBy: { startsAt: "desc" }, select: { id: true, name: true, status: true, startsAt: true, endsAt: true, brandTotalFeeKurus: true, _count: { select: { assignments: { where: { contractStatus: { not: "RED" } } } } } } }),
       prisma.offer.findMany({ where: { brandId }, orderBy: { createdAt: "desc" }, take: 30 }),
       prisma.brand.findUnique({ where: { id: brandId }, select: { defaultExecutionMode: true, preferredAgencyUserId: true } }),
@@ -283,6 +285,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           influencer: { select: { name: true } },
         },
       }),
+      listBrandAddresses(brandId),
     ]);
     const savedSenderAddress =
       (shippingIntegrations.find((i) => i.senderAddress)?.senderAddress as SenderAddress | null | undefined) ?? null;
@@ -316,6 +319,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       ),
     });
     tabs.push({ id: "teklifler", label: `Teklifler (${offers.length})`, content: <OfferRows offers={offers} /> });
+    tabs.push({
+      id: "fatura",
+      label: "Fatura & Adres",
+      content: (
+        <Card interactive={false} className="flex flex-col gap-4">
+          <CardTitle>{tt("Fatura ve gönderim bilgileri")}</CardTitle>
+          <p className="text-[13px] text-fg-muted">{tt("Fatura ve kargo süreçlerinde kullanılacak şirket, vergi ve adres bilgilerinizi güncel tutun.")}</p>
+          <BrandBillingAddressForm initialAddress={brandAddresses.find((a) => a.isBilling) ?? brandAddresses[0] ?? null} />
+        </Card>
+      ),
+    });
     tabs.push({
       id: "kargo",
       label: `Kargo & Gönderici (${shipStats.total})`,

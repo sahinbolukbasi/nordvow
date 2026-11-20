@@ -59,6 +59,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/admin/finans", label: "Finans", icon: WalletIcon, section: "Finans ve Kredi", order: 300 },
     { href: "/admin/krediler", label: "Kredi yönetimi", icon: WalletIcon, section: "Finans ve Kredi", order: 310 },
     { href: "/admin/bakiye-talepleri", label: "Bakiye talepleri", icon: WalletIcon, section: "Finans ve Kredi", order: 320 },
+    { href: "/admin/marka-bakiye", label: "Marka bakiye talepleri", icon: WalletIcon, section: "Finans ve Kredi", order: 330 },
 
     // 5. Sistem & İçerik
     { href: "/admin/yetkiler", label: "Rol ve yetkiler", icon: SettingsIcon, section: "Sistem ve İçerik", order: 400 },
@@ -80,6 +81,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka/kesfet", label: "Influencer bul", icon: UsersIcon, section: "Kampanya ve İş Akışı", order: 30 },
     { href: "/marka/teklifler", label: "Teklifler", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 40 },
     { href: "/marka/odemeler", label: "Ödemeler & Faturalar", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 45 },
+    { href: "/marka/bakiye", label: "Marka bakiyesi", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 46 },
     { href: "/marka/takvim", label: "Takvim", icon: CalendarIcon, section: "Kampanya ve İş Akışı", order: 50 },
 
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Pazarlama ve Araçlar", order: 100 },

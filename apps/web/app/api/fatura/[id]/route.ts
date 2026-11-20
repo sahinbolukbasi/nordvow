@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { requireApiActor } from "@/lib/auth-guard";
 import {
   type EArsivFaturaJson,
@@ -7,6 +9,11 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function publicAssetDataUrl(fileName: string, mime: string) {
+  const file = await readFile(path.join(process.cwd(), "public", "brand", fileName));
+  return `data:${mime};base64,${file.toString("base64")}`;
+}
 
 /**
  * Kampanya e-Arşiv Fatura Taslağı API'si
@@ -37,8 +44,14 @@ export async function GET(
     }
 
     if (format === "html") {
+      const [nordvowLogoDataUrl, gibLogoDataUrl] = await Promise.all([
+        publicAssetDataUrl("nordvow-logo-dark.svg", "image/svg+xml"),
+        publicAssetDataUrl("gib-logo.png", "image/png"),
+      ]);
       const html = await renderEArsivHtml(draft as EArsivFaturaJson, {
         generateQrCodeIfMissing: true,
+        sellerLogoDataUrl: nordvowLogoDataUrl,
+        logoDataUrl: gibLogoDataUrl,
       });
 
       const headers: Record<string, string> = {

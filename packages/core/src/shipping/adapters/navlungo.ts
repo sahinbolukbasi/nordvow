@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { envStr } from "../../env";
 import type { ShipmentStatus, ShippingProvider } from "../../enums";
 import {
@@ -17,19 +16,6 @@ import { normalizeCarrierStatus } from "./base";
 type ResolvedEndpoints = { apiUrl: string; apiV21Url: string };
 type TokenEntry = { token: string; expiresAt: number; endpoints: ResolvedEndpoints };
 const tokenCache = new Map<string, TokenEntry>();
-
-const CARRIER_NAME_BY_ID: Record<number, string> = {
-  1: "Navlungo Anlaşmalı Kargo",
-  9: "Sürat Kargo",
-  10: "HepsiJET",
-  11: "Kolay Gelsin",
-  13: "Aras Kargo",
-  14: "PTT Kargo",
-  16: "HepsiJET XL",
-  18: "Yurtiçi Kargo",
-  19: "İstanbul Route 34",
-  20: "Turkish Cargo",
-};
 
 function deriveV21Url(apiUrl: string): string {
   const clean = apiUrl.replace(/\/+$/, "");
@@ -393,17 +379,9 @@ export class NavlungoAdapter implements ICargoProvider {
         rawErr.includes("gönderim izniniz") ||
         rawErr.includes("customer_carrier");
       if (isTariffOrCarrierPending) {
-        const suffix = randomBytes(4).toString("hex").toUpperCase();
-        const postNumber = `NV${Date.now().toString().slice(-4)}${suffix}`;
-        const carrierLabel = CARRIER_NAME_BY_ID[carrierId] ?? this.displayName;
-        return {
-          carrierName: carrierLabel,
-          trackingNumber: postNumber,
-          trackingUrl: buildCarrierTrackingUrl(carrierLabel, postNumber),
-          barcodeLabelUrl: `/api/shipping/navlungo/barcode?postNumber=${encodeURIComponent(postNumber)}`,
-          externalShipmentId: postNumber,
-          estimatedDeliveryDate: new Date(Date.now() + 3 * 86_400_000),
-        };
+        throw new Error(
+          "Navlungo gönderi oluşturulamadı: seçilen kargo firması için aktif fiyat listesi veya gönderim izni bulunmuyor.",
+        );
       }
 
       const msg =
@@ -430,11 +408,14 @@ export class NavlungoAdapter implements ICargoProvider {
     const barcodeUrl =
       (typeof first?.barcode_url === "string" && first.barcode_url) ||
       `/api/shipping/navlungo/barcode?postNumber=${encodeURIComponent(postNumber)}`;
+    const rawPrice = first?.price ?? first?.shipping_price ?? first?.amount;
+    const numericPrice = typeof rawPrice === "number" ? rawPrice : Number(rawPrice);
 
     return {
       carrierName:
         typeof first?.carrier_name === "string" ? first.carrier_name : this.displayName,
       trackingNumber: postNumber,
+      costKurus: Number.isFinite(numericPrice) && numericPrice > 0 ? Math.round(numericPrice * 100) : null,
       trackingUrl,
       barcodeLabelUrl: barcodeUrl,
       externalShipmentId: postNumber,

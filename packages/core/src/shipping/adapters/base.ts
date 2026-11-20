@@ -81,6 +81,7 @@ export abstract class BaseIntegratedCargoAdapter implements ICargoProvider {
     return {
       carrierName: this.displayName,
       trackingNumber,
+      costKurus: null,
       trackingUrl: buildCarrierTrackingUrl(this.provider, trackingNumber),
       barcodeLabelUrl: `/api/shipping/labels/${encodeURIComponent(trackingNumber)}.pdf`,
       externalShipmentId,

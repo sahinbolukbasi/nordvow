@@ -112,6 +112,7 @@ export function renderTemplate(template: string, data: Record<string, unknown>):
 export interface RenderEArsivOptions {
   karekodDataUrl?: string;
   logoDataUrl?: string;
+  sellerLogoDataUrl?: string;
   template?: string;
   generateQrCodeIfMissing?: boolean;
 }
@@ -145,6 +146,9 @@ export async function renderEArsivHtml(
   if (options.logoDataUrl) {
     context.logoDataUrl = options.logoDataUrl;
   }
+  if (options.sellerLogoDataUrl) {
+    context.sellerLogoDataUrl = options.sellerLogoDataUrl;
+  }
 
   if (options.karekodDataUrl) {
     context.karekodDataUrl = options.karekodDataUrl;
@@ -161,5 +165,10 @@ export async function renderEArsivHtml(
     }
   }
 
-  return renderTemplate(tmpl, context);
+  const rendered = renderTemplate(tmpl, context);
+  if (options.sellerLogoDataUrl) {
+    const sellerLogo = `<img src="${options.sellerLogoDataUrl}" alt="Nordvow" style="display:block;width:126px;height:auto;margin:0 0 8px;">`;
+    return rendered.replace('<td class="satici">', `<td class="satici">${sellerLogo}`);
+  }
+  return rendered;
 }

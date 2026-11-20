@@ -16,6 +16,7 @@ import {
   upsertBrandShippingIntegration,
   upsertCampaignShippingConfig,
 } from "@infulancer/core/shipping/service";
+import { saveBrandAddress } from "@infulancer/core/profile/addresses";
 
 export async function saveBrandShippingIntegrationAction(
   _p: ActionState,
@@ -103,6 +104,16 @@ export async function saveBrandSenderAddressAction(
         district,
         postalCode,
       },
+    });
+    await saveBrandAddress(targetBrandId, {
+      label: "Gönderici",
+      companyName: senderName,
+      phone: senderPhone,
+      addressLine,
+      city,
+      district,
+      postalCode,
+      isShipping: true,
     });
     revalidateAll();
     return { ok: true, message: "Gönderici adresi kaydedildi." };

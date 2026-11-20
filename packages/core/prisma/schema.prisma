@@ -183,6 +183,33 @@ enum LedgerReason {
   DUZELTME
 }
 
+enum BrandWalletEntryType {
+  TOPUP
+  CREATIVE_USAGE
+  INFLUENCER_PAYMENT
+  SHIPPING
+  REFUND
+  ADJUSTMENT
+}
+
+enum WalletTopupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  GENERATED
+  DOWNLOADED
+  CANCELLED
+}
+
+enum InvoiceScenario {
+  EARSIVFATURA
+  TEMELFATURA
+}
+
 enum PayoutStatus {
   TALEP_EDILDI
   ONAYLANDI
@@ -263,6 +290,10 @@ model Brand {
   categories           BrandCategory[]
   shippingIntegrations BrandShippingIntegration[]
   shipments            Shipment[]
+  addresses            BrandAddress[]
+  walletEntries        BrandWalletEntry[]
+  walletTopupRequests  WalletTopupRequest[]
+  invoices             Invoice[]
 
   @@index([isActive])
 }
@@ -615,12 +646,126 @@ model LedgerEntry {
   reason        LedgerReason
   referenceType String
   referenceId   String
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   availableAt   DateTime?
   createdAt     DateTime        @default(now())
 
   @@index([txId])
   @@index([influencerId])
   @@index([referenceType, referenceId])
+  @@index([invoiceId])
+}
+
+model BrandAddress {
+  id             String   @id @default(cuid())
+  brandId        String   @map("brand_id")
+  brand          Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  label          String   @default("Merkez")
+  companyName    String?  @map("company_name")
+  recipientName  String?  @map("recipient_name")
+  phone          String
+  addressLine    String   @map("address_line")
+  neighborhood   String?
+  city           String
+  district       String
+  postalCode     String?  @map("postal_code")
+  taxOffice      String?  @map("tax_office")
+  taxNumber      String?  @map("tax_number")
+  isBilling      Boolean  @default(false) @map("is_billing")
+  isShipping     Boolean  @default(false) @map("is_shipping")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, isBilling])
+  @@index([brandId, isShipping])
+  @@map("brand_addresses")
+}
+
+model BrandWalletEntry {
+  id             String              @id @default(cuid())
+  brandId        String              @map("brand_id")
+  brand           Brand               @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  type           BrandWalletEntryType
+  direction      LedgerDirection
+  amountKurus    Int                 @map("amount_kurus")
+  referenceType  String              @map("reference_type")
+  referenceId    String              @map("reference_id")
+  idempotencyKey String              @unique @map("idempotency_key")
+  note           String?
+  createdById    String?             @map("created_by_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  invoiceId      String?
+  invoice        Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([brandId, createdAt])
+  @@index([brandId, type])
+  @@index([invoiceId])
+  @@map("brand_wallet_entries")
+}
+
+model WalletTopupRequest {
+  id              String            @id @default(cuid())
+  brandId         String            @map("brand_id")
+  brand            Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  amountKurus     Int               @map("amount_kurus")
+  method          String
+  reference       String?
+  note            String?
+  status          WalletTopupStatus @default(PENDING)
+  requestedById   String?           @map("requested_by_id")
+  decidedById     String?           @map("decided_by_id")
+  decidedAt       DateTime?         @map("decided_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([brandId, status, createdAt])
+  @@map("wallet_topup_requests")
+}
+
+model Invoice {
+  id              String          @id @default(cuid())
+  brandId         String          @map("brand_id")
+  brand           Brand           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  status          InvoiceStatus   @default(DRAFT)
+  scenario        InvoiceScenario @default(EARSIVFATURA)
+  invoiceType     String          @default("SATIS") @map("invoice_type")
+  invoiceNumber   String          @unique @map("invoice_number")
+  ettn            String          @unique
+  issuedAt        DateTime        @map("issued_at")
+  sellerSnapshot  Json            @map("seller_snapshot")
+  buyerSnapshot   Json            @map("buyer_snapshot")
+  totalsSnapshot  Json            @map("totals_snapshot")
+  sourceType      String          @map("source_type")
+  sourceId        String          @map("source_id")
+  pdfStorageKey   String?         @map("pdf_storage_key")
+  createdById     String?         @map("created_by_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  items           InvoiceItem[]
+  ledgerEntries   LedgerEntry[]
+  walletEntries   BrandWalletEntry[]
+
+  @@index([brandId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id             String   @id @default(cuid())
+  invoiceId      String   @map("invoice_id")
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNumber     Int      @map("line_number")
+  description    String
+  quantity       Decimal  @db.Decimal(12, 3)
+  unitPriceKurus Int      @map("unit_price_kurus")
+  vatRate        Decimal  @db.Decimal(5, 2) @map("vat_rate")
+  vatAmountKurus Int      @map("vat_amount_kurus")
+  lineTotalKurus Int      @map("line_total_kurus")
+
+  @@unique([invoiceId, lineNumber])
+  @@map("invoice_items")
 }
 
 model PayoutRequest {
@@ -2469,6 +2614,9 @@ model Shipment {
   selectedVariant       Json?             @map("selected_variant")
   provider              ShippingProvider?
   carrierName           String?           @map("carrier_name")
+  carrierId             String?           @map("carrier_id")
+  shippingCostKurus     Int?              @map("shipping_cost_kurus")
+  shippingRateSnapshot  Json?             @map("shipping_rate_snapshot")
   trackingNumber        String?           @map("tracking_number")
   trackingUrl           String?           @map("tracking_url")
   barcodeLabelUrl       String?           @map("barcode_label_url")

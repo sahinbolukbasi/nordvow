@@ -199,6 +199,7 @@ export type CreateCargoShipmentRequest = {
 export type CargoCreateResult = {
   carrierName: string;
   trackingNumber: string;
+  costKurus?: number | null;
   trackingUrl: string;
   barcodeLabelUrl: string | null;
   externalShipmentId: string | null;

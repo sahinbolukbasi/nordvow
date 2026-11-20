@@ -46,7 +46,17 @@ export async function buildCampaignInvoiceDraft(
       ...(brandId ? { brandId } : {}),
     },
     include: {
-      brand: true,
+      // Fatura alıcı bilgileri marka profilindeki doğrulanmış fatura adresinden gelir.
+      // Profil eksikse taslak varsayılan adresle sessizce üretilmez.
+      brand: {
+        include: {
+          addresses: {
+            where: { isBilling: true },
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+          },
+        },
+      },
       assignments: {
         where: { contractStatus: { not: "RED" } },
         include: { influencer: { select: { name: true } } },
@@ -59,13 +69,18 @@ export async function buildCampaignInvoiceDraft(
   }
 
   const brand = campaign.brand;
-  const isIndividual = brand.taxNumber && brand.taxNumber.length === 11;
-  const isVknValid = !isIndividual && validateVkn(brand.taxNumber);
+  const billingAddress = brand.addresses[0];
+  if (!billingAddress) {
+    throw new Error("Fatura oluşturmak için markanın profilinde fatura adresi tanımlanmalıdır.");
+  }
+  const taxNumber = billingAddress.taxNumber || brand.taxNumber;
+  const taxOffice = billingAddress.taxOffice || brand.taxOffice;
+  const isIndividual = taxNumber.length === 11;
+  const isVknValid = !isIndividual && validateVkn(taxNumber);
 
-  // Marka adres detayları (opsiyonel override veya marka alanından)
-  const adres = options.addressOverride?.adres || "Merkez Mah. İş Merkezi";
-  const ilce = options.addressOverride?.ilce || (brand.taxOffice ? brand.taxOffice.replace(/ Vergi Dairesi.*$/i, "").trim() : "Şişli");
-  const il = options.addressOverride?.il || "İSTANBUL";
+  const adres = options.addressOverride?.adres || billingAddress.addressLine;
+  const ilce = options.addressOverride?.ilce || billingAddress.district;
+  const il = options.addressOverride?.il || billingAddress.city;
 
   const totalFeeKurus = Number(campaign.brandTotalFeeKurus);
   const budgetKurus = Number(campaign.budgetKurus);
@@ -84,14 +99,14 @@ export async function buildCampaignInvoiceDraft(
   const girdi: FaturaGirdi = {
     alici: {
       tip: isIndividual ? "bireysel" : "kurumsal",
-      unvan: brand.name,
-      adSoyad: isIndividual ? brand.contactName || brand.name : undefined,
-      vkn: !isIndividual ? brand.taxNumber : undefined,
-      tckn: isIndividual ? brand.taxNumber : undefined,
-      vergiDairesi: brand.taxOffice || "Bilinmiyor",
+      unvan: billingAddress.companyName || brand.name,
+      adSoyad: isIndividual ? billingAddress.recipientName || brand.contactName || brand.name : undefined,
+      vkn: !isIndividual ? taxNumber : undefined,
+      tckn: isIndividual ? taxNumber : undefined,
+      vergiDairesi: taxOffice || "Bilinmiyor",
       adres,
-      binaNo: options.addressOverride?.binaNo || "",
-      postaKodu: options.addressOverride?.postaKodu || "34000",
+      binaNo: options.addressOverride?.binaNo || billingAddress.neighborhood || "",
+      postaKodu: options.addressOverride?.postaKodu || billingAddress.postalCode || "",
       ilce,
       il,
       eposta: brand.contactEmail || undefined,
