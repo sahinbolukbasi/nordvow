@@ -19,7 +19,8 @@ locals {
     "campaign-auto-close"       = "rate(1 hour)"
     "ads-budget-batch"          = "cron(0 * * * ? *)"
     "webhook-dedupe-ttl"        = "cron(30 3 * * ? *)"
-    "social-sync"               = "rate(6 hours)"
+    # Günde bir. Apply edilmedi; EventBridge ifadesi dosyada güncellendi.
+    "social-sync"               = "rate(1 day)"
     "trackers"                  = "rate(1 hour)"
     "offer-expiry"              = "rate(1 hour)"
   } : {}

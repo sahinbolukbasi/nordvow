@@ -21,6 +21,7 @@ const PUBLIC_PATHS = new Set([
   "/iade-iptal",
   "/ileti-izni",
   "/destek",
+  "/health",
 ]);
 /** Tanıtım sayfası: ziyaretçiye açık; girişli kullanıcıyı sayfa kendi rol ana sayfasına yönlendirir. */
 const LANDING = "/";

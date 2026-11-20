@@ -6,7 +6,7 @@ import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { campaignStatusLabels, contentTypeLabels, formatKurus, platformLabels, roleLabels, taxStatusLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import { computeBalances } from "@infulancer/core/domain/ledger";
-import { syncInfluencer, syncSourceLabels } from "@infulancer/core/social/sync";
+import { syncStatusView } from "@infulancer/core/social/sync";
 import { WorkHistory } from "@/components/history/work-history";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
 import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
@@ -86,9 +86,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       }),
     ]);
     avatar = pickAvatar(inf.socialAccounts, inf.avatarKey);
-    if (accounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < Date.now() - 3_600_000)) {
-      void syncInfluencer(id).catch(() => {});
-    }
     headline = `İçerik üreticisi${inf.city ? ` · ${inf.city}` : ""}`;
     const tiktokAcc = accounts.find((a) => a.platform === "TIKTOK");
     const usedDeliverables = new Set(portfolio.map((i) => i.deliverableId).filter(Boolean));
@@ -163,16 +160,22 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                     </div>
                   </dl>
                   <p className="text-[12px] text-fg-passive">
-                    {syncSourceLabels[a.syncSource] ?? a.syncSource}
+                    {syncStatusView(a).label}
                     {a.lastSyncedAt ? ` · son güncelleme ${fmtDate(a.lastSyncedAt)}` : ""}
                   </p>
-                  {a.syncError ? <span className="text-[12px] text-critical">{a.syncError}</span> : null}
+                  {syncStatusView(a).note ? <span className="text-[12px] text-fg-muted">{syncStatusView(a).note}</span> : null}
+                  {syncStatusView(a).error ? <span className="text-[12px] text-critical">{syncStatusView(a).error}</span> : null}
                 </Card>
               ))}
             </section>
           ) : (
             <p className="text-sm text-fg-passive">{tt("Henüz hesap yok. Yukarıdan kullanıcı adını ekle.")}</p>
           )}
+          <Card interactive={false} className="flex flex-col gap-3">
+            <CardTitle>{tt("Instagram hesabını bağla")}</CardTitle>
+            <p className="text-sm text-fg-muted">{tt("Kişisel, gizli veya kısıtlı hesaplar Business Discovery ile okunmaz. Instagram’ın kendi giriş ekranından bağlarsanız profiliniz sizin izninizle okunur. Şifre paylaşılmaz. Uygulama henüz yayında değilse yalnız test kullanıcıları bağlanabilir.")}</p>
+            <ButtonLink href="/api/instagram/oauth/start" variant="secondary" className="w-fit">{tt("Instagram ile bağlan")}</ButtonLink>
+          </Card>
           <Card interactive={false} className="flex flex-col gap-3">
             <CardTitle>{tt("TikTok hesabını bağla")}</CardTitle>
             <p className="text-sm text-fg-muted">{tt("TikTok istatistikleri yalnız senin onayınla, TikTok'un resmî giriş ekranı üzerinden alınır. Şifren bizimle paylaşılmaz.")}</p>

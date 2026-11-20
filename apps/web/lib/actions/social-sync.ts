@@ -7,7 +7,7 @@ import { requireActor } from "@/lib/auth-guard";
 export async function syncInfluencerForBrandAction(influencerId: string): Promise<{ ok: boolean; message: string }> {
   await requireActor("BRAND", "ADMIN");
   if (!influencerId) return { ok: false, message: "Geçersiz üretici." };
-  const results = await syncInfluencer(influencerId);
+  const results = await syncInfluencer(influencerId, undefined, { force: true });
   revalidateAll();
   if (!results.length) return { ok: false, message: "Bağlı sosyal medya hesabı bulunamadı." };
   const okCount = results.filter((r) => r.ok).length;

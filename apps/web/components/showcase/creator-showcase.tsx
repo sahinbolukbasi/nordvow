@@ -88,7 +88,7 @@ export async function CreatorShowcase({
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-[30px] leading-tight font-semibold tracking-tight">{inf.name}</h1>
-              {explorerReport ? (
+              {explorerReport?.scores.known && explorerReport.scores.overallScore != null ? (
                 <span className="rounded-full bg-fg px-3 py-0.5 text-[12px] font-semibold text-bg">
                   {tt("Uyum Skoru:")} {explorerReport.scores.overallScore}/100 · {explorerReport.scores.priorityTier}
                 </span>
@@ -113,9 +113,9 @@ export async function CreatorShowcase({
         <dl className="relative mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             [tt("Toplam takipçi"), compact.format(total || (explorerReport?.followers ?? 0))],
-            [tt("En iyi etkileşim (ER)"), bestEr ? pct.format(bestEr) : explorerReport ? `%${explorerReport.avgErPct}` : "—"],
-            [tt("Ort. Reels izlenme"), explorerReport ? compact.format(explorerReport.avgReelsViews) : "—"],
-            [tt("Ort. kaydetme (Saves)"), explorerReport ? compact.format(explorerReport.avgSaves) : "—"],
+            [tt("En iyi etkileşim (ER)"), bestEr ? pct.format(bestEr) : explorerReport?.avgErPct != null ? `%${explorerReport.avgErPct}` : "—"],
+            [tt("Ort. Reels izlenme"), explorerReport?.avgReelsViews != null ? compact.format(explorerReport.avgReelsViews) : "—"],
+            [tt("Ort. kaydetme (Saves)"), explorerReport?.avgSaves != null ? compact.format(explorerReport.avgSaves) : "—"],
             [tt("İş birliği"), showCollabsEffective ? String(Math.max(collabs.length, explorerReport?.brandCollaborations.length ?? 0)) : tt("Gizli")],
             [tt("Yayınlanan içerik"), showCollabsEffective ? String(publishedCount || (explorerReport?.recentMedia.length ?? 0)) : tt("Gizli")],
           ].map(([k, v]) => (

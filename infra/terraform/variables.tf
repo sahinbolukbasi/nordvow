@@ -125,7 +125,10 @@ variable "integration_secret_keys" {
     "WHATSAPP_PHONE_NUMBER_ID",
     "META_IG_TOKEN",
     "INSTAGRAM_ACCESS_TOKEN",
+    "IG_GRAPH_TOKEN",
     "INSTAGRAM_IG_USER_ID",
+    # META_SYSTEM_USER_TOKEN, IG_GRAPH_TOKEN ve INSTAGRAM_ACCESS_TOKEN aynı süresiz Sayfa token'ını taşır.
+    # Üçü ve INSTAGRAM_IG_USER_ID sırda yoksa ECS görevi açılmaz. IG_BUSINESS_ACCOUNT_ID listeye eklenmez.
   ]
 }
 

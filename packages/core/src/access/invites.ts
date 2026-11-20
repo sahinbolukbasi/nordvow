@@ -7,7 +7,7 @@ import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
 import { LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
-import { assertUniqueInstagramHandle } from "../social/handles";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "../social/handles";
 
 /**
  * Davetle kayıt. Kayıt yalnız geçerli bir davet koduyla (özel link: /kayit?kod=...) yapılır; kayıt olan
@@ -92,6 +92,8 @@ export type RegisterInput = {
   name: string;
   phone: string;
   acceptTerms?: boolean;
+  acceptOpenConsent?: boolean;
+  acceptCommercial?: boolean;
   application: InfluencerApplication | BrandApplication;
 };
 
@@ -174,7 +176,8 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
       for (const [platform, h] of [["INSTAGRAM", data.instagram], ["TIKTOK", data.tiktok], ["YOUTUBE", data.youtube]] as const) {
         if (!h?.trim()) continue;
         if (platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, h, inf.id);
-        await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: cleanHandle(h), followers: 0, engagementRate: 0, demographics: {} } });
+        const stored = platform === "INSTAGRAM" ? normalizeInstagramHandle(h) : cleanHandle(h).replace(/^@/, "");
+        await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: stored, followers: 0, engagementRate: 0, demographics: {} } });
       }
       // Vergi durumu belirlenene kadar ödeme kilitli.
       await tx.influencerTaxProfile.create({ data: { influencerId: inf.id, status: "diger" } });

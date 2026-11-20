@@ -2,7 +2,6 @@ import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
-import { syncInfluencer } from "@infulancer/core/social/sync";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
 import { ButtonLink } from "@/components/ui/form";
 import { requireActor } from "@/lib/auth-guard";
@@ -16,13 +15,9 @@ export default async function CreatorProfileForBrand({ params }: { params: Promi
   const { id } = await params;
   const inf = await prisma.influencer.findFirst({
     where: { id, showcaseVisible: true, user: { status: "ACTIVE" } },
-    select: { id: true, socialAccounts: { select: { lastSyncedAt: true } } },
+    select: { id: true },
   });
   if (!inf) notFound();
-  const staleAt = Date.now() - 3_600_000;
-  if (inf.socialAccounts.some((a) => !a.lastSyncedAt || a.lastSyncedAt.getTime() < staleAt)) {
-    void syncInfluencer(inf.id).catch(() => {});
-  }
   return (
     <div className="flex flex-col gap-4">
       <ButtonLink href="/marka/kesfet" variant="ghost" size="sm" className="w-fit">{tt("← Influencer bul")}</ButtonLink>

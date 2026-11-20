@@ -9,7 +9,7 @@ import { mockIys } from "../src/compliance/iys";
 const TABLES = [
   "SignupApplication", "Invite",
   "PayoutRequest", "PayoutBatch", "LedgerEntry", "Notification", "AgentRun", "DeliverableStatusChange", "DeliverableReview",
-  "MetricSnapshot", "Asset", "Deliverable", "Assignment", "CampaignBrief", "Campaign", "SocialAccountSnapshot", "SocialAccount",
+  "MetricSnapshot", "Asset", "Deliverable", "Assignment", "CampaignBrief", "Campaign", "SocialSyncEvent", "SocialSyncLock", "SocialAccountSnapshot", "SocialAccount",
   "User", "Influencer", "Brand",
   "config_values", "tenant_settings", "tenant_policy_flags", "whatsapp_numbers", "channel_connections", "webhook_dedupe",
   "raw_webhooks", "messages", "conversations", "contacts", "message_daily_stats", "message_templates", "knowledge_chunks",

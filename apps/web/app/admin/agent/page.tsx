@@ -5,6 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { isAgentCoreEnabled } from "@infulancer/core/assistant/agentcore";
 import { agentOverview } from "@infulancer/core/agents/catalog";
 import { envStr } from "@infulancer/core/env";
+import { syncReasonNotes, syncSourceLabels } from "@infulancer/core/social/sync";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { AuditAgentControls } from "@/components/agent/agent-forms";
 import { CustomAgentCard, CustomAgentForm, InstagramExplorer, SyncCampaignInstagramButton } from "@/components/agent/agentcore-center";
@@ -324,6 +325,7 @@ async function InstagramOnlyView() {
                 <th className="py-2 pr-4 font-medium">{tt("Ort. Beğeni")}</th>
                 <th className="py-2 pr-4 font-medium">{tt("Etkileşim")}</th>
                 <th className="py-2 pr-4 font-medium">{tt("Kaynak")}</th>
+                <th className="py-2 pr-4 font-medium">{tt("Neden")}</th>
                 <th className="py-2 font-medium">{tt("Detaylı Analiz")}</th>
               </tr>
             </thead>
@@ -339,7 +341,8 @@ async function InstagramOnlyView() {
                   <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                   <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>
-                  <td className="py-2 pr-4 text-[12px] text-fg-passive">{a.syncSource}</td>
+                  <td className="py-2 pr-4 text-[12px] text-fg-passive">{syncSourceLabels[a.syncSource] ?? a.syncSource}</td>
+                  <td className="py-2 pr-4 text-[12px] text-fg-muted">{a.syncReason ? (syncReasonNotes[a.syncReason] ?? a.syncReason) : "—"}</td>
                   <td className="py-2">
                     <Link
                       href={`/admin/influencerlar/${a.influencer.id}`}

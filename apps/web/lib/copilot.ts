@@ -10,6 +10,7 @@ import { createShortLink } from "@infulancer/core/notify/shortlink";
 import { getLlm } from "@infulancer/core/llm/index";
 import { parseJsonObject } from "@infulancer/core/llm/bedrock";
 import { envStr } from "@infulancer/core/env";
+import { countOpenFindings } from "@infulancer/core/agents/catalog";
 import { BRAND_NAME } from "@infulancer/core/brand";
 import { ownTenant } from "@/lib/creative-tenant";
 import { allowedActions, COPILOT_ACTIONS, COPILOT_SUGGESTIONS, matchIntent, type CopilotAction, type CopilotForm, type CopilotRole } from "@infulancer/core/copilot/intents";
