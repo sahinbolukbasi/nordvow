@@ -86,97 +86,114 @@ function attachLocaleHeadersAndCookies(
   return res;
 }
 
-export default auth(async (req) => {
-  const { pathname, search } = req.nextUrl;
-  const user = req.auth?.user;
-  const userAgent = req.headers.get("user-agent");
-  const isBot = isSearchBot(userAgent);
+export default function proxy(rawReq: NextRequest, ctx: unknown) {
+  // NextAuth'un reqWithEnvURL sarmalayıcısı AUTH_URL (ör. https://nordvow.com) tanımlıysa
+  // req.nextUrl.origin'i dış alan adıyla değiştirir. Next.js dahili sunucusu (-H 0.0.0.0 -p 3000)
+  // ise NextResponse.rewrite hedefini kendi initUrl origin'i (rawReq.nextUrl.origin) ile karşılaştırır;
+  // origin farklıysa dahili rewrite yerine dış HTTP proxy isteği atıp sonsuz 307 döngüsüne girer.
+  // Bu nedenle dahili rewrite hedefi her zaman ham (rawReq) origin üzerinden üretilir.
+  const internalBaseUrl = rawReq.nextUrl;
 
-  // API, sistem ve medya uçlarına dil yönlendirmesi uygulanmaz.
-  if (
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/webhooks/") ||
-    pathname.startsWith("/auth/") ||
-    pathname === "/sitemap.xml" ||
-    pathname === "/robots.txt" ||
-    pathname === "/opengraph-image" ||
-    pathname === "/icon.svg" ||
-    pathname === "/apple-icon"
-  ) {
-    return handleAuth(req, pathname, search, user, null, null);
-  }
+  const handler = auth(async (req) => {
+    const { pathname, search } = req.nextUrl;
+    const user = req.auth?.user;
+    const userAgent = req.headers.get("user-agent");
+    const isBot = isSearchBot(userAgent);
 
-  const { urlLocale, stripped } = stripUrlLocale(pathname);
+    // API, sistem ve medya uçlarına dil yönlendirmesi uygulanmaz.
+    if (
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/webhooks/") ||
+      pathname.startsWith("/auth/") ||
+      pathname === "/sitemap.xml" ||
+      pathname === "/robots.txt" ||
+      pathname === "/opengraph-image" ||
+      pathname === "/icon.svg" ||
+      pathname === "/apple-icon"
+    ) {
+      return handleAuth(req, pathname, search, user, null, null);
+    }
 
-  // 1) Öncelik sırasıyla dil & ülke algıla (ham IP saklanmaz, yalnızca ülke kodu).
-  const isManual = req.cookies.get("nv_locale_manual")?.value === "1";
-  const cookieLocale = req.cookies.get("nv_locale")?.value;
-  const cookieCountry = req.cookies.get("nv_country")?.value;
-  const headerCountry = extractCountryFromHeaders((name) => req.headers.get(name));
+    const { urlLocale, stripped } = stripUrlLocale(pathname);
 
-  let geoIpCountry: string | null = null;
-  if (!urlLocale && !isManual && !headerCountry && !cookieCountry && !isBot) {
-    const rawIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip");
-    geoIpCountry = await lookupCountryByIp(rawIp);
-  }
+    // 1) Öncelik sırasıyla dil & ülke algıla (ham IP saklanmaz, yalnızca ülke kodu).
+    const isManual = req.cookies.get("nv_locale_manual")?.value === "1";
+    const cookieLocale = req.cookies.get("nv_locale")?.value;
+    const cookieCountry = req.cookies.get("nv_country")?.value;
+    const headerCountry = extractCountryFromHeaders((name) => req.headers.get(name));
 
-  const resolved = resolveLocaleAndCountry({
-    cookieLocale: urlLocale ?? cookieLocale,
-    isManualLocale: Boolean(urlLocale) || isManual,
-    cookieCountry,
-    headerCountry,
-    geoIpCountry,
-    acceptLanguage: req.headers.get("accept-language"),
-  });
+    let geoIpCountry: string | null = null;
+    if (!urlLocale && !isManual && !headerCountry && !cookieCountry && !isBot) {
+      const rawIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip");
+      geoIpCountry = await lookupCountryByIp(rawIp);
+    }
 
-  const activeLocale: "tr" | "en" = urlLocale ?? (resolved.locale === "tr" ? "tr" : "en");
-  const activeCountry = resolved.country;
+    const resolved = resolveLocaleAndCountry({
+      cookieLocale: urlLocale ?? cookieLocale,
+      isManualLocale: Boolean(urlLocale) || isManual,
+      cookieCountry,
+      headerCountry,
+      geoIpCountry,
+      acceptLanguage: req.headers.get("accept-language"),
+    });
 
-  // 2) Arama motoru botlarını konuma göre yönlendirme: her dil sürümünü doğrudan görebilsin.
-  if (!urlLocale && !isBot && !user?.role && isLocalizedRedirectPath(pathname)) {
-    const targetPath = pathname === "/" ? `/${activeLocale}` : `/${activeLocale}${pathname}`;
-    const redirectUrl = new URL(`${targetPath}${search}`, req.nextUrl);
-    const redirectRes = NextResponse.redirect(redirectUrl, 307);
-    redirectRes.headers.set("Vary", "Accept-Language, CF-IPCountry, x-vercel-ip-country, Cookie");
-    return attachLocaleHeadersAndCookies(req, redirectRes, {
+    const activeLocale: "tr" | "en" = urlLocale ?? (resolved.locale === "tr" ? "tr" : "en");
+    const activeCountry = resolved.country;
+
+    // 2) Arama motoru botlarını konuma göre yönlendirme: her dil sürümünü doğrudan görebilsin.
+    if (!urlLocale && !isBot && !user?.role && isLocalizedRedirectPath(pathname)) {
+      const targetPath = pathname === "/" ? `/${activeLocale}` : `/${activeLocale}${pathname}`;
+      const redirectUrl = new URL(`${targetPath}${search}`, req.nextUrl);
+      const redirectRes = NextResponse.redirect(redirectUrl, 307);
+      redirectRes.headers.set("Vary", "Accept-Language, CF-IPCountry, x-vercel-ip-country, Cookie");
+      return attachLocaleHeadersAndCookies(req, redirectRes, {
+        locale: activeLocale,
+        country: activeCountry,
+        isManualOrUrl: isManual,
+      });
+    }
+
+    // 3) Oturum ve rol kontrolü (dil öneki soyulmuş gerçek rota üzerinden).
+    const authRes = handleAuth(req, stripped, search, user, activeLocale, activeCountry);
+    if (authRes) {
+      return attachLocaleHeadersAndCookies(req, authRes, {
+        locale: activeLocale,
+        country: activeCountry,
+        isManualOrUrl: Boolean(urlLocale) || isManual,
+      });
+    }
+
+    // 4) /tr/... veya /en/... URL'lerini mevcut sayfalara dahili olarak rewrite et (sıfır kırılma).
+    const reqHeaders = buildRequestHeaders(req, {
+      pathname: stripped,
       locale: activeLocale,
       country: activeCountry,
-      isManualOrUrl: isManual,
     });
-  }
 
-  // 3) Oturum ve rol kontrolü (dil öneki soyulmuş gerçek rota üzerinden).
-  const authRes = handleAuth(req, stripped, search, user, activeLocale, activeCountry);
-  if (authRes) {
-    return attachLocaleHeadersAndCookies(req, authRes, {
+    let response: NextResponse;
+    if (urlLocale) {
+      const rewriteUrl = internalBaseUrl.clone();
+      rewriteUrl.pathname = stripped;
+      rewriteUrl.search = search;
+      response = NextResponse.rewrite(rewriteUrl, {
+        request: { headers: reqHeaders },
+      });
+    } else {
+      response = NextResponse.next({
+        request: { headers: reqHeaders },
+      });
+    }
+
+    response.headers.set("x-pathname", stripped);
+    return attachLocaleHeadersAndCookies(req, response, {
       locale: activeLocale,
       country: activeCountry,
       isManualOrUrl: Boolean(urlLocale) || isManual,
     });
-  }
-
-  // 4) /tr/... veya /en/... URL'lerini mevcut sayfalara dahili olarak rewrite et (sıfır kırılma).
-  const reqHeaders = buildRequestHeaders(req, {
-    pathname: stripped,
-    locale: activeLocale,
-    country: activeCountry,
   });
 
-  const response = urlLocale
-    ? NextResponse.rewrite(new URL(`${stripped}${search}`, req.nextUrl), {
-        request: { headers: reqHeaders },
-      })
-    : NextResponse.next({
-        request: { headers: reqHeaders },
-      });
-
-  response.headers.set("x-pathname", stripped);
-  return attachLocaleHeadersAndCookies(req, response, {
-    locale: activeLocale,
-    country: activeCountry,
-    isManualOrUrl: Boolean(urlLocale) || isManual,
-  });
-});
+  return (handler as unknown as (req: NextRequest, ctx: unknown) => Promise<Response>)(rawReq, ctx);
+}
 
 function handleAuth(
   req: Parameters<Parameters<typeof auth>[0]>[0],
