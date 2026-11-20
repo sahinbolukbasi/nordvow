@@ -55,6 +55,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
           statusLabel={st.label}
           statusTone={st.tone}
           coverSrc={mediaSrc(e.coverImageKey)}
+          logoSrc="/brand/nordvow-logo-dark.svg"
           qr={<QrImage dataUrl={links.qrDataUrl} alt={`Bilet QR kodu ${ticket.code}`} />}
         />
 

@@ -470,6 +470,11 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       </div>
     ),
   });
+  const visibleTabs = actor.role === "INFLUENCER"
+    ? tabs.filter((tab) => ["bilgiler", "hesaplar", "fiyat", "kargo", "islemler"].includes(tab.id))
+    : actor.role === "BRAND"
+      ? tabs.filter((tab) => !["isbirlikleri", "teklifler", "kargo"].includes(tab.id))
+      : tabs;
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-4 rounded-3xl border border-line bg-glass p-5">
@@ -478,7 +483,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <PageHeader title={user.name} description={`${headline} · ${user.email} · üye ${fmtDate(user.createdAt)}`} />
         </div>
       </div>
-      <Tabs key={sekme ?? "bilgiler"} label={tt("Profil bölümleri")} defaultTab={sekme} tabs={tabs} />
+      <Tabs
+        key={sekme ?? "bilgiler"}
+        label={tt("Profil bölümleri")}
+        defaultTab={visibleTabs.some((tab) => tab.id === sekme) ? sekme : "bilgiler"}
+        tabs={visibleTabs}
+      />
     </div>
   );
 }

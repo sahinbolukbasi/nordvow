@@ -32,6 +32,7 @@ export type TicketCardProps = {
   coverSrc?: string | null;
   accent?: string;
   qr?: ReactNode;
+  logoSrc?: string | null;
   className?: string;
 };
 
@@ -41,7 +42,7 @@ const ticketStatus: Record<TicketCardProps["statusTone"], string> = {
   void: "bg-red-50 text-red-600 ring-red-200",
 };
 
-export function TicketCard({ title, organizer, holderName, dateLabel, venueLabel, code, statusLabel, statusTone, coverSrc, accent = "#7c3aed", qr, className }: TicketCardProps) {
+export function TicketCard({ title, organizer, holderName, dateLabel, venueLabel, code, statusLabel, statusTone, coverSrc, accent = "#7c3aed", qr, logoSrc, className }: TicketCardProps) {
   return (
     <article aria-label={`${title} bileti`} className={cn("w-full max-w-sm overflow-hidden rounded-[28px] bg-white text-[#0b0b14] shadow-[0_20px_50px_rgba(0,0,0,0.22)] ring-1 ring-black/10", className)}>
       <div className="relative h-40">
@@ -53,7 +54,10 @@ export function TicketCard({ title, organizer, holderName, dateLabel, venueLabel
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent" />
         <div className="absolute left-4 right-4 top-4 flex items-center justify-between gap-2">
-          <span className="truncate rounded-full bg-white/95 px-3 py-1 text-[11px] font-semibold text-[#0b0b14] shadow-sm">{organizer}</span>
+          <span className="flex min-w-0 items-center gap-2 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-[#0b0b14] shadow-sm">
+            {logoSrc ? <img src={logoSrc} alt="" className="h-5 w-5 rounded-full object-contain" /> : null}
+            <span className="truncate">{organizer}</span>
+          </span>
           <span className="rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white backdrop-blur">Etkinlik Bileti</span>
         </div>
         <div className="absolute bottom-3 left-4 right-4">

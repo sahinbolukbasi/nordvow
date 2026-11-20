@@ -79,9 +79,8 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka", label: "Genel bakış", icon: HomeIcon, exact: true, section: "Kampanya ve İş Akışı", order: 10 },
     { href: "/marka/kampanyalar", label: "Kampanyalar", icon: MegaphoneIcon, section: "Kampanya ve İş Akışı", order: 20 },
     { href: "/marka/kesfet", label: "Influencer bul", icon: UsersIcon, section: "Kampanya ve İş Akışı", order: 30 },
-    { href: "/marka/teklifler", label: "Teklifler", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 40 },
+    { href: "/marka/kargo", label: "Kargo yönetimi", icon: TruckIcon, section: "Kampanya ve İş Akışı", order: 40 },
     { href: "/marka/odemeler", label: "Ödemeler & Faturalar", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 45 },
-    { href: "/marka/bakiye", label: "Marka bakiyesi", icon: WalletIcon, section: "Kampanya ve İş Akışı", order: 46 },
     { href: "/marka/takvim", label: "Takvim", icon: CalendarIcon, section: "Kampanya ve İş Akışı", order: 50 },
 
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Pazarlama ve Araçlar", order: 100 },
@@ -99,7 +98,6 @@ export const navByRole: Record<Role, NavItem[]> = {
   ],
   INFLUENCER: [
     { href: "/influencer", label: "İşlerim", icon: HomeIcon, exact: true, section: "İş Akışım", order: 10 },
-    { href: "/influencer/teklifler", label: "Teklifler", icon: MegaphoneIcon, section: "İş Akışım", order: 20 },
     { href: "/influencer/takvim", label: "Takvim", icon: CalendarIcon, section: "İş Akışım", order: 30 },
     { href: "/influencer/davetlerim", label: "Davetlerim", icon: CalendarIcon, section: "İş Akışım", order: 40 },
 

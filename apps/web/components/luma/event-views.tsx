@@ -544,7 +544,10 @@ export async function EventQrHub({
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <header className="flex flex-col gap-1">
-          <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+          <div className="flex items-center gap-3">
+            <img src="/brand/nordvow-logo-dark.svg" alt="NordVow" className="h-8 w-auto" />
+            <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+          </div>
           <p className="text-[14px] text-fg-muted">Etkinlik kapısında QR kod okutun ve katılımcı biletlerini yönetin.</p>
         </header>
         <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-6 py-14 text-center">

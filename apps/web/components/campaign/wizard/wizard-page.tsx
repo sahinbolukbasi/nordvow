@@ -308,11 +308,14 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         title={c.name}
         description={`${isBrand ? "" : `${brand.name} · `}${c.status === "AKTIF" ? "Aktif" : "Taslak"}${c.submittedAt ? " · kaydedildi" : ""}. Her adımın altındaki “Kaydet ve devam” bilgileri kaydeder.`}
         actions={
-          <CampaignActionsMenu
-            campaignId={c.id}
-            campaignName={c.name}
-            viewHref={isBrand ? `/marka/kampanyalar/${c.id}` : `/admin/kampanyalar/${c.id}`}
-          />
+          <div className="flex flex-wrap gap-2">
+            {isBrand ? <Link href="/marka/kampanyalar/yeni?mod=kisa" className="rounded-full border border-line px-3 py-2 text-sm">Kısa düzenlemeye dön</Link> : null}
+            <CampaignActionsMenu
+              campaignId={c.id}
+              campaignName={c.name}
+              viewHref={isBrand ? `/marka/kampanyalar/${c.id}` : `/admin/kampanyalar/${c.id}`}
+            />
+          </div>
         }
       />
       <Steps base={base} active={step} done={done} includeShipping={includeShipping} />

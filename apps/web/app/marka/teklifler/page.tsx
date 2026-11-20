@@ -42,8 +42,8 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
   const pendingApps = apps.filter((a) => a.status === "BASVURULDU" || a.status === "INCELENIYOR");
   const count = (s: string) => offers.filter((o) => o.status === s).length;
 
-  const offerList =
-    offers.length === 0 ? (
+  const renderOfferList = (rows: typeof offers) =>
+    rows.length === 0 ? (
       <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-6 py-12 text-center">
         <p className="font-medium text-fg">{tt("Henüz teklif yok")}</p>
         <p className="max-w-md text-[13px] text-fg-muted">{tt("Influencer bul sayfasından üretici seçip teklif gönderin ya da başvuru çağrısı açın; kabul ettiğiniz başvurular da burada listelenir.")}</p>
@@ -51,7 +51,7 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
       </div>
     ) : (
       <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-        {offers.map((o) => {
+        {rows.map((o) => {
           const inf = infs.get(o.influencerId);
           const infCur = currencyOf(inf?.country);
           const p = offerPill[o.status] ?? { label: o.status, tone: "gray" as const };
@@ -150,7 +150,12 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
       </ul>
     );
 
-  const defaultTab = sekme ?? (pendingApps.length ? "basvurular" : "teklifler");
+  const activeOffers = offers.filter((o) => !["RED", "KAPANDI", "SURESI_DOLDU"].includes(o.status));
+  const rejectedOffers = offers.filter((o) => ["RED", "KAPANDI", "SURESI_DOLDU"].includes(o.status));
+  const requestedTab = sekme === "teklifler" ? "aktif" : sekme;
+  const defaultTab = ["aktif", "gecmis", "reddedilen", "basvurular", "cagrilar"].includes(requestedTab ?? "")
+    ? requestedTab
+    : pendingApps.length ? "basvurular" : "aktif";
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -178,7 +183,9 @@ export default async function BrandOffersPage({ searchParams }: { searchParams: 
         label={tt("Teklifler")}
         defaultTab={defaultTab}
         tabs={[
-          { id: "teklifler", label: `Teklifler (${offers.length})`, content: offerList },
+          { id: "aktif", label: `Aktif (${activeOffers.length})`, content: renderOfferList(activeOffers) },
+          { id: "gecmis", label: `Geçmiş işlemler (${offers.length})`, content: renderOfferList(offers) },
+          { id: "reddedilen", label: `Reddedilen (${rejectedOffers.length})`, content: renderOfferList(rejectedOffers) },
           { id: "basvurular", label: `Gelen başvurular (${pendingApps.length})`, content: appList },
           { id: "cagrilar", label: `Başvuru çağrıları (${calls.length})`, content: callList },
         ]}
