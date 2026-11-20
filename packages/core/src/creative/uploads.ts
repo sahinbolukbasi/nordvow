@@ -71,11 +71,18 @@ export async function confirmCreativeUpload(input: { tenantId: string; key: stri
   });
 }
 
-/** Tenant'a ait yüklemeyi getirir (yoksa BULUNAMADI; başka tenant'ınki de BULUNAMADI). */
+/** Tenant'a ait yüklemeyi getirir (AI çıktısı kimliği verilirse kitaplık kaydını çözümler; başka tenant'ınki BULUNAMADI döner). */
 export async function getOwnedUpload(tenantId: string | null, id: string) {
   const u = await prisma.creativeUpload.findUnique({ where: { id } });
-  if (!u || (tenantId !== null && u.tenantId !== tenantId)) throw new DomainError("BULUNAMADI", "Dosya bulunamadı.");
-  return u;
+  if (u) {
+    if (tenantId !== null && u.tenantId !== tenantId) throw new DomainError("BULUNAMADI", "Dosya bulunamadı.");
+    return u;
+  }
+  const asset = await prisma.generatedAsset.findUnique({ where: { id } });
+  if (asset && (tenantId === null || asset.tenantId === tenantId)) {
+    return importGeneratedAsset(tenantId, asset.id);
+  }
+  throw new DomainError("BULUNAMADI", "Dosya bulunamadı.");
 }
 
 /** Görüntüleme veya AI modeline girdi için kısa süreli imzalı GET (varsayılan 1 saat). */
@@ -102,20 +109,49 @@ export async function saveEditedFile(input: { tenantId: string; parentId: string
 }
 
 /**
- * AI çıktısını (generated_assets) stüdyo kitaplığına kopyalar ki üzerine ücretsiz
- * düzenleme (yazı, kadraj, filtre) yapılabilsin. S3 içinde kopyalanır; indirme yok.
+ * AI çıktısını (generated_assets) stüdyo kitaplığına kaydeder veya zaten kitaplıktaysa mevcut
+ * kaydı döndürür. Hem video hem fotoğraf çıktıları desteklenir.
  */
 export async function importGeneratedAsset(tenantId: string | null, assetId: string, userId?: string | null) {
   const asset = await prisma.generatedAsset.findUnique({ where: { id: assetId } });
   if (!asset || (tenantId !== null && asset.tenantId !== tenantId)) throw new DomainError("BULUNAMADI", "İçerik bulunamadı.");
+  const existing = await prisma.creativeUpload.findFirst({ where: { tenantId: asset.tenantId, s3Key: asset.s3Key } });
+  if (existing) return existing;
+
   const head = await headObject(asset.s3Key);
-  const mime = head?.mime ?? "";
-  const kind = kindOfMime(mime);
-  if (!head || !kind) throw new DomainError("DOGRULAMA", "Bu içerik stüdyoda düzenlenemiyor (demo modunda üretilen örnek dosya olabilir).");
-  const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
-  const key = `uploads/${asset.tenantId}/${randomUUID()}.${extOf(mime)}`;
-  await s3().send(new CopyObjectCommand({ Bucket: bucket(), Key: key, CopySource: `${bucket()}/${asset.s3Key}`, ContentType: mime, MetadataDirective: "REPLACE" }));
+  if (head) {
+    const mime = head.mime ?? "";
+    const kind = kindOfMime(mime);
+    if (kind) {
+      const { CopyObjectCommand } = await import("@aws-sdk/client-s3");
+      const key = `uploads/${asset.tenantId}/${randomUUID()}.${extOf(mime)}`;
+      await s3().send(new CopyObjectCommand({ Bucket: bucket(), Key: key, CopySource: `${bucket()}/${asset.s3Key}`, ContentType: mime, MetadataDirective: "REPLACE" }));
+      return prisma.creativeUpload.create({
+        data: { tenantId: asset.tenantId, uploadedByUserId: userId ?? null, kind, mime, sizeBytes: head.size, s3Key: key, name: `AI çıktısı · ${asset.modelKey}`, source: "ai" },
+      });
+    }
+  }
+
+  // Demo / bellek deposu modu veya S3 başlığı okunamadığında model türünden video/görsel olarak kitaplığa kaydet.
+  const reg = await prisma.modelRegistry.findUnique({ where: { key: asset.modelKey }, select: { kind: true } });
+  const job = asset.jobId ? await prisma.creativeJob.findUnique({ where: { id: asset.jobId }, select: { prompt: true, units: true } }) : null;
+  const isVideo =
+    reg?.kind === "video" ||
+    /video|i2v|kling|hailuo|ltx|wan|veo|seedance|minimax/i.test(asset.modelKey);
+  const kind: UploadKind = isVideo ? "video" : "image";
+  const mime = isVideo ? "video/mp4" : "image/png";
+  const cleanPrompt = job?.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
   return prisma.creativeUpload.create({
-    data: { tenantId: asset.tenantId, uploadedByUserId: userId ?? null, kind, mime, sizeBytes: head.size, s3Key: key, name: `AI çıktısı · ${asset.modelKey}`, source: "edit" },
+    data: {
+      tenantId: asset.tenantId,
+      uploadedByUserId: userId ?? null,
+      kind,
+      mime,
+      sizeBytes: 1024,
+      s3Key: asset.s3Key,
+      name: (cleanPrompt || `AI ${isVideo ? "Video" : "Fotoğraf"} · ${asset.modelKey}`).slice(0, 120),
+      source: "ai",
+      durationSec: isVideo ? Number(job?.units ?? 5) || 5 : null,
+    },
   });
 }

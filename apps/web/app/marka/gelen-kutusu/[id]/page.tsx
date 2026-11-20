@@ -37,6 +37,12 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
         actions={<ConversationActions conversationId={conv.id} status={conv.status} />}
       />
       <Card interactive={false} className="flex flex-col gap-3">
+        <div className="rounded-xl border border-line bg-bg/60 px-3.5 py-2.5 text-[13px] text-fg-muted">
+          <strong className="text-fg">{tt("Nasıl yardımcı olabilirim?")}</strong>{" "}
+          {conv.status === "assigned"
+            ? tt("Bu konuşma şu an insan temsilcide. Aşağıdan yanıt yazabilir veya bota devredebilirsiniz.")
+            : tt("Firma AI botu aktif — gelen mesajları otomatik karşılar. Yalnız devralmak istediğinizde aşağıdan yazın.")}
+        </div>
         <ol className="flex flex-col gap-3" aria-label={tt("Mesajlar")}>
           {conv.messages.map((m) => (
             <li key={m.id} className={m.direction === "OUTBOUND" ? "self-end text-right" : "self-start"}>

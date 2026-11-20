@@ -78,7 +78,7 @@ export default async function PublicEventPage({ params }: { params: Promise<{ id
             {myTicket ? (
               <>
                 <p className="font-medium text-fg">{tt("Katılıyorsunuz. Biletiniz hazır.")}</p>
-                <Link href={`/bilet/${myTicket.id}`} className="w-fit rounded-full bg-fg px-4 py-2 text-[14px] font-medium text-bg hover:opacity-90">{tt("Biletimi göster")}</Link>
+                <Link href={`/bilet/${myTicket.id}`} target="_blank" rel="noopener noreferrer" className="w-fit rounded-full bg-fg px-4 py-2 text-[14px] font-medium text-bg hover:opacity-90">{tt("Biletimi göster")}</Link>
               </>
             ) : myInvite ? (
               <>

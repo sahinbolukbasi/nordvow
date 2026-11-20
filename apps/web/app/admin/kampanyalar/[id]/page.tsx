@@ -14,6 +14,8 @@ import {
 } from "@infulancer/core/domain/labels";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { CampaignLifecycle } from "@/components/campaign/campaign-lifecycle";
+import { CampaignHub } from "@/components/campaign/campaign-hub";
+import { loadCampaignHubData } from "@/lib/campaign-hub-loader";
 import { ApproveSummaryButton, RecommendButton } from "@/components/forms/agent-job-forms";
 import { BriefPanel } from "@/components/brief-panel";
 import { KpiBreakdown } from "@/components/campaign/kpi-breakdown";
@@ -410,6 +412,7 @@ export default async function CampaignDetailPage({
     </div>
   );
 
+  const hubData = await loadCampaignHubData(campaign.id);
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
@@ -437,6 +440,19 @@ export default async function CampaignDetailPage({
         <p role="status" className="rounded-2xl bg-emerald-500/10 px-4 py-3 text-[14px] text-emerald-700 dark:text-emerald-400">{" "}{tt("Kampanya taslak olarak kaydedildi. Kuruluma istediğiniz an “Kurulum” ile dönebilirsiniz.")}</p>
       ) : null}
       <CampaignLifecycle campaignId={campaign.id} base={`/admin/kampanyalar/${campaign.id}`} />
+      <CampaignHub
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        campaignCurrency={campaign.currency}
+        viewerRole="ADMIN"
+        canManage={true}
+        executionMode={campaign.executionMode}
+        fx={hubData.fx}
+        rows={hubData.rows}
+        archivedKeys={hubData.archivedKeys}
+        messages={hubData.messages}
+        storyRows={hubData.storyRows}
+      />
       <Tabs
         key={sekme ?? "genel"}
         label={tt("Kampanya bölümleri")}

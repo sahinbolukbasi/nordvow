@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/ui/layout";
 import { cn } from "@/lib/cn";
 import { wizardBase } from "@/lib/campaign-wizard-paths";
 import { AGENCY_TZ, fmtDateTime, localDay } from "@/lib/time";
-import { countryLabel } from "@infulancer/core/i18n/regions";
+import { countryLabel, currencyOf } from "@infulancer/core/i18n/regions";
 import { AudienceStep, BasicsStep, BriefStep, ContentPlanStep, InfluencerStep, MediaStep, ScheduleStep, SubmitStep, type WizardInfluencer } from "./wizard-steps";
 
 const tl = (k: bigint | number) => (Number(k) > 0 ? (Number(k) / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 }) : "");
@@ -147,17 +147,24 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
     );
   } else if (step === "influencer") {
     const rows = await prisma.influencer.findMany({
-      // Ülke ayrımı: yalnız kampanyanın hedef ülkelerinde kayıtlı influencerlar.
-      where: { ...(isBrand ? { showcaseVisible: true } : {}), ...(c.targetCountries.length ? { country: { in: c.targetCountries } } : {}) },
+      // Çoklu ülke ve global influencer seçimi: vitrinde görünür tüm influencerlar listelenir, hedef ülke olanlar üstte sıralanır.
+      where: { ...(isBrand ? { showcaseVisible: true } : {}) },
       orderBy: { name: "asc" },
       take: 500,
       select: { id: true, name: true, category: true, city: true, country: true, avatarKey: true, socialAccounts: { select: { platform: true, followers: true, avatarUrl: true } } },
     });
-    const list: WizardInfluencer[] = rows.map((i) => ({
+    const targetSet = new Set(c.targetCountries);
+    const sortedRows = [...rows].sort((a, b) => {
+      const aInTarget = targetSet.has(a.country) ? 0 : 1;
+      const bInTarget = targetSet.has(b.country) ? 0 : 1;
+      if (aInTarget !== bInTarget) return aInTarget - bInTarget;
+      return a.name.localeCompare(b.name, "tr");
+    });
+    const list: WizardInfluencer[] = sortedRows.map((i) => ({
       id: i.id,
       name: i.name,
       category: i.category,
-      city: [i.city, countryLabel(i.country)].filter(Boolean).join(", "),
+      city: [i.city, `${countryLabel(i.country)} (${currencyOf(i.country)})`].filter(Boolean).join(", "),
       avatarUrl: pickAvatar(i.socialAccounts, i.avatarKey),
       platforms: [...new Set(i.socialAccounts.map((s) => s.platform))],
       followers: i.socialAccounts.reduce((s, a) => s + a.followers, 0),
@@ -170,7 +177,7 @@ export async function CampaignWizardPage({ actor, campaignId, step: stepRaw, def
         selected={c.shortlistInfluencerIds}
         note={
           isBrand
-            ? `${c.targetCountries.map((x) => countryLabel(x)).join(", ")} kayıtlı influencerlar listelenir. Çalışmak istediğiniz influencerları toplu seçin; ajans uygunluk ve bedelleri kontrol edip tek seferde atar. Boş bırakırsanız ajans önerir.`
+            ? `Hedef ülkeler (${c.targetCountries.map((x) => countryLabel(x)).join(", ") || "Tümü"}) öncelikli olmak üzere yerel ve global influencerlar listelenir. Yabancı influencer teklifleri kendi para birimlerine otomatik çevrilir.`
             : "Kısa liste: kurulumdaki toplu atama ekranında bu kişiler önceden seçili gelir."
         }
       />

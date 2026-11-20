@@ -9,7 +9,7 @@ import { mockIys } from "../src/compliance/iys";
 const TABLES = [
   "SignupApplication", "Invite",
   "PayoutRequest", "PayoutBatch", "LedgerEntry", "Notification", "AgentRun", "DeliverableStatusChange", "DeliverableReview",
-  "MetricSnapshot", "Asset", "Deliverable", "Assignment", "CampaignBrief", "Campaign", "SocialAccountSnapshot", "SocialAccount",
+  "MetricSnapshot", "Asset", "Deliverable", "Assignment", "CampaignBrief", "Campaign", "SocialSyncEvent", "SocialSyncLock", "SocialAccountSnapshot", "SocialAccount",
   "User", "Influencer", "Brand",
   "config_values", "tenant_settings", "tenant_policy_flags", "whatsapp_numbers", "channel_connections", "webhook_dedupe",
   "raw_webhooks", "messages", "conversations", "contacts", "message_daily_stats", "message_templates", "knowledge_chunks",
@@ -18,7 +18,7 @@ const TABLES = [
   "ad_object_mutations", "ad_budget_changes", "partnership_ad_codes", "model_registry", "credit_accounts", "credit_holds",
   "creative_jobs", "generated_assets", "disclosure_checks", "AgentJobRun",
   "event_tickets", "event_invites", "events", "coupon_grants", "coupons", "campaign_applications", "campaign_open_calls",
-  "notification_logs", "notification_templates", "notification_rules", "short_links", "data_deletion_requests", "legal_acceptances", "bot_tool_calls", "bot_pending_actions", "bot_link_codes", "bot_link_flags", "channel_account_links", "bot_settings", "ad_drafts", "support_tickets", "page_permissions", "credit_requests", "creative_uploads", "video_edit_jobs", "credit_ledger",
+  "notification_logs", "notification_templates", "notification_rules", "short_links", "data_deletion_requests", "legal_acceptances", "bot_leads", "bot_guest_drafts", "bot_link_events", "bot_link_attempts", "bot_tool_calls", "bot_pending_actions", "bot_link_codes", "bot_link_flags", "channel_account_links", "bot_settings", "ad_drafts", "support_tickets", "page_permissions", "credit_requests", "creative_uploads", "video_edit_jobs", "credit_ledger",
 ];
 
 export async function resetDb() {

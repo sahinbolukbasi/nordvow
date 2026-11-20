@@ -70,6 +70,88 @@ export function formatMajor(amount: number, currency: string = "TRY", intl?: str
 }
 
 /**
+ * Canlı kur servisinden (`open.er-api.com` / `creativePricing().fx`) veri gelmediğinde
+ * senkron bileşenlerde kullanılan varsayılan USD bazlı kurlar (1 USD = X).
+ */
+export const DEFAULT_FX_RATES: Record<Currency, number> = {
+  USD: 1,
+  TRY: 50.18,
+  EUR: 0.86,
+  CHF: 0.80,
+  GBP: 0.75,
+};
+
+function normalizeCurrency(c: string | null | undefined): Currency {
+  const upper = (c ?? "TRY").toUpperCase();
+  return (CURRENCIES as readonly string[]).includes(upper) ? (upper as Currency) : "TRY";
+}
+
+/**
+ * Küçük birimdeki (kuruş/cent) tutarı `fromCurrency` para biriminden `toCurrency` para birimine
+ * canlı kur tablosu (`fx`) üzerinden otomatik dönüştürür.
+ */
+export function convertMinor(
+  minor: number | bigint,
+  fromCurrency: string,
+  toCurrency: string,
+  fx: Record<string, number> = DEFAULT_FX_RATES,
+): number {
+  const amount = Number(minor);
+  const from = normalizeCurrency(fromCurrency);
+  const to = normalizeCurrency(toCurrency);
+  if (from === to) return Math.round(amount);
+  const fromRate = fx[from] ?? DEFAULT_FX_RATES[from] ?? 1;
+  const toRate = fx[to] ?? DEFAULT_FX_RATES[to] ?? 1;
+  if (!fromRate || fromRate <= 0) return Math.round(amount);
+  const inUsd = amount / fromRate;
+  return Math.round(inUsd * toRate);
+}
+
+/**
+ * Çift Taraflı Para Birimi Gösterimi (Two-Sided Display):
+ * - Marka (Brand) perspektifinde: Yerel para birimi ana tutar, yanında dönüştürülmüş karşılığı (örn. `₺10.000 (≈ €172)`).
+ * - Influencer perspektifinde: Influencer'ın kendi yerel/global para birimi ana tutar, parantez içinde orijinal tutar (örn. `€172 (₺10.000)`).
+ * - `showGlobalEquivalents: true` ise aynı para biriminde bile global karşılığını gösterir (`₺10.000 (≈ €172 · $199)`).
+ */
+export function formatDualMinor(
+  minor: number | bigint,
+  originalCurrency: string = "TRY",
+  options?: {
+    viewerCurrency?: string;
+    perspective?: "brand" | "influencer";
+    fx?: Record<string, number>;
+    showGlobalEquivalents?: boolean;
+  },
+): string {
+  const orig = normalizeCurrency(originalCurrency);
+  const viewer = normalizeCurrency(options?.viewerCurrency ?? orig);
+  const fx = options?.fx ?? DEFAULT_FX_RATES;
+  const origFormatted = formatMinor(minor, orig);
+
+  if (orig !== viewer) {
+    const convertedMinor = convertMinor(minor, orig, viewer, fx);
+    const convertedFormatted = formatMinor(convertedMinor, viewer);
+    if (options?.perspective === "influencer") {
+      return `${convertedFormatted} (${origFormatted})`;
+    }
+    return `${origFormatted} (≈ ${convertedFormatted})`;
+  }
+
+  if (options?.showGlobalEquivalents) {
+    if (orig === "TRY") {
+      const eur = formatMinor(convertMinor(minor, "TRY", "EUR", fx), "EUR");
+      const usd = formatMinor(convertMinor(minor, "TRY", "USD", fx), "USD");
+      return `${origFormatted} (≈ ${eur} · ${usd})`;
+    }
+    const tryEq = formatMinor(convertMinor(minor, orig, "TRY", fx), "TRY");
+    return `${origFormatted} (≈ ${tryEq})`;
+  }
+
+  return origFormatted;
+}
+
+
+/**
  * Dil + ülke algılama (giriş öncesi): önce Cloudflare/CloudFront ülke başlığı, sonra tarayıcı dili.
  * Desteklenmeyen ülke → dil tarayıcıdan, ülke Türkiye.
  */

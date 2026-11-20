@@ -218,7 +218,14 @@ export async function CouponManage({ id, basePath, tenantId, tab }: { id: string
                     <td className="px-4 py-2.5"><Pill tone={v.tone}>{v.label}</Pill></td>
                     <td className="px-4 py-2.5 tabular-nums text-fg-muted">{fmtDate(g.createdAt)}</td>
                     <td className="px-4 py-2.5 tabular-nums text-fg-muted">{g.redeemedAt ? fmtDate(g.redeemedAt) : "—"}</td>
-                    <td className="px-4 py-2.5 text-right"><Link href={`/kupon/${g.id}`} className="text-[13px] font-medium text-fg underline-offset-4 hover:underline">Kart</Link></td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <a href={`/api/wallet/apple/coupon/${g.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Apple Wallet</a>
+                        <a href={`/api/wallet/google/coupon/${g.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Google Pay</a>
+                        <a href={`/api/kupon/${g.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">PDF</a>
+                        <Link href={`/kupon/${g.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-fg underline-offset-4 hover:underline">Kart ↗</Link>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}

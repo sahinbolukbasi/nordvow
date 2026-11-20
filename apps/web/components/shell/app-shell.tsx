@@ -14,12 +14,14 @@ import { BRAND_NAME } from "@/lib/brand";
 import { getT } from "@/lib/i18n/server";
 import { RegionSwitcher } from "@/components/i18n/region-switcher";
 import { NordvowMark } from "@/components/brand/logo";
+import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
+import { prisma } from "@infulancer/core/db";
 
 /**
  * Uygulama iskeleti: kenar çubuğu (md+) / alt sekme çubuğu (mobil), 64px başlık
  * (admin için arama, bildirim, hesap) ve max 1440px ortalanmış içerik.
  */
-export async function AppShell({ role, children }: { role: Role; children: ReactNode }) {
+export async function AppShell({ role, children, fullBleed = false }: { role: Role; children: ReactNode; fullBleed?: boolean }) {
   const actor = await requireActor(role);
   const user = await getSessionUser();
   const navRole: Role = actor.staffRole ?? role;
@@ -29,6 +31,17 @@ export async function AppShell({ role, children }: { role: Role; children: React
   const perms: PagePermissionRow[] = await loadPagePermissions(permRole, actor.userId);
   const permCtx = { perms, role: permRole, userId: actor.userId };
   const t = await getT();
+  const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
+  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  const userEmail = (user?.email ?? "").toLowerCase();
+  const popups = allPopups.filter(
+    (p) =>
+      p.audience === "all" ||
+      (p.audience === "influencers" && navRole === "INFLUENCER") ||
+      (p.audience === "brands" && navRole === "BRAND") ||
+      (p.audience === "agency" && (navRole === "ADMIN" || navRole === "AGENCY")) ||
+      (p.audience === "single" && p.targetEmail?.toLowerCase() === userEmail),
+  );
 
   return (
     <div className="relative isolate flex min-h-dvh bg-bg text-fg">
@@ -72,12 +85,20 @@ export async function AppShell({ role, children }: { role: Role; children: React
             <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
           </div>
         </header>
-        <main id="icerik" className="mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12">
+        <main
+          id="icerik"
+          className={
+            fullBleed
+              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-16 md:px-4 md:pb-4"
+              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12"
+          }
+        >
           {children}
         </main>
       </div>
       <MobileTabBar role={navRole} perm={permCtx} />
-      <CopilotLauncher />
+      {!fullBleed ? <CopilotLauncher /> : null}
+      <AnnouncementPopup items={popups} userId={actor.userId} />
     </div>
   );
 }

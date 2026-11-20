@@ -47,7 +47,7 @@ const ASPECTS = new Set(["9:16", "1:1", "4:5", "16:9"]);
 export async function generateCreative(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
   return attempt(async () => {
-    const input = parseInput(z.object({ modelKey: z.string().min(2).max(80), prompt: z.string().trim().min(10, { error: "İstek en az 10 karakter olmalı." }).max(4000) }), {
+    const input = parseInput(z.object({ modelKey: z.string().min(2).max(80), prompt: z.string().trim().min(3, { error: "İstek en az 3 karakter olmalı." }).max(4000) }), {
       modelKey: str(fd, "modelKey"),
       prompt: str(fd, "prompt"),
     });
@@ -60,9 +60,10 @@ export async function generateCreative(_p: ActionState, fd: FormData): Promise<A
     const aspectRaw = str(fd, "aspect");
     const aspect = (ASPECTS.has(aspectRaw) ? aspectRaw : "9:16") as Aspect;
     const style = str(fd, "style");
-    // Seslendirmede metin olduğu gibi okunur; görsel/videoda stil istemin sonuna eklenir.
+    const personalContext = str(fd, "personalContext").slice(0, 200);
+    // Seslendirmede metin olduğu gibi okunur; görsel/videoda kişisel bağlam ve stil istemin sonuna eklenir.
     const storyHint = model.kind === "image" && aspect === "9:16" ? "Instagram Story düzeni: dikey 9:16, üst ve alt %15'te yazı ve arayüz için sade boş alan bırak" : "";
-    const prompt = model.kind === "audio" ? input.prompt : [input.prompt, CREATIVE_STYLES.has(style) ? `Stil: ${style}` : "", storyHint].filter(Boolean).join(". ");
+    const prompt = model.kind === "audio" ? input.prompt : [input.prompt, personalContext, CREATIVE_STYLES.has(style) ? `Stil: ${style}` : "", storyHint].filter(Boolean).join(". ");
     const refs = fd.getAll("refs").map(String).filter(Boolean).slice(0, 4);
     let jobId = "";
     try {

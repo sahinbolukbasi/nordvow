@@ -29,6 +29,10 @@ import { PageHeader } from "@/components/ui/layout";
 import { StatusDot } from "@/components/ui/status";
 import { requireActor } from "@/lib/auth-guard";
 import { PostUrlForm } from "@/components/forms/post-url-form";
+import { InfluencerTaskSyncCard } from "@/components/campaign/campaign-hub";
+import { loadCampaignHubState } from "@/lib/actions/campaign-hub";
+import { creativePricing } from "@infulancer/core/creative/pricing";
+import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { isOverdue } from "@/lib/calendar";
 import { num } from "@/lib/format";
 import { deliverableTone } from "@/lib/status-tone";
@@ -51,10 +55,10 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
     include: {
       assignment: {
         include: {
-          influencer: { select: { audienceTimezone: true } },
+          influencer: { select: { audienceTimezone: true, country: true } },
           campaign: {
             include: {
-              brand: { select: { name: true } },
+              brand: { select: { name: true, country: true } },
               briefs: { orderBy: { version: "desc" }, take: 1 },
               assets: { where: { uploadStatus: "TAMAM", direction: "AJANS_TO_INFLUENCER" }, orderBy: { createdAt: "desc" } },
             },
@@ -69,6 +73,12 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
   if (!row || row.assignment.influencerId !== actor.influencerId) notFound();
 
   const { assignment } = row;
+  const [hubState, pricing] = await Promise.all([
+    loadCampaignHubState(assignment.campaignId),
+    creativePricing(),
+  ]);
+  const myCur = currencyOf(assignment.influencer.country);
+  const campCur = assignment.campaign.currency || currencyOf(assignment.campaign.brand.country);
   // Ekrana giden kampanya/iş verisi DTO'dan (bütçe, komisyon, marka bedeli yok).
   const view = toInfluencerAssignmentView({ ...assignment, deliverables: [row] });
   const d = view.deliverables[0]!;
@@ -128,6 +138,18 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
         </Card>
       ) : null}
 
+      {!rejected ? (
+        <InfluencerTaskSyncCard
+          deliverableId={d.id}
+          campaignId={assignment.campaignId}
+          campaignName={campaign.name}
+          influencerId={assignment.influencerId}
+          isDone={published || Boolean(d.postUrl)}
+          currentPostUrl={d.postUrl}
+          messages={hubState.messages}
+        />
+      ) : null}
+
       <div className="grid-12">
         <Card interactive={false} className="flex flex-col gap-4 md:col-span-7">
           <CardTitle>{tt("Plan")}</CardTitle>
@@ -136,6 +158,19 @@ export default async function InfluencerJobPage({ params }: { params: Promise<{ 
             <dd className="tabular-nums">
               {fmtDateTime(d.plannedAt, tz)} <span className="text-fg-muted">({tzLabel})</span>
             </dd>
+            {Number(assignment.feeKurus) > 0 ? (
+              <>
+                <dt className="text-fg-passive">{tt("Anlaşılan Hakediş")}</dt>
+                <dd className="font-semibold tabular-nums text-fg">
+                  {formatDualMinor(assignment.feeKurus, campCur, {
+                    viewerCurrency: myCur !== campCur ? myCur : "EUR",
+                    perspective: myCur !== campCur ? "influencer" : "brand",
+                    fx: pricing.fx,
+                    showGlobalEquivalents: true,
+                  })}
+                </dd>
+              </>
+            ) : null}
             <dt className="text-fg-passive">{tt("Taslak son tarihi")}</dt>
             <dd className="tabular-nums">{fmtDateTime(d.approvalDeadline, tz)}</dd>
             <dt className="text-fg-passive">{tt("Caption")}</dt>

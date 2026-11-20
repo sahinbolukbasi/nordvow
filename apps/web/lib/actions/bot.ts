@@ -1,10 +1,26 @@
 "use server";
 
 import { prisma } from "@infulancer/core/db";
-import { unlinkChannel } from "@infulancer/core/bot/link";
+import { issueLinkCode, unlinkChannel } from "@infulancer/core/bot/link";
 import type { ChannelProvider } from "@infulancer/core/db";
 import { requireActor, requireAdmin } from "@/lib/auth-guard";
 import { revalidateAll } from "@/lib/action-utils";
+
+export async function issueBotCodeAction(prev: { code: string } | { error: string } | null): Promise<{ code: string } | { error: string }> {
+  void prev;
+  const actor = await requireActor();
+  const code = await issueLinkCode(actor.userId);
+  return { code };
+}
+
+export async function setBotLeadStatusAction(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "");
+  if (!["YENI", "ILETISIM", "KAPANDI"].includes(status)) return;
+  await prisma.botLead.updateMany({ where: { id }, data: { status } });
+  revalidateAll();
+}
 
 export async function unlinkBotChannelAction(formData: FormData) {
   const actor = await requireActor();

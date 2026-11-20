@@ -52,9 +52,9 @@ function Screen({ t, src, kind, username, caption }: { t: PreviewTemplate; src: 
         </div>
         <div className="flex gap-3 px-3 py-2 text-[14px]" aria-hidden>
           <span>♡</span>
-          <span>💬</span>
+          <span>◯</span>
           <span>➤</span>
-          <span className="ml-auto">🔖</span>
+          <span className="ml-auto">⚑</span>
         </div>
         <p className="line-clamp-3 px-3 text-[11px] leading-snug">
           <span className="font-semibold">{username} </span>
@@ -111,9 +111,9 @@ function Screen({ t, src, kind, username, caption }: { t: PreviewTemplate; src: 
         <>
           <div className="absolute right-2 bottom-20 flex flex-col items-center gap-3 text-[13px]" aria-hidden>
             <span>♡</span>
-            <span>💬</span>
+            <span>◯</span>
             <span>➤</span>
-            {t === "tiktok" ? <span>🔖</span> : null}
+            {t === "tiktok" ? <span>⚑</span> : null}
           </div>
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pt-10 pb-4">
             <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold">

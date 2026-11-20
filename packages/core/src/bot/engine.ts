@@ -2,16 +2,16 @@ import { prisma } from "../db";
 import { getLlm } from "../llm";
 import { envStr } from "../env";
 import { handoff } from "../assistant/runtime";
+import { isRevocationError, metaClient, MetaApiError } from "../channels/meta-client";
 import { SendBlockedError, sendMessage } from "../messaging/send";
+import { botLog } from "./trace";
+import { handleGuest } from "./guest";
 import { activeLink, autoLinkSender, consumeLinkCode, magicLinkUrl } from "./link";
 import { detectBotLang, matchMenu, menuText } from "./menu";
 import { planOutbound, type BotTemplateKey } from "./window-plan";
 import { BOT_TOOLS, toolByMenu } from "./registry";
 import { canonicalPhone, rateAllows, SENSITIVE_TOOL_LIMIT } from "./tokens";
 import type { BotChannel, BotUser, ToolName } from "./types";
-
-const PUBLIC_TR = "Nordvow, marka ve içerik üreticilerini buluşturan bir platformdur. Herkese açık etkinlikler için “etkinlikler” yazın. Kayıt: /kayit. Hesabınızı bağlamak için profilinizdeki 6 haneli kodu gönderin. Ayrıntı: /gizlilik";
-const PUBLIC_EN = "Nordvow connects brands and creators. Reply “events” for public events. Sign up: /kayit. To link your account, send the 6-digit code from your profile. Details: /gizlilik";
 
 async function loadUser(userId: string): Promise<BotUser | null> {
   const u = await prisma.user.findUnique({
@@ -27,7 +27,7 @@ async function ensureLinked(channel: BotChannel, externalId: string, phone: stri
   const key = channel === "WHATSAPP" ? canonicalPhone(phone || externalId) : externalId;
   const link = await activeLink(channel, key);
   if (link?.user) return loadUser(link.userId);
-  if (channel === "MESSENGER") return null;
+  if (channel !== "WHATSAPP") return null;
   const linked = await autoLinkSender(channel, key, phone);
   if (linked.ok) return loadUser(linked.userId);
   return null;
@@ -99,22 +99,19 @@ export async function handlePlatformBot(input: {
   if (/^\d{6}$/.test(code)) {
     try {
       await consumeLinkCode(code, input.channel, input.externalId, now);
-      return deliver(input, windowText(input, lang === "en" ? "Account linked. Reply menu." : "Hesap bağlandı. menü yazın."), "account_link", [code]);
+      return deliver(input, windowText(input, lang === "en" ? "Account linked. Reply menu." : "Hesap bağlandı. menü yazın."), "account_link", ["ok"]);
     } catch {
       return deliver(input, lang === "en" ? "Code is invalid. See /gizlilik" : "Kod geçersiz. Ayrıntı: /gizlilik");
     }
   }
 
   const user = await ensureLinked(input.channel, input.externalId, input.phone ?? null);
+  botLog("info", user ? "linked" : "guest", { channel: input.channel });
   if (!user) {
     if (menu === "events") return deliver(input, await toolPublic(lang));
-    const welcome = lang === "en" ? settings.welcomeEn : settings.welcomeTr;
-    let extra = "";
-    if (input.channel !== "WHATSAPP") {
-      const url = magicLinkUrl({ externalId: input.externalId, channel: input.channel }, envStr("APP_URL", "http://localhost:3000"));
-      extra = lang === "en" ? `\nOpen this link while logged in (15 min): ${url}\nOr send the 6-digit code from your profile.` : `\nGiriş yapmışken bu bağlantıyı açın (15 dk): ${url}\nYa da profildeki 6 haneli kodu yazın.`;
-    }
-    return deliver(input, `${welcome}\n${lang === "en" ? PUBLIC_EN : PUBLIC_TR}${extra}\n${menuText(lang)}`);
+    const guest = await handleGuest({ channel: input.channel, externalId: input.externalId, phone: input.phone, text: input.text, now });
+    const link = input.channel === "WHATSAPP" ? "" : `\n${magicLinkUrl({ externalId: input.externalId, channel: input.channel }, envStr("APP_URL", "http://localhost:3000"))}`;
+    return deliver(input, `${guest}${link}`);
   }
 
   const pending = await prisma.botPendingAction.findUnique({ where: { channel_externalId: { channel: input.channel, externalId: input.externalId } } });
@@ -185,10 +182,61 @@ async function deliver(input: { tenantId: string; conversationId: string; channe
       return { sent: true };
     }
     await sendMessage({ tenantId: input.tenantId, conversationId: input.conversationId, byUserId: null, text: plan.body, now: input.now });
+    botLog("info", "reply_sent", { channel: input.channel, via: "connection" });
     return { sent: true };
   } catch (e) {
-    if (e instanceof SendBlockedError) return { sent: false };
+    if (e instanceof SendBlockedError) {
+      botLog("warn", "reply_blocked", { code: e.code });
+      if (e.code === "CONNECTION" && plan.mode === "text") return { sent: await sendViaEnv(input, plan.body) };
+      return { sent: false };
+    }
+    if (e instanceof MetaApiError) {
+      botLog("warn", "graph_error", { code: e.code });
+      return { sent: false };
+    }
     throw e;
+  }
+}
+
+async function sendViaEnv(input: { tenantId: string; conversationId: string; channel: BotChannel; now?: Date }, body: string): Promise<boolean> {
+  const settings = await getBotSettings();
+  const conv = await prisma.conversation.findFirst({ where: { id: input.conversationId }, include: { contact: true } });
+  const to = conv?.contact.phoneE164?.replace(/^\+/, "") || conv?.contact.externalId || "";
+  if (!to) {
+    botLog("warn", "reply_skipped", { reason: "no_recipient" });
+    return false;
+  }
+  try {
+    let externalId = "";
+    if (input.channel === "WHATSAPP") {
+      const token = envStr("WHATSAPP_ACCESS_TOKEN", "").trim() || envStr("META_WABA_TOKEN", "").trim() || envStr("META_SYSTEM_USER_TOKEN", "").trim();
+      const phoneNumberId = settings.whatsappPhoneNumberId || envStr("WHATSAPP_PHONE_NUMBER_ID", "").trim() || envStr("NORDVOW_WA_PHONE_NUMBER_ID", "").trim();
+      if (!token || !phoneNumberId) {
+        botLog("warn", "reply_skipped", { reason: "no_env_token" });
+        return false;
+      }
+      externalId = (await metaClient().sendWhatsApp(phoneNumberId, token, { kind: "text", to, body })).messageId;
+    } else {
+      const token = envStr("INSTAGRAM_ACCESS_TOKEN", "").trim() || envStr("META_IG_TOKEN", "").trim() || envStr("META_SYSTEM_USER_TOKEN", "").trim();
+      const id = input.channel === "INSTAGRAM" ? settings.igUserId || envStr("INSTAGRAM_IG_USER_ID", "").trim() || envStr("NORDVOW_IG_USER_ID", "").trim() : settings.pageId || envStr("NORDVOW_PAGE_ID", "").trim();
+      if (!token || !id) {
+        botLog("warn", "reply_skipped", { reason: "no_env_token" });
+        return false;
+      }
+      externalId = (await metaClient().sendInstagram(id, token, to, body)).messageId;
+    }
+    await prisma.message.create({
+      data: { tenantId: input.tenantId, conversationId: input.conversationId, externalId, direction: "OUTBOUND", body, category: "service", status: "sent", statusAt: input.now ?? new Date(), fromAi: true },
+    });
+    botLog("info", "reply_sent", { channel: input.channel, via: "env" });
+    return true;
+  } catch (e) {
+    if (isRevocationError(e) || e instanceof MetaApiError) {
+      botLog("warn", "graph_error", { code: e instanceof MetaApiError ? e.code : 0 });
+      return false;
+    }
+    botLog("warn", "graph_error", { code: 0 });
+    return false;
   }
 }
 

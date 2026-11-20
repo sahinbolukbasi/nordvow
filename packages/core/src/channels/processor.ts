@@ -1,17 +1,22 @@
 import { prisma } from "../db";
+import { envStr } from "../env";
 import { getConfig, setConfig } from "../config/store";
 import { captureOptOut, OPT_OUT_RE } from "../compliance/iys";
 import type { ChannelProvider } from "../generated/prisma/enums";
 import { runAgentTurn } from "../assistant/runtime";
+import { handleChannelBotTurn } from "../assistant/channel-bot";
 import { prescreenCreator } from "../assistant/prescreen";
 import { purgeMessage } from "../messaging/purge";
 import { bumpDailyStat } from "../messaging/send";
 import { applyTemplateQuality, applyTemplateStatus, mapQuality, mapStatusEvent } from "../messaging/templates";
 import { readLimitFromEvent } from "../messaging/tiers";
-import { handlePlatformBot, isPlatformBot } from "../bot/engine";
-import { canonicalPhone } from "../bot/tokens";
-import { metaEventDate } from "../messaging/meta-time";
 import { isOpen, onInbound } from "../messaging/windows";
+import { metaEventDate } from "../messaging/meta-time";
+import { botLog } from "../bot/trace";
+import { handlePlatformBot } from "../bot/engine";
+import { canonicalPhone } from "../bot/tokens";
+import { fetchIgSenderProfile, showTyping } from "./meta-client";
+import { vault } from "./vault";
 import { firstSeen, rawBodies } from "./webhook";
 
 /**
@@ -26,6 +31,8 @@ export async function processRawWebhook(rawId: string, bodyOverride?: string) {
   const body = bodyOverride ?? rawBodies.get(rawId);
   rawBodies.delete(rawId);
   if (!body) {
+    const { botLog } = await import("../bot/trace");
+    botLog("warn", "skipped", { reason: "body_missing" });
     await prisma.rawWebhook.update({ where: { id: rawId }, data: { error: "gövde bulunamadı (S3'ten yeniden okunmalı)" } });
     return { skipped: true };
   }
@@ -41,15 +48,30 @@ export async function processRawWebhook(rawId: string, bodyOverride?: string) {
   }
 }
 
+async function defaultSystemTenant() {
+  const explicit = envStr("DEFAULT_TENANT_ID", "");
+  if (explicit) return explicit;
+  const brand = await prisma.brand.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+  return brand?.id ?? null;
+}
+
 async function tenantByPhoneNumberId(id: string) {
   const n = await prisma.whatsAppNumber.findUnique({ where: { phoneNumberId: id } });
-  return n?.tenantId ?? null;
+  if (n?.tenantId) return n.tenantId;
+  const globalWaId = envStr("WHATSAPP_PHONE_NUMBER_ID", "");
+  if (globalWaId && id === globalWaId) return defaultSystemTenant();
+  return null;
 }
 
 async function tenantByExternal(provider: ChannelProvider, key: string, value: string) {
   const c = await prisma.channelConnection.findFirst({ where: { provider, externalIds: { path: [key], equals: value } } });
-  return c?.tenantId ?? null;
+  if (c?.tenantId) return c.tenantId;
+  const globalIgId = envStr("INSTAGRAM_IG_USER_ID", "");
+  if (provider === "INSTAGRAM" && globalIgId && value === globalIgId) return defaultSystemTenant();
+  return null;
 }
+
+export const PLATFORM_TENANT_ID = "nordvow-platform";
 
 async function dispatch(p: Any): Promise<string | null> {
   if (p.object === "whatsapp_business_account") {
@@ -57,10 +79,13 @@ async function dispatch(p: Any): Promise<string | null> {
     for (const entry of p.entry ?? []) {
       for (const change of entry.changes ?? []) {
         const v = change.value ?? {};
-        const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(v.metadata.phone_number_id) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
+        const t = v.metadata?.phone_number_id ? await tenantByPhoneNumberId(String(v.metadata.phone_number_id)) : await tenantByExternal("WHATSAPP", "waba_id", String(entry.id));
         tenant ??= t;
-        if (!t) continue;
-        await handleWhatsAppChange(t, change.field, v, await isPlatformBot("WHATSAPP", String(v.metadata?.phone_number_id ?? "")));
+        if (!t) {
+          console.warn(`[processor] WhatsApp tenant bulunamadı (phone_number_id=${v.metadata?.phone_number_id}, waba_id=${entry.id})`);
+          continue;
+        }
+        await handleWhatsAppChange(t, change.field, v);
       }
     }
     return tenant;
@@ -69,14 +94,29 @@ async function dispatch(p: Any): Promise<string | null> {
     const provider: ChannelProvider = p.object === "instagram" ? "INSTAGRAM" : "MESSENGER";
     let tenant: string | null = null;
     for (const entry of p.entry ?? []) {
-      const t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
+      let t = await tenantByExternal(provider, provider === "INSTAGRAM" ? "ig_user_id" : "page_id", String(entry.id));
+      if (!t && provider === "INSTAGRAM") {
+        t = await tenantByExternal("INSTAGRAM", "page_id", String(entry.id));
+        if (!t) {
+          const recId = entry.messaging?.[0]?.recipient?.id;
+          if (recId) t = await tenantByExternal("INSTAGRAM", "ig_user_id", String(recId));
+        }
+      }
       tenant ??= t;
-      if (!t) continue;
-      const platformBot = await isPlatformBot(provider, String(entry.id));
-      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m, platformBot);
+      if (!t) {
+        console.warn(`[processor] ${provider} tenant bulunamadı (entry.id=${entry.id})`);
+        continue;
+      }
+      for (const m of entry.messaging ?? []) await handleMetaMessaging(t, provider, m);
+      for (const change of entry.changes ?? []) {
+        if (change.field === "messages" && change.value) {
+          await handleMetaMessaging(t, provider, change.value);
+        }
+      }
     }
     return tenant;
   }
+  botLog("warn", "skipped", { reason: "unknown_object" });
   return null;
 }
 
@@ -84,7 +124,10 @@ async function handleWhatsAppChange(tenantId: string, field: string, v: Any, pla
   if (field === "messages") {
     const contacts = new Map<string, string>((v.contacts ?? []).map((c: Any) => [c.wa_id, c.profile?.name]));
     for (const m of v.messages ?? []) {
-      if (!(await firstSeen(m.id, "whatsapp"))) continue;
+      if (!(await firstSeen(m.id, "whatsapp"))) {
+        botLog("info", "deduped", { channel: "WHATSAPP" });
+        continue;
+      }
       const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null;
       await handleInbound(tenantId, "WHATSAPP", {
         externalMessageId: m.id,
@@ -179,10 +222,39 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     fepWindowDays: await getConfig("whatsapp.fepWindowDays"),
     humanAgentWindowDays: await getConfig("whatsapp.humanAgentWindowDays"),
   };
+
+  let igUsername: string | null = null;
+  let resolvedName = input.name;
+  const globalWaToken = envStr("WHATSAPP_ACCESS_TOKEN", "") || envStr("META_WABA_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalWaPhoneId = envStr("WHATSAPP_PHONE_NUMBER_ID", "");
+  const globalIgToken = envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalIgUserId = envStr("INSTAGRAM_IG_USER_ID", "");
+
+  const conn = await prisma.channelConnection.findFirst({
+    where: { tenantId, provider: channel, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    include: { phoneNumbers: true },
+  });
+  const useTenantConn = !!conn && !conn.tokenRef.startsWith("env:");
+  const tenantToken = useTenantConn ? await vault().get(conn.tokenRef).catch(() => "") : "";
+  const extIds = (conn?.externalIds ?? {}) as Record<string, unknown>;
+  const waToken = tenantToken || globalWaToken;
+  const waPhoneId = (useTenantConn ? conn?.phoneNumbers[0]?.phoneNumberId : undefined) ?? globalWaPhoneId;
+  const igToken = tenantToken || globalIgToken;
+  const igUserId = String(extIds.ig_user_id ?? extIds.page_id ?? "") || globalIgUserId;
+
+  if (channel === "INSTAGRAM" && input.from && igToken && igUserId) {
+    const prof = await fetchIgSenderProfile(input.from, igUserId, igToken).catch(() => null);
+    if (prof) {
+      igUsername = prof.username;
+      resolvedName ??= prof.name ?? (prof.username ? `@${prof.username}` : null);
+    }
+  }
+
   const contact = await prisma.contact.upsert({
     where: { tenantId_channel_externalId: { tenantId, channel, externalId: input.from } },
-    create: { tenantId, channel, externalId: input.from, phoneE164: input.phoneE164, name: input.name },
-    update: input.name ? { name: input.name } : {},
+    create: { tenantId, channel, externalId: input.from, phoneE164: input.phoneE164, name: resolvedName },
+    update: resolvedName ? { name: resolvedName } : {},
   });
   let conv = await prisma.conversation.findFirst({ where: { tenantId, contactId: contact.id, status: { not: "closed" } }, orderBy: { createdAt: "desc" } });
   const isFirst = !conv;
@@ -212,8 +284,20 @@ export async function handleInbound(tenantId: string, channel: ChannelProvider, 
     return { conversationId: conv.id, optOut: false };
   }
   if (input.text) {
-    const pre = await prescreenCreator(tenantId, conv.id, input.text);
-    if (!pre.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+    if (channel === "WHATSAPP" && waToken && waPhoneId) {
+      void showTyping({ channel: "WHATSAPP", token: waToken, phoneNumberId: waPhoneId, inboundMessageId: input.externalMessageId });
+    } else if (channel === "INSTAGRAM" && igToken && igUserId) {
+      void showTyping({ channel: "INSTAGRAM", token: igToken, igId: igUserId, recipientId: input.from });
+    }
+    const agentRows = await prisma.agentConfig.findMany({ where: { tenantId }, select: { enabled: true } });
+    const botDisabledByFirm = agentRows.length > 0 && agentRows.every((a) => !a.enabled);
+    if (!botDisabledByFirm) {
+      const pre = await prescreenCreator(tenantId, conv.id, input.text);
+      if (!pre.handled) {
+        const bot = await handleChannelBotTurn(tenantId, conv.id, channel, contact, input.text, input.at, { username: igUsername });
+        if (!bot.handled) await runAgentTurn(tenantId, conv.id, input.text, input.at);
+      }
+    }
   }
   return { conversationId: conv.id, optOut: false };
 }

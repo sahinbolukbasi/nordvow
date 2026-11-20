@@ -49,9 +49,12 @@ Doğrulama: `GET` `hub.mode=subscribe`, `hub.verify_token=META_VERIFY_TOKEN`, `h
 | `APP_URL` | Sihirli bağlama ve ücretli bilet bağlantısı |
 | `AUTH_SECRET` | Bağlama bağlantısının imzası |
 | `LLM_PROVIDER` | `mock` menü ve anahtar kelime. `bedrock` ek araç seçimi |
-| `INSTAGRAM_ACCESS_TOKEN` | IGSID kullanıcı adı ve Business Discovery. Yoksa `META_IG_TOKEN`, sonra `IG_GRAPH_TOKEN` |
-| `INSTAGRAM_IG_USER_ID` | Business Discovery’deki kendi IG işletme kimliği. Yoksa `IG_BUSINESS_ACCOUNT_ID` |
-| `SOCIAL_SYNC_MODE` | `off` veriye dokunmaz. `mock` deterministik fixture. `http` Graph ve YouTube |
+| `INSTAGRAM_IG_USER_ID` | Business Discovery’deki ajans IG işletme kimliği. `infulancer-prod/integrations` içinde olmalı. Eski `IG_BUSINESS_ACCOUNT_ID` yalnız yerel yedek, ECS listesinde yok |
+| `META_SYSTEM_USER_TOKEN` | Süresiz Sayfa token’ı. Öncelik 1. `IG_GRAPH_TOKEN` ve `INSTAGRAM_ACCESS_TOKEN` ile aynı değeri taşır |
+| `IG_GRAPH_TOKEN` | Aynı Sayfa token’ı. Öncelik 2. Integrations sırrında tanımlı olmalı; yoksa ECS görevi açılmaz |
+| `INSTAGRAM_ACCESS_TOKEN` | Aynı Sayfa token’ı. Öncelik 3. Üç değer farklıysa süreç yalnız `MISMATCH` yazar, değeri yazmaz |
+| `SOCIAL_SYNC_MODE` | `off` veriye dokunmaz. `mock` deterministik fixture. `http` Graph ve YouTube. `META_API_MODE` bu anahtarı açmaz |
+| `META_APP_ID` / `META_APP_SECRET` | Instagram Login (içerik üreticisinin kendi hesabı). Yedek: `INSTAGRAM_APP_ID` / `INSTAGRAM_APP_SECRET` |
 
 `/admin/bot` kanalı kapatır, kimlikleri ve karşılama metnini yazar. Kanal kapalıyken o hatta marka asistanı çalışmaya devam eder.
 
@@ -68,19 +71,23 @@ Pazarlama kategorisi kullanılmaz. İYS kapısı promosyonlu şablonda durur. In
 
 ## Hesap bağlama
 
-- WhatsApp: gönderen `wa_id` profil telefonuyla E.164 üzerinden eşleşir. `00`, `90` ve baştaki `0` aynı numaradır. Tek aktif kullanıcı varsa otomatik bağlanır. İki profil aynı numarayı taşıyorsa bağlanmaz.
-- Instagram: `GET /{igsid}?fields=username,name` ile kullanıcı adı alınır (`META_API_MODE=mock` iken fixture). Profildeki Instagram kullanıcı adıyla büyük/küçük harf ve `@` yok sayılarak karşılaştırılır. Tam bir eşleşme varsa otomatik bağlanır. Aynı ad iki profildeyse bağlanmaz; 6 hane veya imzalı bağlantı gerekir ve `/admin/bot` çakışmayı listeler. OAuth veya senkronla doğrulanmış satır, aynı kullanıcının birden fazla kaydında öne alınır.
+- WhatsApp: gönderen `wa_id` profil telefonuyla E.164 üzerinden eşleşir. `00`, `90` ve baştaki `0` aynı numaradır. Tek aktif kullanıcı varsa otomatik bağlanır. İki profil aynı numarayı taşıyorsa bağlanmaz; kod istenir, tahmin edilmez.
+- Instagram: kullanıcı adı eşleşmesi bağlama yapmaz. Tek eşleşmede kod istenir. Kod 15 dakika, tek kullanımlık ve hash olarak durur. Beş yanlış denemeden sonra kısa kilit vardır.
 - Messenger: kullanıcı adı yok. Yalnız 6 hane veya `/hesap-bagla?token=...`.
-- Bağlı olmayan kişi yalnız Nordvow tanımı, herkese açık etkinlik ve `/kayit` görür.
-- Profilde bağlantı kaldırılır. Profil uyarısı: Instagram kullanıcı adı ve telefon girilirse bot otomatik tanır.
+- Bağlı olmayan kişi hesap verisi görmez. Nordvow’u anlatır, kayıt linkini verir ve talep toplar. Talep `/admin/bot` listesine düşer.
+- Profilde bağlantı kaldırılır. Instagram kullanıcı adı profil formundadır.
 
 ## İçerik üreticisi Instagram verisi
 
 YouTube kanalı `forHandle` ile Data API’den okunduğu gibi, Instagram kullanıcı adı Business Discovery ile okunur:
 
-`GET /{INSTAGRAM_IG_USER_ID}?fields=business_discovery.username(HANDLE){id,followers_count,media_count,username,name,profile_picture_url,biography,media.limit(12){like_count,comments_count,timestamp,permalink,media_type}}`
+`GET /{INSTAGRAM_IG_USER_ID}?fields=business_discovery.username(HANDLE){id,username,name,biography,followers_count,media_count,profile_picture_url,media.limit(12){like_count,comments_count,media_product_type,timestamp,permalink}}`
 
-Takipçi, medya sayısı, ortalama beğeni ve yorum `SocialAccount` üzerine yazılır. Kişisel hesapta hata metni Professional hesaba geçmeyi söyler; eski takipçi silinmez. `social-sync` işi 6 saatte bir, 12 saatten eski hesapları yeniler.
+`fields` değeri tek parça olarak kodlanır. Insights alanı istenmez.
+
+Akış önce Business Discovery dener. Belirteç yok veya 190 ailesi (`TOKEN_INVALID`), izin 10/200 (`MISSING_PERMISSION`), hız sınırı veya 110/2207013 olursa akış durmaz; güvenli public yola geçer. Public yol kazıma yapmaz ve gizli hesaba istek atmaz. 110/2207013 kişisel, gizli veya kısıtlı hesabı tespit edip durur ve Instagram Login (`instagram_business_basic`) ister. Diğer API sınıflarında yalnız daha önce kaydedilmiş herkese açık alanlar `INSTAGRAM_PUBLIC` olur. Her kayıt kaynak taşır: `META_API`, `INSTAGRAM_OAUTH`, `INSTAGRAM_PUBLIC` veya `NONE`. Neden (örneğin `TOKEN_INVALID` olduğu için public) telemetride ve admin tablosunda görünür. Hız sınırında 0,5–60 sn üstel bekleme yine uygulanır; bekleme bitince public yedek denenebilir. Uygulama yayında değilse 10/200 hedef hesabın hatası değildir.
+
+`social-sync` günde bir kez çalışır (terraform `rate(1 day)`; apply bu değişiklikle yapılmaz). EventBridge ve yerel zamanlayıcı aynı kilidi kullanır.
 
 Hassas işlemler (kupon kodu, bilet, kısa link) `EVET` yazılmadan çalışmaz ve saatte 5 ile sınırlıdır. Tam IBAN ve kart istenmez.
 

@@ -13,7 +13,7 @@ export function PhonePreviewButton({ src, kind, caption, username }: { src: stri
   }, [open]);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40">{tt("📱 Önizle")}</button>
+      <button type="button" onClick={() => setOpen(true)} className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg hover:border-fg/40">{tt("Önizle")}</button>
       <dialog ref={ref} onClose={() => setOpen(false)} aria-label={tt("Telefonda önizleme")} className="m-auto rounded-3xl border border-line bg-surface p-5 text-fg backdrop:bg-black/60">
         {open ? <PhonePreview src={src} kind={kind} caption={caption} username={username} /> : null}
         <div className="mt-3 flex justify-center">

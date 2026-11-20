@@ -121,24 +121,42 @@ export function httpMetaClient(): MetaClient {
         p.kind === "text"
           ? { messaging_product: "whatsapp", to: p.to, type: "text", text: { body: p.body } }
           : {
-              messaging_product: "whatsapp",
-              to: p.to,
-              type: "template",
-              template: {
-                name: p.templateName,
-                language: { code: p.language },
-                components: p.params?.length ? [{ type: "body", parameters: p.params.map((t) => ({ type: "text", text: t })) }] : [],
-              },
-            };
+            messaging_product: "whatsapp",
+            to: p.to,
+            type: "template",
+            template: {
+              name: p.templateName,
+              language: { code: p.language },
+              components: p.params?.length ? [{ type: "body", parameters: p.params.map((t) => ({ type: "text", text: t })) }] : [],
+            },
+          };
       const r = await call<{ messages: { id: string }[] }>(`/${id}/messages`, { method: "POST", token, body: JSON.stringify(body) });
       return { messageId: r.messages[0]!.id };
     },
     async sendInstagram(igId, token, recipient, text, tag) {
-      const r = await call<{ message_id: string }>(`/${igId}/messages`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({ recipient: { id: recipient }, message: { text }, ...(tag ? { messaging_type: "MESSAGE_TAG", tag } : {}) }),
-      });
+      const body = JSON.stringify({ recipient: { id: recipient }, message: { text }, ...(tag ? { messaging_type: "MESSAGE_TAG", tag } : {}) });
+      // Facebook Login (EAA…) token'larında Instagram DM, IG hesabına bağlı Sayfa üzerinden ve Sayfa token'ıyla gönderilir.
+      const page = await resolveIgPage(igId, token).catch(() => null);
+      if (page) {
+        const r = await call<{ message_id: string }>(`/${page.pageId}/messages`, { method: "POST", token: page.pageToken, body });
+        return { messageId: r.message_id };
+      }
+      // Instagram Login (IGAA…) token'larında graph.instagram.com ucu kullanılır.
+      if (!token.startsWith("EAA")) {
+        const version = await getConfig("whatsapp.graphApiVersion");
+        const res = await fetch(`https://graph.instagram.com/${version}/${igId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body,
+          signal: AbortSignal.timeout(15_000),
+        });
+        const json = (await res.json().catch(() => ({}))) as { message_id?: string; error?: { message: string; code: number; type?: string } };
+        if (!res.ok || json.error || !json.message_id) {
+          throw new MetaApiError(json.error?.message ?? `IG HTTP ${res.status}`, json.error?.code ?? res.status, undefined, json.error?.type, res.status);
+        }
+        return { messageId: json.message_id };
+      }
+      const r = await call<{ message_id: string }>(`/${igId}/messages`, { method: "POST", token, body });
       return { messageId: r.message_id };
     },
     async verifyToken(token) {
@@ -153,6 +171,70 @@ export function httpMetaClient(): MetaClient {
       return { bytes: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get("content-type") ?? "application/octet-stream" };
     },
   };
+}
+
+type IgPage = { pageId: string; pageToken: string };
+const igPageCache = new Map<string, { page: IgPage | null; at: number }>();
+
+async function graphGet<T>(path: string, token: string): Promise<T> {
+  const version = await getConfig("whatsapp.graphApiVersion");
+  const res = await fetch(`https://graph.facebook.com/${version}${path}`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  const json = (await res.json().catch(() => ({}))) as T & { error?: { message: string; code: number } };
+  if (!res.ok || json.error) throw new MetaApiError(json.error?.message ?? `HTTP ${res.status}`, json.error?.code ?? res.status, undefined, undefined, res.status);
+  return json;
+}
+
+/** IG hesabına bağlı Facebook Sayfası ve Sayfa token'ı (1 saat önbellek). Instagram Login token'larında null. */
+export async function resolveIgPage(igId: string, token: string): Promise<IgPage | null> {
+  if (!token.startsWith("EAA")) return null;
+  const key = `${igId}:${token.slice(-12)}`;
+  const hit = igPageCache.get(key);
+  if (hit && Date.now() - hit.at < 3_600_000) return hit.page;
+  const r = await graphGet<{ data?: { id: string; access_token?: string; instagram_business_account?: { id: string } }[] }>(
+    `/me/accounts?fields=id,access_token,instagram_business_account&limit=100`,
+    token,
+  );
+  const p = (r.data ?? []).find((x) => x.instagram_business_account?.id === igId || x.id === igId);
+  const page = p?.access_token ? { pageId: p.id, pageToken: p.access_token } : null;
+  igPageCache.set(key, { page, at: Date.now() });
+  return page;
+}
+
+/** Instagram gönderen (IGSID) profil bilgisi: kullanıcı adı ve ad. */
+export async function fetchIgSenderProfile(igsid: string, igId: string, token: string): Promise<{ username: string | null; name: string | null }> {
+  if (envStr("META_API_MODE", "mock") !== "http") return { username: null, name: null };
+  const page = await resolveIgPage(igId, token).catch(() => null);
+  const r = await graphGet<{ username?: string; name?: string }>(`/${igsid}?fields=username,name`, page?.pageToken ?? token);
+  return { username: r.username ?? null, name: r.name ?? null };
+}
+
+/**
+ * "Yazıyor…" göstergesi: WhatsApp'ta mesajı okundu işaretler + typing indicator, Instagram'da typing_on.
+ * Hatalar yutulur (yalnız deneyim iyileştirmesi).
+ */
+export async function showTyping(opts: { channel: "WHATSAPP" | "INSTAGRAM"; token: string; phoneNumberId?: string; inboundMessageId?: string; igId?: string; recipientId?: string }) {
+  if (envStr("META_API_MODE", "mock") !== "http") return;
+  try {
+    const version = await getConfig("whatsapp.graphApiVersion");
+    if (opts.channel === "WHATSAPP" && opts.phoneNumberId && opts.inboundMessageId) {
+      await fetch(`https://graph.facebook.com/${version}/${opts.phoneNumberId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${opts.token}` },
+        body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: opts.inboundMessageId, typing_indicator: { type: "text" } }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    } else if (opts.channel === "INSTAGRAM" && opts.igId && opts.recipientId) {
+      const page = await resolveIgPage(opts.igId, opts.token).catch(() => null);
+      await fetch(`https://graph.facebook.com/${version}/${page?.pageId ?? opts.igId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${page?.pageToken ?? opts.token}` },
+        body: JSON.stringify({ recipient: { id: opts.recipientId }, sender_action: "typing_on" }),
+        signal: AbortSignal.timeout(5_000),
+      });
+    }
+  } catch {
+    /* yok say */
+  }
 }
 
 let override: MetaClient | undefined;

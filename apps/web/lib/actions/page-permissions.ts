@@ -22,12 +22,7 @@ export async function toggleRolePageAction(_p: ActionState, fd: FormData): Promi
     if (!ROLES.includes(role) || !pathPrefix.startsWith("/")) return { ok: false, error: "Geçersiz istek." };
     // Kendini kilitlemeyi önle: yönetici rolünden yetki ekranı gizlenemez.
     if (!visible && role === "ADMIN" && (pathPrefix === "/admin/yetkiler" || pathPrefix === "/admin")) return { ok: false, error: "Bu sayfa admin rolünden gizlenemez (yetkileri geri açamazsınız)." };
-    if (visible) {
-      // Görünür = kısıtlamayı kaldır.
-      await clearPagePermission("ROLE", role, pathPrefix);
-    } else {
-      await setPagePermission({ scopeType: "ROLE", scopeId: role, pathPrefix, allowed: false, updatedByUserId: actor.userId });
-    }
+    await setPagePermission({ scopeType: "ROLE", scopeId: role, pathPrefix, allowed: visible, updatedByUserId: actor.userId });
     await audit.append({ actor: toAuditActor(actor), action: "PAGE_PERMISSION_SET", entityType: "PagePermission", entityId: `ROLE:${role}:${pathPrefix}`, data: { visible } });
     revalidateAll();
     return { ok: true, message: visible ? "Sayfa açıldı." : "Sayfa gizlendi." };

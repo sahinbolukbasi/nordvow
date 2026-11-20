@@ -6,11 +6,12 @@ import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { campaignStatusLabels, contentTypeLabels, formatKurus, platformLabels, roleLabels, taxStatusLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
 import { computeBalances } from "@infulancer/core/domain/ledger";
-import { syncSourceLabels } from "@infulancer/core/social/sync";
+import { syncStatusView } from "@infulancer/core/social/sync";
 import { WorkHistory } from "@/components/history/work-history";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
+import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
 import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
-import { OwnAccountForm, SyncOwnButton } from "@/components/forms/own-account-forms";
+import { OwnAccountForm } from "@/components/forms/own-account-forms";
 import { RateCardForm, type RateRow } from "@/components/offers/offer-forms";
 import { CreatorShowcase } from "@/components/showcase/creator-showcase";
 import { AddPortfolioForm, PortfolioList, ShowcaseSettingsForm } from "@/components/showcase/showcase-forms";
@@ -62,7 +63,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const tt = await getTT();
   const actor = await requireActor();
   const { sekme } = await searchParams;
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, instagramHandle: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
   const activity = await audit.listByActor(actor.userId, 60).catch(() => []);
   const tabs: { id: string; label: string; content: React.ReactNode }[] = [];
   let avatar: string | null = user.avatarKey ? `/api/avatar/${user.avatarKey.replace(/^avatars\//, "")}` : null;
@@ -132,7 +133,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <Card interactive={false} className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle>{tt("Hesap bağla")}</CardTitle>
-              {accounts.length ? <SyncOwnButton /> : null}
             </div>
             <p className="text-[13px] text-fg-muted">{tt("Kullanıcı adını ekle; takipçi ve profil fotoğrafın otomatik gelsin.")}</p>
             <OwnAccountForm />
@@ -160,16 +160,22 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                     </div>
                   </dl>
                   <p className="text-[12px] text-fg-passive">
-                    {syncSourceLabels[a.syncSource] ?? a.syncSource}
+                    {syncStatusView(a).label}
                     {a.lastSyncedAt ? ` · son güncelleme ${fmtDate(a.lastSyncedAt)}` : ""}
                   </p>
-                  {a.syncError ? <span className="text-[12px] text-critical">{a.syncError}</span> : null}
+                  {syncStatusView(a).note ? <span className="text-[12px] text-fg-muted">{syncStatusView(a).note}</span> : null}
+                  {syncStatusView(a).error ? <span className="text-[12px] text-critical">{syncStatusView(a).error}</span> : null}
                 </Card>
               ))}
             </section>
           ) : (
             <p className="text-sm text-fg-passive">{tt("Henüz hesap yok. Yukarıdan kullanıcı adını ekle.")}</p>
           )}
+          <Card interactive={false} className="flex flex-col gap-3">
+            <CardTitle>{tt("Instagram hesabını bağla")}</CardTitle>
+            <p className="text-sm text-fg-muted">{tt("Kişisel, gizli veya kısıtlı hesaplar Business Discovery ile okunmaz. Instagram’ın kendi giriş ekranından bağlarsanız profiliniz sizin izninizle okunur. Şifre paylaşılmaz. Uygulama henüz yayında değilse yalnız test kullanıcıları bağlanabilir.")}</p>
+            <ButtonLink href="/api/instagram/oauth/start" variant="secondary" className="w-fit">{tt("Instagram ile bağlan")}</ButtonLink>
+          </Card>
           <Card interactive={false} className="flex flex-col gap-3">
             <CardTitle>{tt("TikTok hesabını bağla")}</CardTitle>
             <p className="text-sm text-fg-muted">{tt("TikTok istatistikleri yalnız senin onayınla, TikTok'un resmî giriş ekranı üzerinden alınır. Şifren bizimle paylaşılmaz.")}</p>
@@ -228,12 +234,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </div>
       ),
     });
-  } else if (actor.role === "BRAND" && actor.brandId) {
+  }
+  let brandModeSettings: { mode: "SELF" | "AJANS"; selectedAgencyId: string | null; agencies: AgencyOption[] } | null = null;
+  if (actor.role === "BRAND" && actor.brandId) {
     const brandId = actor.brandId;
-    const [campaigns, offers] = await Promise.all([
+    const [campaigns, offers, brandCfg, agencies] = await Promise.all([
       prisma.campaign.findMany({ where: { brandId }, orderBy: { startsAt: "desc" }, select: { id: true, name: true, status: true, startsAt: true, endsAt: true, brandTotalFeeKurus: true, _count: { select: { assignments: { where: { contractStatus: { not: "RED" } } } } } } }),
       prisma.offer.findMany({ where: { brandId }, orderBy: { createdAt: "desc" }, take: 30 }),
+      prisma.brand.findUnique({ where: { id: brandId }, select: { defaultExecutionMode: true, preferredAgencyUserId: true } }),
+      prisma.user.findMany({ where: { role: "AGENCY", status: "ACTIVE" }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     ]);
+    brandModeSettings = { mode: brandCfg?.defaultExecutionMode ?? "AJANS", selectedAgencyId: brandCfg?.preferredAgencyUserId ?? null, agencies };
     headline = `${user.brand?.name ?? "Marka"} · marka yetkilisi`;
     tabs.push({
       id: "isbirlikleri",
@@ -287,13 +298,20 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </Card>
         <Card interactive={false} className="flex flex-col gap-3">
           <CardTitle>{tt("Kişisel bilgiler")}</CardTitle>
-          <ProfileForm name={user.name} phone={user.phone} />
+          <ProfileForm name={user.name} phone={user.phone} instagram={user.instagramHandle} />
           <p className="text-[12px] text-fg-passive">{tt("E-posta (")}{user.email}{tt(") giriş adresinizdir; değiştirmek için ajansınıza yazın.")}</p>
         </Card>
         <Card interactive={false} className="flex flex-col gap-3">
           <CardTitle>{tt("Güvenlik")}</CardTitle>
           <PasswordForm />
         </Card>
+        {brandModeSettings ? (
+          <DefaultModeCard
+            mode={brandModeSettings.mode}
+            agencies={brandModeSettings.agencies}
+            selectedAgencyId={brandModeSettings.selectedAgencyId}
+          />
+        ) : null}
         {actor.role === "INFLUENCER" || actor.role === "BRAND" ? (
           <Card interactive={false} className="flex flex-col gap-3">
             <CardTitle>{tt("Hızlı erişim")}</CardTitle>

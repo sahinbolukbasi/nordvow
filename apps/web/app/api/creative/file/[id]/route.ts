@@ -19,9 +19,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!/^[a-z0-9]{10,40}$/.test(id)) return jsonError(404, "Bulunamadı.");
   const own = ownTenantOrNull(auth.actor);
   const isAsset = new URL(req.url).searchParams.get("t") === "asset";
-  const row = isAsset
+  const primary = isAsset
     ? await prisma.generatedAsset.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } })
     : await prisma.creativeUpload.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } });
+  const row =
+    primary ??
+    (isAsset
+      ? await prisma.creativeUpload.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } })
+      : await prisma.generatedAsset.findUnique({ where: { id }, select: { tenantId: true, s3Key: true } }));
   if (!row || (own !== null && row.tenantId !== own)) return jsonError(404, "Bulunamadı.");
   // Tuval same-origin ister; imzalı S3 adresine 307, CORS olmadan onload'u hiç ateşlemez.
   if (new URL(req.url).searchParams.get("cors") === "1") {

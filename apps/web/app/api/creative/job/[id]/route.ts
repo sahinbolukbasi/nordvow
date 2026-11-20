@@ -47,7 +47,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const failed = steps.some((s) => s.status === "FAILED" || s.status === "REJECTED");
   const done = !failed && pending.length === 0 && last.status === "COMPLETED";
   // Webhook gecikirse fal kuyruğunu sorgulayarak sonuçlandır (bloke takılı kalmasın).
-  if (!done && !failed) void reconcileStaleJobs({ olderThanMs: 60_000 }).catch(() => {});
+  if (!done && !failed) void reconcileStaleJobs({ olderThanMs: 1_500 }).catch(() => {});
   return Response.json(
     { currency: await tenantCurrency(root.tenantId), done, failed, steps, finalAssetId: done ? (assetOf.get(last.id) ?? null) : null, chainError: root.rejectReason && root.status === "COMPLETED" ? root.rejectReason : null },
     { headers: { "Cache-Control": "no-store" } },

@@ -228,7 +228,10 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
                     {ticket ? (
                       <>
                         <CopyCode code={ticket.code} tone="app" size="sm" />
-                        <Link href={`/bilet/${ticket.id}`} className="text-[13px] font-medium text-fg underline-offset-4 hover:underline">Bilet</Link>
+                        <a href={`/api/wallet/apple/ticket/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Apple Wallet</a>
+                        <a href={`/api/wallet/google/ticket/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Google Pay</a>
+                        <a href={`/api/bilet/${ticket.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">PDF</a>
+                        <Link href={`/bilet/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-fg underline-offset-4 hover:underline">Bilet ↗</Link>
                       </>
                     ) : null}
                     {inv.status !== "IPTAL" ? <InviteResponse inviteId={inv.id} current={inv.status} /> : null}

@@ -2,6 +2,8 @@ import { getTT } from "@/lib/i18n/tt-server";
 import type { Metadata } from "next";
 import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
+import { creativePricing } from "@infulancer/core/creative/pricing";
+import { currencyOf, formatDualMinor } from "@infulancer/core/i18n/regions";
 import { ApplyForm } from "@/components/campaigns/open-call-forms";
 import { Pill, StatStrip } from "@/components/luma/primitives";
 import { RespondOffer } from "@/components/offers/offer-forms";
@@ -25,17 +27,22 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
   const { sekme, sonuc } = await searchParams;
   const id = actor.influencerId!;
   const now = new Date();
-  const [offers, open, mine] = await Promise.all([
+  const [offers, open, mine, me, pricing] = await Promise.all([
     prisma.offer.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
     prisma.campaignOpenCall.findMany({ where: { status: "ACIK", OR: [{ deadline: null }, { deadline: { gte: now } }] }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.campaignApplication.findMany({ where: { influencerId: id }, orderBy: { createdAt: "desc" }, include: { openCall: { select: { title: true, tenantId: true } } } }),
+    prisma.influencer.findUnique({ where: { id }, select: { country: true } }),
+    creativePricing(),
   ]);
+  const myCur = currencyOf(me?.country);
+  // Global veya yabancı influencer panelinde kendi yerel para birimi veya global baz para birimi (EUR/USD) dönüşümü gösterilir.
+  const viewerCur = myCur === "TRY" ? "EUR" : myCur;
   const brands = new Map(
     (await prisma.brand.findMany({ where: { id: { in: [...new Set([...offers.map((o) => o.brandId), ...open.map((c) => c.tenantId), ...mine.map((m) => m.openCall.tenantId)])] } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]),
   );
   const applied = new Set(mine.map((m) => m.openCallId));
   const fromApplication = new Set(mine.map((m) => m.offerId).filter(Boolean));
-  const pending = offers.filter((o) => o.status === "GONDERILDI" && o.expiresAt > now);
+  const pending = offers.filter((o) => (o.status === "GONDERILDI" || o.status === "KARSI_TEKLIF") && o.expiresAt > now);
   const openNotApplied = open.filter((c) => !applied.has(c.id));
 
   const offerCards = (items: typeof offers, actionable: boolean, emptyText: string) =>
@@ -56,11 +63,35 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                   <span className="text-[17px] font-semibold text-fg">{o.title}</span>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <span className="text-xl font-semibold tabular-nums text-fg">{formatKurus(o.totalKurus)}</span>
-                  <Pill tone={p.tone}>{p.label}</Pill>
+                  <span className="text-xl font-semibold tabular-nums text-fg">
+                    {formatDualMinor(
+                      o.status === "KARSI_TEKLIF" && o.counterKurus ? o.counterKurus : o.totalKurus,
+                      "TRY",
+                      {
+                        viewerCurrency: myCur !== "TRY" ? myCur : viewerCur,
+                        perspective: myCur !== "TRY" ? "influencer" : "brand",
+                        fx: pricing.fx,
+                        showGlobalEquivalents: true,
+                      },
+                    )}
+                  </span>
+                  <Pill tone={o.status === "KARSI_TEKLIF" ? "amber" : p.tone}>{o.status === "KARSI_TEKLIF" ? tt("Karşı fiyat") : p.label}</Pill>
                 </div>
               </div>
               <p className="whitespace-pre-line text-[14px] text-fg-muted">{o.message}</p>
+              {o.status === "KARSI_TEKLIF" && o.counterKurus ? (
+                <p className="text-[13px] text-amber-600 dark:text-amber-400">
+                  {o.counterByRole === "BRAND" ? tt("Marka farklı bir fiyat talep etti:") : tt("Önerdiğiniz karşı fiyat:")}{" "}
+                  <strong>
+                    {formatDualMinor(o.counterKurus, "TRY", {
+                      viewerCurrency: myCur !== "TRY" ? myCur : viewerCur,
+                      perspective: myCur !== "TRY" ? "influencer" : "brand",
+                      fx: pricing.fx,
+                    })}
+                  </strong>
+                  {o.counterNote ? ` · ${o.counterNote}` : ""}
+                </p>
+              ) : null}
               <ul className="flex flex-wrap gap-2 text-[12px] text-fg">
                 {itemsSummary(o.items).map((t) => (
                   <li key={t} className="rounded-full border border-line px-2.5 py-0.5">{t}</li>
@@ -72,7 +103,7 @@ export default async function InfluencerOffersPage({ searchParams }: { searchPar
                   {fmtDate(o.createdAt)} {expiryText(o.expiresAt, o.status)}
                   {o.responseNote ? ` · Not: ${o.responseNote}` : ""}
                 </span>
-                {actionable && o.status === "GONDERILDI" ? <RespondOffer id={o.id} /> : null}
+                {actionable && (o.status === "GONDERILDI" || (o.status === "KARSI_TEKLIF" && o.counterByRole === "BRAND")) ? <RespondOffer id={o.id} /> : null}
               </div>
             </li>
           );

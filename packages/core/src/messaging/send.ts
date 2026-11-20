@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { envStr } from "../env";
 import { notifyAdmins } from "../agents/common";
 import { isRevocationError, metaClient, type SendPayload } from "../channels/meta-client";
 import { vault } from "../channels/vault";
@@ -60,7 +61,17 @@ export async function sendMessage(input: SendInput) {
     orderBy: { createdAt: "desc" },
     include: { phoneNumbers: true },
   });
-  if (!connection || connection.status !== "ACTIVE") {
+
+  const globalWaToken = envStr("WHATSAPP_ACCESS_TOKEN", "") || envStr("META_WABA_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalWaPhoneId = envStr("WHATSAPP_PHONE_NUMBER_ID", "");
+  const globalIgToken = envStr("INSTAGRAM_ACCESS_TOKEN", "") || envStr("META_IG_TOKEN", "") || envStr("META_SYSTEM_USER_TOKEN", "");
+  const globalIgUserId = envStr("INSTAGRAM_IG_USER_ID", "");
+
+  const hasGlobalFallback =
+    (conv.channel === "WHATSAPP" && Boolean(globalWaToken && globalWaPhoneId)) ||
+    (conv.channel === "INSTAGRAM" && Boolean(globalIgToken && globalIgUserId));
+
+  if ((!connection || connection.status !== "ACTIVE") && !hasGlobalFallback) {
     throw new SendBlockedError("Kanal bağlantısı aktif değil; gönderim durduruldu.", "CONNECTION");
   }
 
@@ -100,18 +111,22 @@ export async function sendMessage(input: SendInput) {
 
   let externalId: string;
   try {
-    const token = await vault().get(connection.tokenRef);
+    const useConnection = connection && connection.status === "ACTIVE" && !connection.tokenRef.startsWith("env:");
     if (conv.channel === "WHATSAPP") {
-      const num = connection.phoneNumbers[0];
-      if (!num) throw new SendBlockedError("WhatsApp numarası tanımlı değil.", "CONNECTION");
-      externalId = (await metaClient().sendWhatsApp(num.phoneNumberId, token, payload)).messageId;
+      const token = useConnection ? await vault().get(connection.tokenRef) : globalWaToken;
+      const phoneNumberId = (useConnection ? connection.phoneNumbers[0]?.phoneNumberId : undefined) ?? globalWaPhoneId;
+      if (!phoneNumberId || !token) throw new SendBlockedError("WhatsApp numarası veya erişim belirteci tanımlı değil.", "CONNECTION");
+      externalId = (await metaClient().sendWhatsApp(phoneNumberId, token, payload)).messageId;
     } else {
-      const igId = String((connection.externalIds as Record<string, unknown>).ig_user_id ?? (connection.externalIds as Record<string, unknown>).page_id ?? "");
+      const token = useConnection ? await vault().get(connection.tokenRef) : globalIgToken;
+      const extIds = (connection?.externalIds ?? {}) as Record<string, unknown>;
+      const igId = String(extIds.ig_user_id ?? extIds.page_id ?? "") || globalIgUserId;
+      if (!igId || !token) throw new SendBlockedError("Instagram hesabı veya erişim belirteci tanımlı değil.", "CONNECTION");
       const tag = composerMode(conv.channel, conv, now, true).mode === "free_text" && !isOpen(conv.serviceWindowExpiresAt, now) ? "HUMAN_AGENT" : undefined;
       externalId = (await metaClient().sendInstagram(igId, token, conv.contact.externalId, input.text ?? "", tag)).messageId;
     }
   } catch (err) {
-    if (isRevocationError(err)) {
+    if (isRevocationError(err) && connection) {
       await markConnectionRevoked(connection.id, (err as Error).message);
       throw new SendBlockedError("Erişim belirteci iptal edilmiş; bağlantı yeniden kurulmalı.", "CONNECTION");
     }
@@ -134,7 +149,7 @@ export async function sendMessage(input: SendInput) {
         createdAt: now,
       },
     });
-    if (conv.channel === "WHATSAPP" && connection.phoneNumbers[0]) {
+    if (conv.channel === "WHATSAPP" && connection?.phoneNumbers[0]) {
       await recordMessageCost(tx, {
         tenantId: input.tenantId,
         phoneNumberId: connection.phoneNumbers[0].phoneNumberId,

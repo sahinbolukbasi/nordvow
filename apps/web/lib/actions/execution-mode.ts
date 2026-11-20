@@ -2,7 +2,7 @@
 import { setBrandDefaultMode, setExecutionMode } from "@infulancer/core/domain/campaign-execution";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
-import { attempt, str, revalidateAll } from "@/lib/action-utils";
+import { attempt, optStr, str, revalidateAll } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
 
 function parseMode(v: string): "SELF" | "AJANS" {
@@ -35,8 +35,12 @@ export async function setBrandDefaultModeAction(_p: ActionState, fd: FormData): 
   return attempt(async () => {
     const brandId = actor.role === "BRAND" ? actor.brandId! : str(fd, "brandId");
     const mode = parseMode(str(fd, "mode"));
-    await setBrandDefaultMode(actor, brandId, mode);
+    const preferredAgencyUserId = optStr(fd, "preferredAgencyUserId");
+    await setBrandDefaultMode(actor, brandId, mode, preferredAgencyUserId);
     revalidateAll();
-    return { ok: true, message: mode === "SELF" ? "Varsayılan: kampanyaları kendiniz yürüteceksiniz." : "Varsayılan: kampanyaları ajans yürütecek." };
+    return {
+      ok: true,
+      message: mode === "SELF" ? "Ayar kaydedildi: kampanyaları kendiniz (manuel) yürüteceksiniz." : "Ayar kaydedildi: kampanyalar seçili ajansla yürütülecek.",
+    };
   });
 }
