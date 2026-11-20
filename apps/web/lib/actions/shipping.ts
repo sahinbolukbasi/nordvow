@@ -82,9 +82,11 @@ export async function saveBrandSenderAddressAction(
     const senderName = str(fd, "senderName");
     const senderPhone = str(fd, "senderPhone");
     const addressLine = str(fd, "addressLine");
+    const neighborhood = optStr(fd, "neighborhood");
     const city = str(fd, "city");
     const district = str(fd, "district");
     const postalCode = optStr(fd, "postalCode");
+    const addressDescription = optStr(fd, "addressDescription");
 
     const existing = await prisma.brandShippingIntegration.findFirst({
       where: { brandId: targetBrandId, isActive: true },
@@ -130,9 +132,11 @@ export async function saveInfluencerAddressAction(
     const recipientName = str(fd, "recipientName");
     const recipientPhone = str(fd, "recipientPhone");
     const addressLine = str(fd, "addressLine");
+    const neighborhood = optStr(fd, "neighborhood");
     const city = str(fd, "city");
     const district = str(fd, "district");
     const postalCode = optStr(fd, "postalCode");
+    const addressDescription = optStr(fd, "addressDescription");
 
     await prisma.influencerAddress.updateMany({
       where: { influencerId: actor.influencerId!, isDefault: true },
@@ -145,9 +149,11 @@ export async function saveInfluencerAddressAction(
         recipientName,
         recipientPhone,
         addressLine,
+        neighborhood,
         city,
         district,
         postalCode,
+        addressDescription,
         isDefault: true,
       },
     });

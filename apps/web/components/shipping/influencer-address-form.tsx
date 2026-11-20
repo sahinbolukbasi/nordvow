@@ -72,6 +72,9 @@ export function InfluencerAddressForm({
           />
         )}
       </Field>
+      <Field label="Mahalle">
+        {(p) => <Input {...p} name="neighborhood" defaultValue="" placeholder="Mahalle" />}
+      </Field>
       <Field label="Posta Kodu (Opsiyonel)">
         {(p) => (
           <Input
@@ -92,6 +95,9 @@ export function InfluencerAddressForm({
             required
           />
         )}
+      </Field>
+      <Field label="Adres Tarifi (Opsiyonel)" className="sm:col-span-2">
+        {(p) => <Input {...p} name="addressDescription" placeholder="Bina, kapı veya teslimat notu" />}
       </Field>
       <div className="flex items-center justify-end sm:col-span-2">
         <Button type="submit" disabled={pending}>

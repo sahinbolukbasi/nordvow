@@ -24,6 +24,34 @@ export async function listBrandWalletEntries(brandId: string, limit = 100) {
   });
 }
 
+export async function getBrandWalletSummary(brandId: string) {
+  const [entries, pending] = await Promise.all([
+    prisma.brandWalletEntry.findMany({
+      where: { brandId },
+      select: { amountKurus: true, direction: true, type: true },
+    }),
+    prisma.walletTopupRequest.aggregate({
+      where: { brandId, status: "PENDING" },
+      _sum: { amountKurus: true },
+    }),
+  ]);
+  const byType = {
+    CREATIVE_USAGE: 0,
+    INFLUENCER_PAYMENT: 0,
+    SHIPPING: 0,
+  };
+  for (const entry of entries) {
+    if (entry.direction === "DEBIT" && entry.type in byType) {
+      byType[entry.type as keyof typeof byType] += entry.amountKurus;
+    }
+  }
+  return {
+    balanceKurus: entries.reduce((sum, entry) => sum + (entry.direction === "CREDIT" ? entry.amountKurus : -entry.amountKurus), 0),
+    blockedKurus: pending._sum.amountKurus ?? 0,
+    spendingKurus: byType,
+  };
+}
+
 async function addEntry(
   tx: Tx,
   input: {

@@ -31,7 +31,17 @@ export async function createBrandInvoiceForWalletEntry(input: {
     const vat = gross - net;
     const ettn = randomUUID();
     const year = new Date().getFullYear();
-    const invoiceNumber = `NRD${year}${ettn.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const sequence = await tx.$queryRaw<{ value: number }[]>`
+      INSERT INTO "invoice_sequences" ("year", "next_value", "updated_at")
+      VALUES (${year}, 2, NOW())
+      ON CONFLICT ("year") DO UPDATE
+      SET "next_value" = "invoice_sequences"."next_value" + 1,
+          "updated_at" = NOW()
+      RETURNING "next_value" - 1 AS value
+    `;
+    const sequenceValue = sequence[0]?.value;
+    if (!sequenceValue) throw new DomainError("SUNUCU_HATASI", "Fatura sıra numarası üretilemedi.");
+    const invoiceNumber = `NRD${year}${String(sequenceValue).padStart(9, "0")}`;
     const invoice = await tx.invoice.create({
       data: {
         brandId: entry.brandId,

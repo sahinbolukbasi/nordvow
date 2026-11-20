@@ -4,7 +4,7 @@ import { requireActor } from "@/lib/auth-guard";
 import { attempt, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { prisma } from "@infulancer/core/db";
 import { createBrandAdjustment, decideBrandWalletTopup, requestBrandWalletTopup } from "@infulancer/core/finance/brand-wallet";
-import { saveBrandAddress } from "@infulancer/core/profile/addresses";
+import { saveBrandAddress, updateBrandTaxProfile } from "@infulancer/core/profile/addresses";
 import { createBrandInvoiceForWalletEntry } from "@infulancer/core/finance/invoice-records";
 import type { ActionState } from "@/lib/action-state";
 
@@ -33,6 +33,14 @@ export async function saveBrandAddressAction(_p: ActionState, fd: FormData): Pro
       taxNumber: optStr(fd, "taxNumber"),
       isBilling: fd.get("isBilling") === "on",
       isShipping: fd.get("isShipping") === "on",
+    });
+    await updateBrandTaxProfile(brandId, {
+      taxpayerType: optStr(fd, "taxpayerType"),
+      mersisNumber: optStr(fd, "mersisNumber"),
+      tradeRegistryNumber: optStr(fd, "tradeRegistryNumber"),
+      eInvoiceType: optStr(fd, "eInvoiceType"),
+      billingEmail: optStr(fd, "billingEmail"),
+      billingPhone: optStr(fd, "billingPhone"),
     });
     revalidateAll();
     return { ok: true, message: "Marka adresi kaydedildi." };

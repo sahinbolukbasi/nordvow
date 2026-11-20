@@ -270,6 +270,12 @@ model Brand {
   contactName        String
   contactEmail       String
   contactPhone       String
+  taxpayerType       String?   @map("taxpayer_type")
+  mersisNumber       String?   @map("mersis_number")
+  tradeRegistryNumber String?  @map("trade_registry_number")
+  eInvoiceType       String?   @map("e_invoice_type")
+  billingEmail       String?   @map("billing_email")
+  billingPhone       String?   @map("billing_phone")
   contractRef        String?
   contractStartsAt   DateTime?
   category           String
@@ -711,7 +717,9 @@ model WalletTopupRequest {
   amountKurus     Int               @map("amount_kurus")
   method          String
   reference       String?
+  receiptStorageKey String?          @map("receipt_storage_key")
   note            String?
+  rejectionReason String?            @map("rejection_reason")
   status          WalletTopupStatus @default(PENDING)
   requestedById   String?           @map("requested_by_id")
   decidedById     String?           @map("decided_by_id")
@@ -750,6 +758,14 @@ model Invoice {
   @@index([brandId, createdAt])
   @@index([sourceType, sourceId])
   @@map("invoices")
+}
+
+model InvoiceSequence {
+  year      Int      @id
+  nextValue Int      @map("next_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("invoice_sequences")
 }
 
 model InvoiceItem {
@@ -2583,9 +2599,11 @@ model InfluencerAddress {
   recipientName  String     @map("recipient_name")
   recipientPhone String     @map("recipient_phone")
   addressLine    String     @map("address_line")
+  neighborhood   String?
   city           String
   district       String
   postalCode     String?    @map("postal_code")
+  addressDescription String? @map("address_description")
   isDefault      Boolean    @default(false) @map("is_default")
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")

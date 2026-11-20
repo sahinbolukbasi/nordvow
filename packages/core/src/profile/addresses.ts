@@ -59,6 +59,30 @@ export async function saveBrandAddress(brandId: string, input: BrandAddressInput
   });
 }
 
+export async function updateBrandTaxProfile(
+  brandId: string,
+  input: {
+    taxpayerType?: string | null;
+    mersisNumber?: string | null;
+    tradeRegistryNumber?: string | null;
+    eInvoiceType?: string | null;
+    billingEmail?: string | null;
+    billingPhone?: string | null;
+  },
+) {
+  return prisma.brand.update({
+    where: { id: brandId },
+    data: {
+      taxpayerType: input.taxpayerType?.trim() || null,
+      mersisNumber: input.mersisNumber?.trim() || null,
+      tradeRegistryNumber: input.tradeRegistryNumber?.trim() || null,
+      eInvoiceType: input.eInvoiceType?.trim() || null,
+      billingEmail: input.billingEmail?.trim() || null,
+      billingPhone: input.billingPhone?.trim() || null,
+    },
+  });
+}
+
 export async function getBrandDefaultAddresses(brandId: string) {
   const [billing, shipping] = await Promise.all([
     prisma.brandAddress.findFirst({ where: { brandId, isBilling: true }, orderBy: { updatedAt: "desc" } }),

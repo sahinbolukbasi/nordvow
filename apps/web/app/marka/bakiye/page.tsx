@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireActor } from "@/lib/auth-guard";
-import { getBrandWalletBalance, listBrandWalletEntries } from "@infulancer/core/finance/brand-wallet";
+import { getBrandWalletSummary, listBrandWalletEntries } from "@infulancer/core/finance/brand-wallet";
 import { prisma } from "@infulancer/core/db";
 import { formatKurus } from "@infulancer/core/domain/labels";
 import { createWalletEntryInvoiceAction, requestBrandTopupAction } from "@/lib/actions/brand-wallet";
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
 export default async function BrandWalletPage() {
   const actor = await requireActor("BRAND");
   if (!actor.brandId) return null;
-  const [balance, entries, requests] = await Promise.all([
-    getBrandWalletBalance(actor.brandId),
+  const [summary, entries, requests] = await Promise.all([
+    getBrandWalletSummary(actor.brandId),
     listBrandWalletEntries(actor.brandId, 50),
     prisma.walletTopupRequest.findMany({ where: { brandId: actor.brandId }, orderBy: { createdAt: "desc" }, take: 20 }),
   ]);
@@ -23,7 +23,13 @@ export default async function BrandWalletPage() {
       <PageHeader title="Marka bakiyesi" description="Creative Studio, influencer ödemeleri ve kargo harcamaları ortak bakiyeden düşer." />
       <section className="rounded-2xl border border-line bg-surface p-5">
         <p className="text-sm text-fg-muted">Kullanılabilir bakiye</p>
-        <p className="mt-1 text-3xl font-semibold">{formatKurus(balance)}</p>
+        <p className="mt-1 text-3xl font-semibold">{formatKurus(summary.balanceKurus)}</p>
+        <p className="mt-2 text-sm text-fg-muted">Bloke tutar: {formatKurus(summary.blockedKurus)}</p>
+        <div className="mt-4 grid gap-2 text-sm md:grid-cols-3">
+          <span>Creative Studio: {formatKurus(summary.spendingKurus.CREATIVE_USAGE)}</span>
+          <span>Influencer: {formatKurus(summary.spendingKurus.INFLUENCER_PAYMENT)}</span>
+          <span>Kargo: {formatKurus(summary.spendingKurus.SHIPPING)}</span>
+        </div>
       </section>
       <form action={async (formData) => { await requestBrandTopupAction({ ok: false }, formData); }} className="grid gap-3 rounded-2xl border border-line bg-surface p-5 md:grid-cols-2">
         <h2 className="md:col-span-2 text-base font-semibold">Bakiye yükleme talebi</h2>
