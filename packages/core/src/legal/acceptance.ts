@@ -20,12 +20,34 @@ export const LEGAL_DOCS = [
 
 export type LegalDocId = (typeof LEGAL_DOCS)[number];
 
-/** Sözleşme kabulü zorunlu belgeler. Aydınlatma bilgilendirmedir; rıza ve ileti izni ayrıdır. */
-export function requiredAcceptanceDocs(role: "BRAND" | "INFLUENCER" | "ADMIN" | "AGENCY"): LegalDocId[] {
-  const base: LegalDocId[] = ["kullanim-sartlari", "gizlilik", "kvkk-aydinlatma"];
+/** KVKK aydınlatması. Yalnız kayıtta alınır; `legal_acceptances.accepted_at` saklanır. Giriş bunu yeniden istemez. */
+export const KVKK_ACCEPTANCE_DOC: LegalDocId = "kvkk-aydinlatma";
+
+export type AcceptanceRole = "BRAND" | "INFLUENCER" | "ADMIN" | "AGENCY";
+
+/** Kayıtta zorunlu belgeler. Aydınlatma bilgilendirmedir; açık rıza ve ileti izni ayrıdır. */
+export function requiredAcceptanceDocs(role: AcceptanceRole): LegalDocId[] {
+  const base: LegalDocId[] = ["kullanim-sartlari", "gizlilik", KVKK_ACCEPTANCE_DOC];
   if (role === "BRAND") return [...base, "marka-sozlesmesi"];
   if (role === "INFLUENCER") return [...base, "influencer-sozlesmesi"];
   return base;
+}
+
+/** Girişte yeniden kaydedilen belgeler. KVKK aydınlatması bu listede yoktur. */
+export function loginAcceptanceDocs(role: AcceptanceRole): LegalDocId[] {
+  return requiredAcceptanceDocs(role).filter((id) => id !== KVKK_ACCEPTANCE_DOC);
+}
+
+/**
+ * İlk sosyal/OAuth hesabı kayıt sayılır: KVKK kaydı yoksa bir kez istenir.
+ * Kaydı olan kullanıcıya tekrar sorulmaz. Parola ile giriş bu kontrolü kullanmaz.
+ */
+export async function needsKvkkAcceptance(userId: string): Promise<boolean> {
+  const row = await prisma.legalAcceptance.findFirst({
+    where: { userId, document: KVKK_ACCEPTANCE_DOC },
+    select: { acceptedAt: true },
+  });
+  return row == null;
 }
 
 export async function recordLegalAcceptances(input: { userId?: string | null; email: string; documents: string[]; version?: string }): Promise<void> {

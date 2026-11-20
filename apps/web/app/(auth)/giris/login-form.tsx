@@ -60,8 +60,6 @@ export function LoginForm({ next }: { next: string | null }) {
           <Link href="/kullanim-sartlari" target="_blank" className="underline underline-offset-4">{tt("Kullanım şartlarının")}</Link>
           {" "}{tt("güncel sürümünü kabul ediyorum.")}{" "}
           <Link href="/gizlilik" className="underline underline-offset-4">{tt("Gizlilik")}</Link>
-          {" · "}
-          <Link href="/kvkk-aydinlatma" className="underline underline-offset-4">{tt("KVKK")}</Link>
         </span>
       </label>
       <p role="alert" aria-live="polite" className="min-h-5 text-[13px] text-critical">

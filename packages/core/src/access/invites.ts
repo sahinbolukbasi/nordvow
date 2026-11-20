@@ -6,7 +6,7 @@ import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
-import { LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
+import { KVKK_ACCEPTANCE_DOC, LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
 import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "../social/handles";
 
 /**
@@ -109,6 +109,7 @@ export async function registerWithInvite(input: RegisterInput) {
   if (name.length < 3 || name.length > 80) throw new DomainError("DOGRULAMA", "Ad soyad 3–80 karakter olmalı.");
   const phone = input.phone.replace(/[^\d+]/g, "");
   if (!/^\+?\d{10,15}$/.test(phone)) throw new DomainError("DOGRULAMA", "Geçerli bir telefon numarası girin.");
+  if (!input.acceptTerms) throw new DomainError("DOGRULAMA", "Kullanım koşulları, gizlilik politikası ve KVKK aydınlatma metnini kabul etmelisiniz.");
   const a = input.application;
   if (!a.categoryIds.length || a.categoryIds.length > 8) throw new DomainError("DOGRULAMA", "1–8 kategori seçin.");
   const cats = await prisma.category.count({ where: { id: { in: a.categoryIds }, active: true } });
@@ -140,6 +141,7 @@ export async function registerWithInvite(input: RegisterInput) {
       ...(input.acceptOpenConsent ? ["acik-riza"] : []),
       ...(input.acceptCommercial ? ["ileti-izni"] : []),
     ];
+    if (!docs.includes(KVKK_ACCEPTANCE_DOC)) throw new DomainError("DOGRULAMA", "KVKK aydınlatma metni kabul edilmeden kayıt olunamaz.");
     await tx.legalAcceptance.createMany({
       data: docs.map((document) => ({ userId: u.id, email, document, version: LEGAL_VERSION })),
     });
