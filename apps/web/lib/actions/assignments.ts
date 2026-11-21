@@ -12,6 +12,9 @@ import { DomainError } from "@infulancer/core/domain/errors";
 import { assertFeeKurus, MAX_FEE_KURUS, MAX_FEE_LABEL } from "@infulancer/core/domain/money";
 import { assertInfluencerFitsCampaign } from "@infulancer/core/domain/campaign-region";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
+import { linkOrCreateShipmentForAssignment } from "@infulancer/core/shipping/service";
+import { formatKurus } from "@infulancer/core/domain/labels";
+import { dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, intOrNull, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -132,6 +135,22 @@ export async function createAssignment(_prev: ActionState, fd: FormData): Promis
       },
     );
     const assignmentId = await insertAssignment(actor, input);
+    try {
+      const [camp, inf] = await Promise.all([
+        prisma.campaign.findUnique({ where: { id: input.campaignId }, select: { name: true } }),
+        prisma.influencer.findUnique({ where: { id: input.influencerId }, select: { user: { select: { id: true } } } }),
+      ]);
+      if (inf?.user?.id) {
+        const recipients = await recipientsFromUserIds([inf.user.id]);
+        if (recipients.length) {
+          await dispatchNotification("CAMPAIGN_ASSIGNED", recipients, {
+            kampanya: camp?.name ?? "Kampanya",
+            tutar: formatKurus(input.feeKurus),
+            link: "/influencer/isler",
+          });
+        }
+      }
+    } catch { /* bildirim hatası atamayı bozmasın */ }
     revalidateAll();
     return { ok: true, message: "Influencer atandı; sözleşme teklifi gönderildi.", data: { assignmentId } };
   });
@@ -258,7 +277,7 @@ export async function createAssignmentsBulk(input: {
         failed.push({ influencerId: it.influencerId, name, conflict: true, reason: conflict.conflicts.map((c) => c.message).join(" · ") });
         continue;
       }
-      await insertAssignment(actor, {
+      const assignmentId = await insertAssignment(actor, {
         campaignId,
         influencerId: it.influencerId,
         feeKurus: it.feeKurus,
@@ -268,6 +287,7 @@ export async function createAssignmentsBulk(input: {
         couponCode: null,
         overrideReason: null,
       });
+      await linkOrCreateShipmentForAssignment(assignmentId);
       created.push({ influencerId: it.influencerId, name });
     } catch (err) {
       failed.push({ influencerId: it.influencerId, name, conflict: false, reason: err instanceof DomainError ? err.message : "Beklenmeyen hata." });
@@ -304,6 +324,7 @@ export async function assignFromOfferAction(_p: ActionState, fd: FormData): Prom
       overrideReason: null,
     }, { accepted: true });
     await prisma.offer.update({ where: { id: offer.id }, data: { status: "KAMPANYAYA_EKLENDI", campaignId, assignmentId } });
+    await linkOrCreateShipmentForAssignment(assignmentId, offer.id);
     await audit.append({ actor: toAuditActor(actor), action: "OFFER_CONVERTED", entityType: "Offer", entityId: offer.id, data: { campaignId, assignmentId } });
     revalidateAll();
     return { ok: true, message: "Kampanyaya eklendi.", data: { campaignId } };

@@ -1,16 +1,19 @@
 "use client";
 import { useTT } from "@/lib/i18n/tt-client";
 import { startTransition, useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   addVoiceoverToVideoAction,
   chatCreativeDirectorAction,
+  clearCreativeChatAction,
   deleteCreativePromptAction,
   openAssetInStudioAction,
   saveAssetToLibraryAction,
   saveCreativePromptAction,
   type CreditTier,
   type OrchestratorMeta,
+  type PersistedChatTurn,
   type PromptIdeaItem,
   type SavedPromptItem,
 } from "@/lib/actions/creative-studio";
@@ -19,7 +22,7 @@ import { cn } from "@/lib/cn";
 import { KindIcon } from "@/components/creative/kind-icon";
 import { chargeAmount, fmtTl, KIND_LABEL, modelName, toneFor, type CreativeKind } from "@/lib/creative-models";
 import { uploadFile } from "@/lib/creative-upload";
-import { JobProgress } from "@/components/creative/job-progress";
+import { JobProgress, type JobDoneInfo } from "@/components/creative/job-progress";
 import { PhonePreview } from "@/components/creative/phone-preview";
 import { CheckIcon, SparkleIcon, XIcon } from "@/components/icons";
 
@@ -54,31 +57,32 @@ export type ChatHistoryItem = {
 
 type ChatTurn =
   | {
-      id: string;
-      from: "user";
-      text: string;
-      tierLabel?: string;
-      refCount?: number;
-      isHistorical?: boolean;
-    }
+    id: string;
+    from: "user";
+    text: string;
+    tierLabel?: string;
+    refCount?: number;
+    isHistorical?: boolean;
+  }
   | {
-      id: string;
-      from: "bot";
-      text: string;
-      postBrief?: string | null;
-      enhancedPrompt?: string | null;
-      voiceoverScript?: string | null;
-      assetId?: string | null;
-      uploadId?: string | null;
-      kind?: CreativeKind;
-      format?: string;
-      modelKey?: string;
-      prompt?: string;
-      savedToLibrary?: boolean;
-      orchestrator?: OrchestratorMeta | null;
-      error?: string | null;
-      isHistorical?: boolean;
-    };
+    id: string;
+    from: "bot";
+    text: string;
+    postBrief?: string | null;
+    enhancedPrompt?: string | null;
+    voiceoverScript?: string | null;
+    assetId?: string | null;
+    uploadId?: string | null;
+    kind?: CreativeKind;
+    format?: string;
+    modelKey?: string;
+    prompt?: string;
+    savedToLibrary?: boolean;
+    orchestrator?: OrchestratorMeta | null;
+    invokedSkill?: { id: string; label: string; agentName: string; reason: string } | null;
+    error?: string | null;
+    isHistorical?: boolean;
+  };
 
 const STARTER_PROMPT_IDEAS: PromptIdeaItem[] = [
   {
@@ -188,7 +192,7 @@ function ChatMediaCard({
           <audio src={src} controls className="w-full" />
         </div>
       ) : (
-        <div className={cn("relative flex aspect-[16/10] max-h-72 w-full items-center justify-center overflow-hidden bg-gradient-to-br text-white", toneFor(kind, assetId))}>
+        <div className="relative w-full overflow-hidden bg-black/5">
           {mediaOk ? (
             kind === "video" ? (
               <video
@@ -197,38 +201,36 @@ function ChatMediaCard({
                 playsInline
                 preload="metadata"
                 onError={() => setMediaOk(false)}
-                className="h-full w-full bg-black object-contain"
+                className="block w-full max-h-[640px] bg-black"
                 aria-label={cleanPrompt}
               />
             ) : (
-              // eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i
+              // eslint-disable-next-line @next/next/no-img-element -- imzalı S3 URL'i kendi doğal çerçevesinde
               <img
                 src={src}
                 alt={cleanPrompt}
                 onError={() => setMediaOk(false)}
-                className="h-full w-full object-contain"
+                className="block h-auto w-full max-h-[640px] object-contain"
               />
             )
           ) : (
-            <div className="flex flex-col items-center gap-2 p-6 text-center">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-black/30 backdrop-blur">
-                <KindIcon kind={kind} size={22} />
+            <div className="flex flex-col items-center gap-2 p-8 text-center text-fg-muted">
+              <KindIcon kind={kind} size={24} />
+              <span className="text-[12px] font-medium">
+                {kind === "video" ? tt("Video yüklenemedi") : tt("Görsel yüklenemedi")}
               </span>
-              <span className="rounded-full bg-black/35 px-3 py-0.5 text-[11px] font-medium backdrop-blur">
-                {kind === "video" ? tt("Video Hazır") : tt("Fotoğraf Hazır")}
-              </span>
-              <p className="max-w-md line-clamp-2 text-[13px] font-medium text-white/95">{cleanPrompt}</p>
+              <p className="max-w-md text-[12px]">{cleanPrompt}</p>
             </div>
           )}
 
-          <div className="pointer-events-none absolute top-2.5 right-2.5 left-2.5 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+          <div className="flex items-center justify-between gap-2 border-t border-line bg-surface px-3 py-1.5 text-[11px] text-fg-muted">
+            <span className="inline-flex items-center gap-1.5 font-medium text-fg">
               <KindIcon kind={kind} size={12} />
               {KIND_LABEL[kind]}
               {modelKey ? ` · ${modelName(modelKey)}` : ""}
             </span>
             {isSaved ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
+              <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
                 <CheckIcon size={11} />
                 {tt("Kitaplıkta")}
               </span>
@@ -301,13 +303,27 @@ function ChatMediaCard({
         ) : null}
 
         {kind === "video" ? (
-          <button
-            type="button"
-            onClick={() => setVoiceBoxOpen((v) => !v)}
-            className="rounded-full border border-fg bg-surface px-3 py-1 text-[11px] font-semibold text-fg transition-standard hover:bg-fg hover:text-bg"
-          >
-            {tt("Videoya Ses Üret & Ekle")}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setVoiceBoxOpen((v) => !v)}
+              className="rounded-full border border-fg bg-surface px-3 py-1 text-[11px] font-semibold text-fg transition-standard hover:bg-fg hover:text-bg"
+            >
+              {tt("Videoya Ses Üret & Ekle")}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onInsertPrompt(
+                  null,
+                  "Bu videoya ürüne özel tıklama ve whoosh ses efektleri ekle, ardından ürün adı soldan kayarak gelsin",
+                )
+              }
+              className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-700 transition-standard hover:bg-emerald-500/20 dark:text-emerald-300"
+            >
+              🔊 {tt("SFX + Kayan Başlık (0 Kredi)")}
+            </button>
+          </>
         ) : null}
 
         {kind === "image" ? (
@@ -317,19 +333,24 @@ function ChatMediaCard({
               onClick={() =>
                 onInsertPrompt(
                   effectiveRefId,
-                  `Şimdi üret: ${cleanPrompt} — bu görseli 5 saniyelik akıcı kamera hareketli 9:16 Reels videosuna dönüştür ve üzerine Türkçe seslendirme ekle`,
+                  `Şimdi üret: ${cleanPrompt} — bu görseli koruyarak akıcı kamera hareketli 9:16 Reels videosuna dönüştür ve ürüne özel SFX ekle`,
                 )
               }
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Sesli Videoya Çevir")}
+              🎬 {tt("SFX'li Videoya Çevir")}
             </button>
             <button
               type="button"
-              onClick={() => onInsertPrompt(effectiveRefId, `Şimdi üret: ${cleanPrompt} — farklı ışık ve kadrajla yeni bir varyasyon üret`)}
+              onClick={() =>
+                onInsertPrompt(
+                  effectiveRefId,
+                  `Bu görselin ürününü koruyarak arka planını lüks mermer stüdyo ortamıyla değiştir`,
+                )
+              }
               className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg transition-standard hover:border-fg/50"
             >
-              {tt("Varyasyon")}
+              {tt("Arkayı Değiştir")}
             </button>
           </>
         ) : null}
@@ -341,18 +362,6 @@ function ChatMediaCard({
         >
           ★ {tt("Promptu Kaydet")}
         </button>
-
-        {kind !== "audio" ? (
-          <form action={openAssetInStudioAction}>
-            <input type="hidden" name="assetId" value={assetId} />
-            <button
-              type="submit"
-              className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-standard hover:border-fg/50 hover:text-fg"
-            >
-              {tt("Düzenleyici")}
-            </button>
-          </form>
-        ) : null}
 
         <a
           href={src}
@@ -366,6 +375,34 @@ function ChatMediaCard({
   );
 }
 
+const WELCOME_TURN: ChatTurn = {
+  id: "welcome",
+  from: "bot",
+  isHistorical: true,
+  text:
+    "Merhaba! Ben **Nordvow Creative AI**. Fotoğraf, Reels videosu, videolarınıza Türkçe AI seslendirme ve Instagram Post & Brief hazırlama işlemlerinin tamamını bu sohbette yönetebilirsiniz.\n\n" +
+    "Aşağıdaki **Fikir & Hazır Promptlar** veya **Kayıtlı Promptlarım** kaydırıcısından bir karta tıklayarak detaylı komutu sohbet kutusuna ekleyebilir ya da doğrudan merhaba yazıp sohbet ederek başlayabilirsiniz.",
+};
+
+type ChatSession = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  turns: ChatTurn[];
+  result?: { assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null;
+  source: "local" | "db";
+  kind?: CreativeKind;
+};
+
+export type ActiveJobState = {
+  jobId: string;
+  kind: CreativeKind;
+  format: string;
+  prompt: string;
+  modelKey: string;
+  postBrief?: string | null;
+};
+
 export function CreativeComposer({
   models,
   library = [],
@@ -377,6 +414,8 @@ export function CreativeComposer({
   initialPrompt = "",
   initialRefId,
   initialHistory = [],
+  initialChatTurns = [],
+  initialActiveJob = null,
   initialSavedPrompts = [],
 }: {
   models: ComposerModel[];
@@ -391,6 +430,8 @@ export function CreativeComposer({
   initialKind?: CreativeKind;
   initialRefId?: string;
   initialHistory?: ChatHistoryItem[];
+  initialChatTurns?: PersistedChatTurn[];
+  initialActiveJob?: ActiveJobState | null;
   initialSavedPrompts?: SavedPromptItem[];
 }) {
   const tt = useTT();
@@ -405,47 +446,60 @@ export function CreativeComposer({
   const [lib, setLib] = useState<ComposerLibraryItem[]>(library);
   const [showLib, setShowLib] = useState(false);
   const [upPct, setUpPct] = useState<number | null>(null);
+  const [upBatch, setUpBatch] = useState<{ total: number; done: number; currentName: string } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [upMsg, setUpMsg] = useState<{ text: string; isError?: boolean } | null>(null);
   const [quickCmd, setQuickCmd] = useState("");
   const [phoneVoiceScript, setPhoneVoiceScript] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sliderTab, setSliderTab] = useState<"ideas" | "saved">("ideas");
+  const [ideasOpen, setIdeasOpen] = useState(false);
   const [ideas, setIdeas] = useState<PromptIdeaItem[]>(STARTER_PROMPT_IDEAS);
   const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>(initialSavedPrompts);
   const [promptNotice, setPromptNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const [activeJob, setActiveJob] = useState<{
-    jobId: string;
-    kind: CreativeKind;
-    format: string;
-    prompt: string;
-    modelKey: string;
-    postBrief?: string | null;
-  } | null>(null);
+  const activeJobStorageKey = `nv_creative_active_job_${username}`;
+  const [activeJob, setActiveJob] = useState<ActiveJobState | null>(initialActiveJob);
 
   useEffect(() => {
-    setLiveBalance(available);
-  }, [available]);
+    if (initialActiveJob) return;
+    queueMicrotask(() => {
+      try {
+        const raw = localStorage.getItem(activeJobStorageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as ActiveJobState;
+          if (parsed?.jobId) setActiveJob(parsed);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+  }, [initialActiveJob, activeJobStorageKey]);
 
-  const tierCosts = useMemo(() => {
-    const imgs = models.filter((m) => m.kind === "image").sort((a, b) => a.creditsPerUnit - b.creditsPerUnit);
-    const econ = imgs.find((m) => m.key === "flux-schnell")?.creditsPerUnit ?? imgs[0]?.creditsPerUnit ?? minTry;
-    const std = imgs.find((m) => m.key === "nano-banana-2" || m.key === "recraft-v3")?.creditsPerUnit ?? imgs[Math.min(1, imgs.length - 1)]?.creditsPerUnit ?? econ * 2;
-    const pro = imgs.find((m) => m.key === "nano-banana-pro")?.creditsPerUnit ?? imgs[imgs.length - 1]?.creditsPerUnit ?? std * 2;
-    return {
-      economy: chargeTry(econ, 1, minTry),
-      standard: chargeTry(std, 1, minTry),
-      pro: chargeTry(pro, 1, minTry),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models, minTry, currency]);
+  useEffect(() => {
+    try {
+      if (activeJob) {
+        localStorage.setItem(activeJobStorageKey, JSON.stringify(activeJob));
+      } else {
+        localStorage.removeItem(activeJobStorageKey);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [activeJob, activeJobStorageKey]);
+
+  const tierCosts: Record<CreditTier, number> = {
+    economy: 5,
+    standard: 12,
+    pro: 25,
+  };
 
   const TIERS: { id: CreditTier; label: string; desc: string; cost: number }[] = [
-    { id: "economy", label: tt("Uygun Kredi"), desc: "FLUX Schnell / LTX / Hızlı", cost: tierCosts.economy },
-    { id: "standard", label: tt("Dengeli Kredi"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
-    { id: "pro", label: tt("Yüksek Kalite"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
+    { id: "economy", label: tt("Uygun"), desc: "FLUX Schnell / LTX / Hızlı", cost: tierCosts.economy },
+    { id: "standard", label: tt("Dengeli"), desc: "Recraft / Ideogram / Hailuo", cost: tierCosts.standard },
+    { id: "pro", label: tt("Pro"), desc: "Pro Stüdyo / Kling Pro", cost: tierCosts.pro },
   ];
 
   const currentCost = tierCosts[tier];
@@ -465,20 +519,37 @@ export function CreativeComposer({
   }, [initialHistory]);
 
   const [result, setResult] = useState<{ assetId: string; uploadId?: string | null; kind: CreativeKind; prompt: string; format: string } | null>(latestCompleted);
-  const [panelOpen, setPanelOpen] = useState(Boolean(latestCompleted));
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [phoneEditorOpen, setPhoneEditorOpen] = useState(false);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
 
   // Sohbet açılış mesajı (geçmiş işler altta dikey uzama yapmasın diye üstteki yatay medya slider'ında da gösterilir)
   const initialTurns = useMemo<ChatTurn[]>(() => {
-    const welcome: ChatTurn = {
-      id: "welcome",
-      from: "bot",
-      isHistorical: true,
-      text:
-        "Merhaba! Ben **Nordvow Creative AI**. Fotoğraf, Reels videosu, videolarınıza Türkçe AI seslendirme ve Instagram Post & Brief hazırlama işlemlerinin tamamını bu sohbette yönetebilirsiniz.\n\n" +
-        "Aşağıdaki **Fikir & Hazır Promptlar** veya **Kayıtlı Promptlarım** kaydırıcısından bir karta tıklayarak detaylı komutu sohbet kutusuna ekleyebilir ya da doğrudan merhaba yazıp sohbet ederek başlayabilirsiniz.",
-    };
-    if (!initialHistory.length) return [welcome];
-    const turns: ChatTurn[] = [welcome];
+    if (initialChatTurns.length > 0) {
+      return [
+        WELCOME_TURN,
+        ...initialChatTurns.map((t) => ({
+          id: t.id,
+          from: t.from,
+          text: t.text,
+          postBrief: t.postBrief,
+          enhancedPrompt: t.enhancedPrompt,
+          voiceoverScript: t.voiceoverScript,
+          assetId: t.assetId,
+          uploadId: t.uploadId,
+          kind: t.kind,
+          format: t.format,
+          modelKey: t.modelKey,
+          prompt: t.prompt,
+          savedToLibrary: t.savedToLibrary,
+          error: t.error,
+          isHistorical: true,
+        })),
+      ];
+    }
+    if (!initialHistory.length) return [WELCOME_TURN];
+    const turns: ChatTurn[] = [WELCOME_TURN];
     const sorted = [...initialHistory].slice(0, 6).reverse();
     for (const h of sorted) {
       const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
@@ -506,11 +577,126 @@ export function CreativeComposer({
     return turns;
   }, [initialHistory]);
 
+  const storageKey = `nv_creative_sessions_${username}`;
+  const dbSessions = useMemo<ChatSession[]>(() => {
+    return initialHistory.map((h) => {
+      const cleanText = h.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim() || h.prompt;
+      const turns: ChatTurn[] = [
+        WELCOME_TURN,
+        { id: `hist-u-${h.jobId}`, from: "user", text: cleanText, isHistorical: true },
+        ...(h.status === "COMPLETED" && h.assetId
+          ? [
+            {
+              id: `hist-b-${h.jobId}`,
+              from: "bot" as const,
+              text: `${KIND_LABEL[h.kind]} hazırlandı ve kitaplığa kaydedildi.`,
+              assetId: h.assetId,
+              uploadId: h.uploadId,
+              kind: h.kind,
+              modelKey: h.modelKey,
+              prompt: cleanText,
+              savedToLibrary: true,
+              isHistorical: true,
+            },
+          ]
+          : []),
+      ];
+      return {
+        id: `db-${h.jobId}`,
+        title: cleanText.slice(0, 60),
+        updatedAt: h.createdAt,
+        turns,
+        result: h.status === "COMPLETED" && h.assetId ? { assetId: h.assetId, uploadId: h.uploadId, kind: h.kind, prompt: cleanText, format: "9:16" } : null,
+        source: "db",
+        kind: h.kind,
+      };
+    });
+  }, [initialHistory]);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [localSessions, setLocalSessions] = useState<ChatSession[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      const parsed = raw ? (JSON.parse(raw) as ChatSession[]) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string>("current");
   const [chatLog, setChatLog] = useState<ChatTurn[]>(initialTurns);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const ideaSliderRef = useRef<HTMLDivElement>(null);
   const mediaSliderRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [sessionSeq, setSessionSeq] = useState(1);
+
+  const persistLocalSessions = (next: ChatSession[]) => {
+    setLocalSessions(next);
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next.slice(0, 30)));
+    } catch {
+      /* ignore storage errors */
+    }
+  };
+
+  const allSessions = useMemo(() => [...localSessions, ...dbSessions], [localSessions, dbSessions]);
+
+  const saveCurrentIfNeeded = () => {
+    const userTurns = chatLog.filter((t) => t.from === "user" && !t.isHistorical);
+    if (userTurns.length === 0) return;
+    const firstTitle = userTurns[0]!.text.slice(0, 60);
+    const id = activeSessionId.startsWith("local-") ? activeSessionId : `local-${sessionSeq}`;
+    if (!activeSessionId.startsWith("local-")) setSessionSeq((n) => n + 1);
+    const entry: ChatSession = {
+      id,
+      title: firstTitle,
+      updatedAt: new Date().toISOString(),
+      turns: chatLog,
+      result,
+      source: "local",
+      kind: result?.kind,
+    };
+    const next = [entry, ...localSessions.filter((s) => s.id !== id)];
+    persistLocalSessions(next);
+  };
+
+  const startNewChat = () => {
+    saveCurrentIfNeeded();
+    void clearCreativeChatAction().catch(() => undefined);
+    const nextSeq = sessionSeq + 1;
+    setSessionSeq(nextSeq);
+    setActiveSessionId(`local-${nextSeq}`);
+    setChatLog([WELCOME_TURN]);
+    setPrompt("");
+    setRefs([]);
+    setActiveJob(null);
+    setResult(null);
+    setPanelOpen(false);
+    setError(null);
+    setTimeout(() => inputRef.current?.focus(), 20);
+  };
+
+  const selectSession = (s: ChatSession) => {
+    saveCurrentIfNeeded();
+    setActiveSessionId(s.id);
+    setChatLog(s.turns.length ? s.turns : [WELCOME_TURN]);
+    setResult(s.result ?? null);
+    setPanelOpen(Boolean(s.result));
+    setActiveJob(null);
+    setError(null);
+  };
+
+  const deleteLocalSession = (id: string) => {
+    persistLocalSessions(localSessions.filter((s) => s.id !== id));
+    if (activeSessionId === id) {
+      setActiveSessionId("current");
+      setChatLog([WELCOME_TURN]);
+      setResult(null);
+      setPanelOpen(false);
+    }
+  };
 
   useEffect(() => {
     const el = chatScrollRef.current;
@@ -597,55 +783,88 @@ export function CreativeComposer({
       },
     ]);
     start(async () => {
-      const res = await addVoiceoverToVideoAction({ videoId, scriptText, tier });
-      if (!res.ok) {
-        setError(res.error ?? "Videoya ses eklenemedi.");
-        return;
-      }
-      if (typeof res.availableCredits === "number") setLiveBalance(res.availableCredits);
-      if (res.assetId) {
-        setResult({ assetId: res.assetId, kind: "video", prompt: scriptText, format: "9:16" });
-        setPanelOpen(true);
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-voice-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            voiceoverScript: scriptText,
-            assetId: res.assetId,
-            kind: "video",
-            format: "9:16",
-            modelKey: res.modelKey,
-            prompt: scriptText,
-            savedToLibrary: true,
-          },
-        ]);
-        router.refresh();
+      try {
+        const res = await addVoiceoverToVideoAction({ videoId, scriptText, tier });
+        if (typeof res.availableCredits === "number") setLiveBalance(res.availableCredits);
+        if (!res.ok) {
+          const errMsg = res.error ?? "Videoya ses eklenemedi.";
+          setError(errMsg);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-voice-err-${Date.now()}`,
+              from: "bot",
+              text: `Seslendirme eklenemedi: ${errMsg}`,
+            },
+          ]);
+          return;
+        }
+        if (res.assetId) {
+          setResult({ assetId: res.assetId, kind: "video", prompt: scriptText, format: "9:16" });
+          setPanelOpen(true);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-voice-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              voiceoverScript: scriptText,
+              assetId: res.assetId,
+              kind: "video",
+              format: "9:16",
+              modelKey: res.modelKey,
+              prompt: scriptText,
+              savedToLibrary: true,
+            },
+          ]);
+          router.refresh();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Videoya ses eklenirken beklenmeyen bir hata oluştu.");
       }
     });
   };
 
   const addFiles = async (files: FileList) => {
+    const batch = Array.from(files).slice(0, 20);
+    if (!batch.length) return;
     setUpMsg(null);
-    for (const f of Array.from(files).slice(0, 4)) {
+    let imgOk = 0;
+    let vidOk = 0;
+    let failed = 0;
+    let lastErr = "";
+    for (let idx = 0; idx < batch.length; idx++) {
+      const f = batch[idx]!;
       try {
         setUpPct(0);
+        setUpBatch({ total: batch.length, done: idx + 1, currentName: f.name });
         const r = await uploadFile(f, { name: f.name, mime: f.type, onProgress: setUpPct });
         setLib((l) => [{ id: r.id, kind: r.kind, name: f.name, source: "upload" }, ...l]);
         if (r.kind === "image") {
-          setRefs((x) => (x.length < 4 ? [...x, r.id] : x));
-          setUpMsg({ text: "Görsel referans olarak seçildi." });
+          imgOk++;
+          setRefs((x) => (x.length < 4 && !x.includes(r.id) ? [...x, r.id] : x));
         } else {
+          vidOk++;
           setResult({ assetId: r.id, uploadId: r.id, kind: "video", prompt: f.name, format: "9:16" });
           setPanelOpen(true);
-          setUpMsg({ text: "Video yüklendi — sağ panelden veya sohbetten videoya ses ekleyebilirsiniz." });
         }
       } catch (e) {
-        setUpMsg({ text: `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`, isError: true });
+        failed++;
+        lastErr = `${f.name}: ${e instanceof Error ? e.message : "yüklenemedi"}`;
       }
     }
     setUpPct(null);
+    setUpBatch(null);
+    const totalOk = imgOk + vidOk;
+    if (totalOk > 0) {
+      const parts: string[] = [];
+      if (imgOk > 0) parts.push(`${imgOk} fotoğraf`);
+      if (vidOk > 0) parts.push(`${vidOk} video`);
+      const summary = `${totalOk} dosya kitaplığa eklendi (${parts.join(", ")}).${imgOk > 0 ? " İlk 4 fotoğraf referans olarak seçildi." : ""}`;
+      setUpMsg({ text: failed > 0 ? `${summary} (${failed} dosya başarısız: ${lastErr})` : summary, isError: failed > 0 });
+    } else if (failed > 0) {
+      setUpMsg({ text: lastErr || "Dosyalar yüklenemedi.", isError: true });
+    }
   };
 
   const toggleRef = (id: string) =>
@@ -678,87 +897,215 @@ export function CreativeComposer({
     setPrompt("");
 
     start(async () => {
-      const res = await chatCreativeDirectorAction({
-        message: trimmed,
-        history: activeSessionHistory,
-        tier,
-        referenceUploadIds: usedRefs,
-        targetVideoAssetId: result?.kind === "video" ? result.assetId : latestVideoAssetId,
-        forceGenerate,
-      });
-
-      if (!res.ok) {
-        setError(res.error ?? "İşlem tamamlanamadı.");
-        return;
-      }
-
-      if (res.suggestions?.length) {
-        setIdeas(res.suggestions);
-      }
-
-      if (typeof res.availableCredits === "number") {
-        setLiveBalance(res.availableCredits);
-      }
-
-      if (res.action === "ask") {
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            postBrief: res.postBrief,
-            orchestrator: res.orchestrator,
-          },
-        ]);
-        return;
-      }
-
-      if (res.assetId) {
-        const k = res.kind ?? "image";
-        const f = res.format ?? "9:16";
-        setResult({ assetId: res.assetId, kind: k, prompt: res.enhancedPrompt ?? trimmed, format: f });
-        setPanelOpen(true);
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
-            postBrief: res.postBrief,
-            enhancedPrompt: res.enhancedPrompt,
-            voiceoverScript: res.voiceoverScript,
-            assetId: res.assetId,
-            kind: k,
-            format: f,
-            modelKey: res.modelKey,
-            prompt: res.enhancedPrompt ?? trimmed,
-            savedToLibrary: true,
-            orchestrator: res.orchestrator,
-          },
-        ]);
-        router.refresh();
-      } else if (res.jobId) {
-        setActiveJob({
-          jobId: res.jobId,
-          kind: res.kind ?? "image",
-          format: res.format ?? "9:16",
-          prompt: res.enhancedPrompt ?? trimmed,
-          modelKey: res.modelKey ?? "flux-schnell",
-          postBrief: res.postBrief,
+      try {
+        const res = await chatCreativeDirectorAction({
+          message: trimmed,
+          history: activeSessionHistory,
+          tier,
+          referenceUploadIds: usedRefs,
+          targetVideoAssetId: result?.kind === "video" ? result.assetId : latestVideoAssetId,
+          forceGenerate,
         });
-        setChatLog((prev) => [
-          ...prev,
-          {
-            id: `b-prep-${Date.now()}`,
-            from: "bot",
-            text: res.reply,
+
+        if (typeof res.availableCredits === "number") {
+          setLiveBalance(res.availableCredits);
+        }
+
+        if (!res.ok) {
+          const errMsg = res.error ?? "İşlem tamamlanamadı.";
+          setError(errMsg);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-err-${Date.now()}`,
+              from: "bot",
+              text: `İşlem tamamlanamadı: ${errMsg}`,
+            },
+          ]);
+          return;
+        }
+
+        if (res.suggestions?.length) {
+          setIdeas(res.suggestions);
+        }
+
+        if (res.action === "ask") {
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
+            },
+          ]);
+          return;
+        }
+
+        if (res.assetId) {
+          const k = res.kind ?? "image";
+          const f = res.format ?? "9:16";
+          setResult({ assetId: res.assetId, kind: k, prompt: res.enhancedPrompt ?? trimmed, format: f });
+          setPanelOpen(true);
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              enhancedPrompt: res.enhancedPrompt,
+              voiceoverScript: res.voiceoverScript,
+              assetId: res.assetId,
+              kind: k,
+              format: f,
+              modelKey: res.modelKey,
+              prompt: res.enhancedPrompt ?? trimmed,
+              savedToLibrary: true,
+              orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
+            },
+          ]);
+          router.refresh();
+        } else if (res.jobId) {
+          setActiveJob({
+            jobId: res.jobId,
+            kind: res.kind ?? "image",
+            format: res.format ?? "9:16",
+            prompt: res.enhancedPrompt ?? trimmed,
+            modelKey: res.modelKey ?? "flux-schnell",
             postBrief: res.postBrief,
-            enhancedPrompt: res.enhancedPrompt,
-            voiceoverScript: res.voiceoverScript,
-            orchestrator: res.orchestrator,
-          },
-        ]);
+          });
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-prep-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+              postBrief: res.postBrief,
+              enhancedPrompt: res.enhancedPrompt,
+              voiceoverScript: res.voiceoverScript,
+              orchestrator: res.orchestrator,
+              invokedSkill: res.invokedSkill ?? null,
+            },
+          ]);
+        } else if (res.pipelineJobId) {
+          const pJobId = res.pipelineJobId;
+          setChatLog((prev) => [
+            ...prev,
+            { id: `b-pipe-${Date.now()}`, from: "bot", text: res.reply, invokedSkill: res.invokedSkill ?? null },
+          ]);
+          void (async () => {
+            for (let i = 0; i < 120; i++) {
+              await new Promise((r) => setTimeout(r, 3000));
+              try {
+                const poll = await fetch(`/api/creative/pipeline/${pJobId}`, { cache: "no-store" });
+                if (!poll.ok) continue;
+                const data = (await poll.json()) as { job?: { status?: string; outputUploadId?: string; error?: string } };
+                const j = data.job;
+                if (!j) continue;
+                if (j.status === "done" && j.outputUploadId) {
+                  setResult({
+                    assetId: j.outputUploadId,
+                    uploadId: j.outputUploadId,
+                    kind: "video",
+                    prompt: trimmed,
+                    format: res.format ?? "9:16",
+                  });
+                  setPanelOpen(true);
+                  setChatLog((prev) => [
+                    ...prev,
+                    {
+                      id: `b-pdone-${Date.now()}`,
+                      from: "bot",
+                      text: "AI Video montajınız hazır! Sağdaki önizlemeden izleyebilir veya kitaplıktan indirebilirsiniz.",
+                      assetId: j.outputUploadId,
+                      uploadId: j.outputUploadId,
+                      kind: "video",
+                      format: res.format ?? "9:16",
+                      prompt: trimmed,
+                      savedToLibrary: true,
+                    },
+                  ]);
+                  router.refresh();
+                  break;
+                }
+                if (j.status === "failed") {
+                  const errMsg = j.error || "Video üretimi/düzenlemesi tamamlanamadı.";
+                  setError(errMsg);
+                  setChatLog((prev) => [
+                    ...prev,
+                    { id: `b-pfail-${Date.now()}`, from: "bot", text: `Video işlemi başarısız: ${errMsg}` },
+                  ]);
+                  break;
+                }
+              } catch {
+                /* polling hatasında tekrar dene */
+              }
+            }
+          })();
+        } else if (res.videoEditJobId) {
+          const vJobId = res.videoEditJobId;
+          setChatLog((prev) => [
+            ...prev,
+            {
+              id: `b-vedit-${Date.now()}`,
+              from: "bot",
+              text: res.reply,
+            },
+          ]);
+          void (async () => {
+            for (let i = 0; i < 90; i++) {
+              await new Promise((r) => setTimeout(r, 2500));
+              try {
+                const poll = await fetch(`/api/creative/video-job/${vJobId}`, { cache: "no-store" });
+                if (!poll.ok) continue;
+                const data = (await poll.json()) as { status?: string; outputUploadId?: string; error?: string };
+                if (data.status === "DONE" && data.outputUploadId) {
+                  setResult({
+                    assetId: data.outputUploadId,
+                    uploadId: data.outputUploadId,
+                    kind: "video",
+                    prompt: trimmed,
+                    format: res.format ?? "9:16",
+                  });
+                  setPanelOpen(true);
+                  setChatLog((prev) => [
+                    ...prev,
+                    {
+                      id: `b-vdone-${Date.now()}`,
+                      from: "bot",
+                      text: "Video düzenlemeniz tamamlandı! Sağdaki önizlemeden izleyebilir veya kitaplıktan indirebilirsiniz.",
+                      assetId: data.outputUploadId,
+                      uploadId: data.outputUploadId,
+                      kind: "video",
+                      format: res.format ?? "9:16",
+                      prompt: trimmed,
+                      savedToLibrary: true,
+                    },
+                  ]);
+                  router.refresh();
+                  break;
+                }
+                if (data.status === "FAILED") {
+                  const errMsg = data.error || "Video düzenlenemedi.";
+                  setError(errMsg);
+                  setChatLog((prev) => [
+                    ...prev,
+                    { id: `b-vfail-${Date.now()}`, from: "bot", text: `Video düzenleme başarısız: ${errMsg}` },
+                  ]);
+                  break;
+                }
+              } catch {
+                /* polling hatasında bir sonraki turda tekrar dene */
+              }
+            }
+          })();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Üretim başlatılırken beklenmeyen bir hata oluştu.");
       }
     });
   };
@@ -783,19 +1130,118 @@ export function CreativeComposer({
   return (
     <div
       className={cn(
-        "grid h-[calc(100dvh-8.2rem)] max-h-[calc(100dvh-8.2rem)] w-full grid-cols-1 gap-3 overflow-hidden",
-        panelOpen && result ? "lg:grid-cols-[minmax(0,1fr)_370px] xl:grid-cols-[minmax(0,1fr)_400px]" : "",
+        "grid h-[calc(100dvh-10.5rem)] min-h-[480px] flex-1 w-full grid-cols-1 gap-3 overflow-hidden",
+        historyOpen && panelOpen && result
+          ? "lg:grid-cols-[260px_minmax(0,1fr)_370px] xl:grid-cols-[260px_minmax(0,1fr)_400px]"
+          : historyOpen
+            ? "lg:grid-cols-[260px_minmax(0,1fr)]"
+            : panelOpen && result
+              ? "lg:grid-cols-[minmax(0,1fr)_370px] xl:grid-cols-[minmax(0,1fr)_400px]"
+              : "",
       )}
     >
+      {/* Sol Açılır/Kapanır Geçmiş Sohbetler Paneli (Mobilde tam ekran çekmece) */}
+      {historyOpen ? (
+        <aside
+          aria-label={tt("Geçmiş sohbetler")}
+          className="fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden bg-bg/95 p-3 backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:h-full lg:min-h-0 lg:rounded-2xl lg:border lg:border-line lg:bg-surface lg:p-0 lg:backdrop-blur-none"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
+            <span className="text-[12px] font-semibold text-fg">
+              {tt("Geçmiş Sohbetler")} ({allSessions.length})
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={startNewChat}
+                className="rounded-full bg-fg px-2.5 py-1 text-[11px] font-medium text-bg hover:opacity-90"
+              >
+                + {tt("Yeni")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                aria-label={tt("Geçmiş panelini kapat")}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-fg-muted hover:bg-surface-hover hover:text-fg"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2.5">
+            {allSessions.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-[12px] text-fg-muted">
+                {tt("Henüz kayıtlı geçmiş sohbet yok.")}
+              </p>
+            ) : (
+              allSessions.map((s) => {
+                const isActive = activeSessionId === s.id;
+                return (
+                  <div
+                    key={s.id}
+                    className={cn(
+                      "group flex items-start justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-standard",
+                      isActive ? "border-fg bg-bg" : "border-transparent hover:border-line hover:bg-bg/60",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectSession(s)}
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                    >
+                      <span className="line-clamp-2 text-[12px] font-medium text-fg">{s.title}</span>
+                      <span className="text-[10px] text-fg-passive">
+                        {s.kind ? `${KIND_LABEL[s.kind]} · ` : ""}
+                        {new Date(s.updatedAt).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" })}
+                      </span>
+                    </button>
+                    {s.source === "local" ? (
+                      <button
+                        type="button"
+                        onClick={() => deleteLocalSession(s.id)}
+                        aria-label={tt("Sohbeti sil")}
+                        className="shrink-0 rounded px-1 text-[11px] text-fg-passive opacity-0 transition-opacity hover:text-critical group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      ) : null}
+
       {/* Sol / Orta: Sabit Yüksekliğe Sahip Nordvow Creative AI Sohbet Stüdyosu */}
       <div className="flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-2xl border border-line bg-surface">
-        {/* Üst Çubuk: Nordvow Creative AI + Kredi Seviyesi Seçimi */}
+        {/* Üst Çubuk: Geçmiş + Yeni Sohbet + Nordvow Creative AI + Kredi Seviyesi Seçimi */}
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg" aria-hidden>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-standard",
+                historyOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
+              )}
+            >
+              <span>{historyOpen ? tt("Geçmişi Gizle") : tt("Geçmiş Sohbetler")}</span>
+              {allSessions.length ? <span className="opacity-75">({allSessions.length})</span> : null}
+            </button>
+            <button
+              type="button"
+              onClick={startNewChat}
+              className="inline-flex items-center gap-1 rounded-full border border-line bg-bg px-2.5 py-1 text-[11px] font-medium text-fg transition-standard hover:border-fg/50"
+            >
+              + {tt("Yeni Sohbet")}
+            </button>
+            <span className="hidden h-4 w-px bg-line sm:inline-block" aria-hidden />
+            <span className="hidden h-7 w-7 items-center justify-center rounded-lg border border-line bg-bg text-fg sm:inline-flex" aria-hidden>
               <SparkleIcon size={14} />
             </span>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="hidden flex-wrap items-center gap-2 sm:flex">
               <h2 className="text-[13px] font-semibold text-fg">{tt("Nordvow Creative AI")}</h2>
               {profileLabel ? (
                 <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg-muted">
@@ -806,7 +1252,25 @@ export function CreativeComposer({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-full border border-line bg-bg p-0.5" role="radiogroup" aria-label={tt("Kredi tercihi")}>
+            <button
+              type="button"
+              onClick={() => setMobileSettingsOpen((v) => !v)}
+              aria-expanded={mobileSettingsOpen}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-standard lg:hidden",
+                mobileSettingsOpen ? "border-fg bg-fg text-bg" : "border-line text-fg hover:border-fg/40",
+              )}
+            >
+              {tt("Kalite & Ayarlar")} {mobileSettingsOpen ? "▲" : "▼"}
+            </button>
+            <div
+              className={cn(
+                "w-full rounded-2xl border border-line bg-bg p-1 lg:inline-flex lg:w-auto lg:rounded-full lg:p-0.5",
+                mobileSettingsOpen ? "flex flex-wrap gap-1" : "hidden lg:inline-flex",
+              )}
+              role="radiogroup"
+              aria-label={tt("Kredi tercihi")}
+            >
               {TIERS.map((t) => {
                 const active = tier === t.id;
                 return (
@@ -822,7 +1286,7 @@ export function CreativeComposer({
                       active ? "bg-fg text-bg" : "text-fg-muted hover:text-fg",
                     )}
                   >
-                    {t.label} · {money(t.cost)}
+                    {t.label} · {t.cost} {tt("kredi")}
                   </button>
                 );
               })}
@@ -842,60 +1306,6 @@ export function CreativeComposer({
             ) : null}
           </div>
         </div>
-
-        {/* Üretilen İçerikler Yatay Slider Şeridi (Chat uzamadan hızlı geçiş) */}
-        {mediaItems.length > 0 ? (
-          <div className="flex shrink-0 items-center gap-2 border-b border-line bg-bg/40 px-3 py-1.5">
-            <span className="shrink-0 text-[11px] font-semibold text-fg-muted">{tt("Üretilenler:")}</span>
-            <button
-              type="button"
-              onClick={() => scrollElement(mediaSliderRef.current, -1)}
-              aria-label={tt("Sola kaydır")}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-            >
-              ‹
-            </button>
-            <div
-              ref={mediaSliderRef}
-              className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto scroll-smooth py-0.5 [scrollbar-width:none]"
-            >
-              {mediaItems.map((item) => {
-                const active = result?.assetId === item.assetId;
-                return (
-                  <button
-                    key={item.assetId}
-                    type="button"
-                    onClick={() => {
-                      setResult({
-                        assetId: item.assetId,
-                        uploadId: item.uploadId,
-                        kind: item.kind,
-                        prompt: item.prompt,
-                        format: item.format ?? "9:16",
-                      });
-                      setPanelOpen(true);
-                    }}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-standard",
-                      active ? "border-fg bg-fg text-bg" : "border-line bg-surface text-fg hover:border-fg/40",
-                    )}
-                  >
-                    <KindIcon kind={item.kind} size={11} />
-                    <span className="max-w-[140px] truncate">{item.prompt}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => scrollElement(mediaSliderRef.current, 1)}
-              aria-label={tt("Sağa kaydır")}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-            >
-              ›
-            </button>
-          </div>
-        ) : null}
 
         {/* Sohbet Mesaj Akışı (Sabit yükseklik içinde kayar, sayfayı uzatmaz) */}
         <div
@@ -931,25 +1341,75 @@ export function CreativeComposer({
               </div>
             ) : (
               <div key={msg.id} className="mr-auto flex w-full max-w-2xl flex-col gap-2.5">
+                {msg.invokedSkill ? (
+                  <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-0.5 text-[10px] font-medium text-fg-muted">
+                    <span aria-hidden>⚡</span>
+                    <span className="text-fg">{msg.invokedSkill.agentName}</span>
+                    <span>· {msg.invokedSkill.label}</span>
+                  </div>
+                ) : null}
                 <div className="w-fit rounded-2xl rounded-bl-sm border border-line bg-bg/70 px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-line text-fg">
-                  {msg.text}
+                  {msg.text
+                    .replace(/\*\*([^*]+)\*\*/g, "$1")
+                    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,!?:;)]|$)/g, "$1$2")
+                    .replace(/^#{1,6}\s+/gm, "")
+                    .replace(/\*\*/g, "")
+                    .trim()}
                 </div>
 
-                {/* fal.ai Medya Orkestratörü & Bedrock Structured Output JSON Özeti */}
+                {/* fal.ai Medya Orkestratörü & Vision Kilidi + SFX Zaman Çizelgesi Özeti */}
                 {msg.orchestrator ? (
-                  <details className="max-w-xl rounded-2xl border border-line bg-surface/80 px-3.5 py-2 text-[11px]">
+                  <details className="max-w-xl rounded-2xl border border-line bg-surface/80 px-3.5 py-2.5 text-[11px]">
                     <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 font-medium text-fg">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
-                          {msg.orchestrator.status === "ready" ? "READY" : "NEEDS_INFO"}
-                        </span>
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {msg.orchestrator.zeroCreditEdit ? (
+                          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                            0 KREDİ · PROGRAMATİK KURGU
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
+                            {msg.orchestrator.status === "ready" ? "READY" : "NEEDS_INFO"}
+                          </span>
+                        )}
                         <code className="font-mono text-[11px] text-fg">{msg.orchestrator.endpoint}</code>
                       </span>
                       <span className="text-fg-muted">
-                        {tt("Tahmini Maliyet:")} <strong>{msg.orchestrator.unitCostLabel}</strong> · {tt("JSON Payload Gör")}
+                        <strong>{msg.orchestrator.unitCostLabel}</strong> · {tt("Detay Gör")}
                       </span>
                     </summary>
+
+                    {msg.orchestrator.boundAsset ||
+                      msg.orchestrator.sfxTrack?.length ||
+                      msg.orchestrator.motionLayers?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {msg.orchestrator.boundAsset ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-line bg-bg px-2.5 py-0.5 text-[10px] font-medium text-fg">
+                            🔒 {msg.orchestrator.boundAsset.categoryTr}: {msg.orchestrator.boundAsset.summaryTr}
+                          </span>
+                        ) : null}
+                        {msg.orchestrator.sfxTrack?.map((cue, idx) => (
+                          <span
+                            key={`${cue.sfxKey}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-700 dark:text-violet-300"
+                          >
+                            🔊 {(cue.timestampMs / 1000).toFixed(1)}s · {cue.labelTr}
+                          </span>
+                        ))}
+                        {msg.orchestrator.motionLayers?.map((mg, idx) => (
+                          <span
+                            key={`${mg.type}-${idx}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
+                          >
+                            ✨ {mg.animation}: {mg.text || mg.type}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div className="mt-2.5 flex flex-col gap-2 border-t border-line pt-2 text-[11px] text-fg-muted">
+                      {msg.orchestrator.preFlightSummary ? (
+                        <p className="text-[11px] text-fg">{msg.orchestrator.preFlightSummary}</p>
+                      ) : null}
                       {msg.orchestrator.missingSlots.length > 0 ? (
                         <div>
                           <strong>{tt("Beklenen Bilgiler (missing_slots):")}</strong>{" "}
@@ -966,6 +1426,11 @@ export function CreativeComposer({
                         {JSON.stringify(
                           {
                             status: msg.orchestrator.status,
+                            operation: msg.orchestrator.operationType ?? null,
+                            zero_credit_edit: Boolean(msg.orchestrator.zeroCreditEdit),
+                            bound_asset: msg.orchestrator.boundAsset ?? null,
+                            sfx_track: msg.orchestrator.sfxTrack ?? [],
+                            motion_layers: msg.orchestrator.motionLayers ?? [],
                             missing_slots: msg.orchestrator.missingSlots,
                             fal_payload: msg.orchestrator.falPayload,
                           },
@@ -1045,13 +1510,37 @@ export function CreativeComposer({
           )}
 
           {activeJob ? (
-            <div className="mr-auto w-full max-w-md">
+            <div className="mr-auto flex w-full max-w-md flex-col gap-1.5">
+              <p className="px-1 text-[11px] text-fg-muted">
+                {tt("Arka planda üretim devam ediyor — başka bir sayfaya geçseniz bile işlem iptal olmaz.")}
+              </p>
               <JobProgress
                 key={activeJob.jobId}
                 jobId={activeJob.jobId}
-                onDone={(assetId) => {
+                onDone={(assetId, info?: JobDoneInfo) => {
                   const doneJob = activeJob;
                   setActiveJob(null);
+                  if (typeof info?.availableCredits === "number") {
+                    setLiveBalance(info.availableCredits);
+                  }
+                  if (info?.failed) {
+                    const refundNote =
+                      info.refundedAmount > 0
+                        ? `Bloke edilen ${fmtTl(info.refundedAmount, info.currency ?? currency)} bakiyenize iade edildi.`
+                        : "Ücret alınmadı, bakiyeniz korundu.";
+                    const errText = `${info.error ?? "Üretim başarısız oldu."} ${refundNote}`;
+                    setError(errText);
+                    setChatLog((prev) => [
+                      ...prev,
+                      {
+                        id: `fail-${Date.now()}`,
+                        from: "bot",
+                        text: `Üretim tamamlanamadı: ${errText}`,
+                      },
+                    ]);
+                    router.refresh();
+                    return;
+                  }
                   if (assetId && doneJob) {
                     setResult({ assetId, kind: doneJob.kind, prompt: doneJob.prompt, format: doneJob.format });
                     setPanelOpen(true);
@@ -1091,113 +1580,141 @@ export function CreativeComposer({
 
         {/* Alt Bölüm: Yatay Kaydırılabilir (Slider) Hazır Fikir Promptları + Kayıtlı Promptlar + Sohbet Kutusu */}
         <div className="flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 p-2.5 sm:p-3">
-          {/* Slider Sekmeleri ve Sol/Sağ Kaydırma Okları */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setSliderTab("ideas")}
-                className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
-                )}
-              >
-                {tt("Fikir & Hazır Promptlar")} ({ideas.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setSliderTab("saved")}
-                className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
-                  sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
-                )}
-              >
-                ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length})
-              </button>
-              <span className="hidden text-[11px] text-fg-passive sm:inline">
-                {tt("(Tıkladığınız prompt sohbet kutusuna eklenir)")}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => scrollElement(ideaSliderRef.current, -1)}
-                aria-label={tt("Promptları sola kaydır")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollElement(ideaSliderRef.current, 1)}
-                aria-label={tt("Promptları sağa kaydır")}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
-              >
-                ›
-              </button>
-            </div>
-          </div>
-
-          {/* Yatay Kaydırılabilir (Slider) Kartlar: Tıklayınca Komut Gitmez, Chate Detaylı Ekler */}
-          <div
-            ref={ideaSliderRef}
-            className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
+          {/* Mobilde Açılır/Kapanır Fikir & Ek Araçlar Akordeonu */}
+          <button
+            type="button"
+            onClick={() => setMobileToolsOpen((v) => !v)}
+            aria-expanded={mobileToolsOpen}
+            className="flex w-full items-center justify-between rounded-xl border border-line bg-surface px-3 py-1.5 text-[11px] font-medium text-fg-muted lg:hidden"
           >
-            {sliderTab === "ideas" ? (
-              ideas.map((idea, idx) => (
+            <span>{tt("Hazır Fikirler, Dosya & Kitaplık Araçları")}</span>
+            <span>{mobileToolsOpen ? "▲" : "▼"}</span>
+          </button>
+
+          <div className={cn("flex-col gap-2", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
+            {/* Fikir & Hazır Promptlar Açılır/Kapanır Butonu */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
-                  key={`${idea.title}-${idx}`}
                   type="button"
-                  onClick={() => insertPromptIntoChat(idea.prompt)}
-                  className="group flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                  aria-expanded={ideasOpen}
+                  onClick={() => {
+                    if (ideasOpen && sliderTab === "ideas") setIdeasOpen(false);
+                    else {
+                      setSliderTab("ideas");
+                      setIdeasOpen(true);
+                    }
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                    ideasOpen && sliderTab === "ideas" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  )}
                 >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="truncate text-[11px] font-semibold text-fg">{idea.title}</span>
-                    <span className="shrink-0 rounded-full border border-line bg-bg px-2 py-0.5 text-[9px] font-medium text-fg-muted group-hover:border-fg/40">
-                      {idea.category}
-                    </span>
-                  </div>
-                  <p className="line-clamp-2 text-[11px] leading-snug text-fg-muted">{idea.prompt}</p>
+                  {tt("Fikir & Hazır Promptlar")} ({ideas.length}) {ideasOpen && sliderTab === "ideas" ? "▲" : "▼"}
                 </button>
-              ))
-            ) : savedPrompts.length === 0 ? (
-              <div className="flex w-full items-center justify-between rounded-xl border border-dashed border-line bg-surface/60 px-3 py-2 text-[12px] text-fg-muted">
-                <span>{tt("Henüz kayıtlı promptunuz yok. Sohbet kutusuna yazdığınız veya beğendiğiniz bir promptu '★ Promptu Kaydet' ile buraya ekleyebilirsiniz.")}</span>
-              </div>
-            ) : (
-              savedPrompts.map((sp) => (
-                <div
-                  key={sp.id}
-                  className="group relative flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                <button
+                  type="button"
+                  aria-expanded={ideasOpen}
+                  onClick={() => {
+                    if (ideasOpen && sliderTab === "saved") setIdeasOpen(false);
+                    else {
+                      setSliderTab("saved");
+                      setIdeasOpen(true);
+                    }
+                  }}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                    ideasOpen && sliderTab === "saved" ? "bg-fg text-bg" : "border border-line bg-surface text-fg-muted hover:text-fg",
+                  )}
                 >
-                  <div className="flex items-center justify-between gap-1.5 pr-5">
-                    <button
-                      type="button"
-                      onClick={() => insertPromptIntoChat(sp.prompt)}
-                      className="truncate text-left text-[11px] font-semibold text-fg hover:underline"
-                    >
-                      ★ {sp.title}
-                    </button>
-                  </div>
+                  ★ {tt("Kayıtlı Promptlarım")} ({savedPrompts.length}) {ideasOpen && sliderTab === "saved" ? "▲" : "▼"}
+                </button>
+              </div>
+
+              {ideasOpen ? (
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => insertPromptIntoChat(sp.prompt)}
-                    className="line-clamp-2 text-left text-[11px] leading-snug text-fg-muted"
+                    onClick={() => scrollElement(ideaSliderRef.current, -1)}
+                    aria-label={tt("Promptları sola kaydır")}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
                   >
-                    {sp.prompt}
+                    ‹
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteSavedPrompt(sp.id)}
-                    aria-label={tt("Kayıtlı promptu sil")}
-                    className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-fg-passive hover:bg-bg hover:text-critical"
+                    onClick={() => scrollElement(ideaSliderRef.current, 1)}
+                    aria-label={tt("Promptları sağa kaydır")}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-[12px] text-fg hover:border-fg/50"
                   >
-                    ×
+                    ›
                   </button>
                 </div>
-              ))
-            )}
+              ) : null}
+            </div>
+
+            {/* Yatay Kaydırılabilir (Slider) Kartlar: Yalnızca butonla açıldığında görünür */}
+            {ideasOpen ? (
+              <div
+                ref={ideaSliderRef}
+                className="flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto scroll-smooth pb-0.5 [scrollbar-width:none]"
+              >
+                {sliderTab === "ideas" ? (
+                  ideas.map((idea, idx) => (
+                    <button
+                      key={`${idea.title}-${idx}`}
+                      type="button"
+                      onClick={() => insertPromptIntoChat(idea.prompt)}
+                      className="group flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                    >
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="truncate text-[11px] font-semibold text-fg">{idea.title}</span>
+                        <span className="shrink-0 rounded-full border border-line bg-bg px-2 py-0.5 text-[9px] font-medium text-fg-muted group-hover:border-fg/40">
+                          {idea.category}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-[11px] leading-snug text-fg-muted">{idea.prompt}</p>
+                    </button>
+                  ))
+                ) : savedPrompts.length === 0 ? (
+                  <div className="flex w-full items-center justify-between rounded-xl border border-dashed border-line bg-surface/60 px-3 py-2 text-[12px] text-fg-muted">
+                    <span>{tt("Henüz kayıtlı promptunuz yok. Sohbet kutusuna yazdığınız veya beğendiğiniz bir promptu '★ Promptu Kaydet' ile buraya ekleyebilirsiniz.")}</span>
+                  </div>
+                ) : (
+                  savedPrompts.map((sp) => (
+                    <div
+                      key={sp.id}
+                      className="group relative flex w-64 shrink-0 snap-start flex-col justify-between gap-1 rounded-xl border border-line bg-surface p-2.5 text-left transition-standard hover:border-fg"
+                    >
+                      <div className="flex items-center justify-between gap-1.5 pr-5">
+                        <button
+                          type="button"
+                          onClick={() => insertPromptIntoChat(sp.prompt)}
+                          className="truncate text-left text-[11px] font-semibold text-fg hover:underline"
+                        >
+                          ★ {sp.title}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => insertPromptIntoChat(sp.prompt)}
+                        className="line-clamp-2 text-left text-[11px] leading-snug text-fg-muted"
+                      >
+                        {sp.prompt}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedPrompt(sp.id)}
+                        aria-label={tt("Kayıtlı promptu sil")}
+                        className="absolute top-2 right-2 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-fg-passive hover:bg-bg hover:text-critical"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
           </div>
 
           {promptNotice ? (
@@ -1251,7 +1768,13 @@ export function CreativeComposer({
                             setPanelOpen(true);
                             setShowLib(false);
                           } else {
-                            toggleRef(u.id);
+                            setRefs((x) => {
+                              if (x.includes(u.id)) return x.filter((y) => y !== u.id);
+                              if (x.length < 4) return [...x, u.id];
+                              return [...x.slice(1), u.id];
+                            });
+                            setShowLib(false);
+                            setTimeout(() => inputRef.current?.focus(), 20);
                           }
                         }}
                         className={cn(
@@ -1281,8 +1804,29 @@ export function CreativeComposer({
               e.preventDefault();
               sendTurn(prompt, false);
             }}
-            className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-2.5 focus-within:border-fg/50"
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!dragOver) setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
+            }}
+            className={cn(
+              "flex flex-col gap-2 rounded-2xl border bg-surface p-2.5 focus-within:border-fg/50",
+              dragOver ? "border-fg ring-2 ring-fg/30" : "border-line",
+            )}
           >
+            {upBatch ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-bg px-3 py-1.5 text-[11px] text-fg">
+                <span className="truncate">
+                  {tt("Toplu yükleme:")} {upBatch.done}/{upBatch.total} · {upBatch.currentName}
+                </span>
+                <span className="shrink-0 font-semibold tabular-nums">{upPct ?? 0}%</span>
+              </div>
+            ) : null}
             <textarea
               ref={inputRef}
               id="cc-prompt"
@@ -1301,9 +1845,9 @@ export function CreativeComposer({
             />
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-1.5">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className={cn("flex-wrap items-center gap-1.5", mobileToolsOpen ? "flex" : "hidden lg:flex")}>
                 <label className="cursor-pointer rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-fg-muted transition-standard hover:border-fg/40 hover:text-fg">
-                  + {tt("Dosya / Video Yükle")}
+                  + {tt("Toplu Fotoğraf / Video Ekle")}
                   <input
                     type="file"
                     multiple
@@ -1342,7 +1886,7 @@ export function CreativeComposer({
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="text-right leading-tight">
                   <span className="block text-[11px] font-semibold tabular-nums text-fg">{money(currentCost)}</span>
                   <span className={cn("block text-[10px] tabular-nums", short ? "text-critical" : "text-fg-passive")}>
@@ -1373,10 +1917,10 @@ export function CreativeComposer({
         </div>
       </div>
 
-      {/* Sağ Panel: Telefon Önizleme, Videoya Ses Ekleme & Hızlı Chat Formatlama */}
+      {/* Sağ Panel: Telefon Önizleme, Videoya Ses Ekleme & Hızlı Chat Formatlama (Mobilde tam ekran katman) */}
       {panelOpen && result ? (
         <aside
-          className="flex h-full min-h-0 flex-col justify-between gap-3 overflow-y-auto rounded-2xl border border-line bg-surface p-4"
+          className="fixed inset-0 z-50 flex h-dvh flex-col justify-between gap-3 overflow-y-auto bg-bg/95 p-4 backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:h-full lg:min-h-0 lg:rounded-2xl lg:border lg:border-line lg:bg-surface lg:backdrop-blur-none"
           aria-label={tt("Telefon önizleme ve hızlı formatlama")}
         >
           <div className="flex flex-col gap-3">
@@ -1417,114 +1961,122 @@ export function CreativeComposer({
               )}
             </div>
 
-            {/* Videolar İçin Doğrudan Ses Üret & Ekle Bölümü */}
-            {result.kind === "video" ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
-                <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Ekle")}</span>
-                <textarea
-                  rows={2}
-                  value={phoneVoiceScript}
-                  onChange={(e) => setPhoneVoiceScript(e.target.value)}
-                  placeholder={tt("Örn: Yeni koleksiyonumuz şimdi mağazalarda ve online'da! Hemen keşfedin…")}
-                  className="w-full rounded-lg border border-line bg-surface p-2 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-                />
+            {/* Telefon Modunda Düzenleyiciyi Aç / Kapat */}
+            {result.kind !== "audio" ? (
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    const txt =
-                      phoneVoiceScript.trim() ||
-                      "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
-                    setPhoneVoiceScript("");
-                    handleAddVoiceToVideo(result.assetId, txt);
-                  }}
-                  className="rounded-lg bg-fg px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                  aria-expanded={phoneEditorOpen}
+                  onClick={() => setPhoneEditorOpen((v) => !v)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-[12px] font-medium transition-standard",
+                    phoneEditorOpen ? "border-fg bg-fg text-bg" : "border-line bg-bg/50 text-fg hover:border-fg/40",
+                  )}
                 >
-                  {tt("Ses Üret & Videoya Göm")}
+                  <span>{tt("Düzenleyici & Ses / Format")}</span>
+                  <span>{phoneEditorOpen ? "▲" : "▼"}</span>
                 </button>
-              </div>
-            ) : null}
 
-            {result.kind !== "audio" ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
-                <span className="text-[11px] font-medium text-fg">{tt("Hızlı Formatlama & Sohbet İşlemleri")}</span>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    9:16 Reels / Story
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    4:5 Instagram Post
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
-                    className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
-                  >
-                    1:1 Kare
-                  </button>
-                  {result.kind === "image" ? (
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli ve Türkçe seslendirmeli 9:16 Reels videosuna dönüştür", "9:16")}
-                      className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
-                    >
-                      {tt("Sesli Videoya Çevir")}
-                    </button>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-1.5 pt-1">
-                  <input
-                    type="text"
-                    value={quickCmd}
-                    onChange={(e) => setQuickCmd(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
-                      }
-                    }}
-                    placeholder={tt("Komut yazın (örn: arka planı sadeleştir, ışığı ısıt)…")}
-                    className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    disabled={pending || !quickCmd.trim()}
-                    onClick={() => {
-                      if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
-                    }}
-                    className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
-                  >
-                    {tt("Uygula")}
-                  </button>
-                </div>
+                {phoneEditorOpen ? (
+                  <div className="flex flex-col gap-2.5">
+                    {result.kind === "video" ? (
+                      <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                        <span className="text-[11px] font-semibold text-fg">{tt("Bu Videoya Türkçe AI Seslendirme Ekle")}</span>
+                        <textarea
+                          rows={2}
+                          value={phoneVoiceScript}
+                          onChange={(e) => setPhoneVoiceScript(e.target.value)}
+                          placeholder={tt("Örn: Yeni koleksiyonumuz şimdi mağazalarda ve online'da! Hemen keşfedin…")}
+                          className="w-full rounded-lg border border-line bg-surface p-2 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            const txt =
+                              phoneVoiceScript.trim() ||
+                              "Yeni sezon koleksiyonumuz şimdi yayında! Sınırlı stok fırsatını kaçırmamak için hemen profildeki bağlantıya tıklayın.";
+                            setPhoneVoiceScript("");
+                            handleAddVoiceToVideo(result.assetId, txt);
+                          }}
+                          className="rounded-lg bg-fg px-3 py-1.5 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                        >
+                          {tt("Ses Üret & Videoya Göm")}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg/50 p-3">
+                      <span className="text-[11px] font-medium text-fg">{tt("Hızlı Formatlama & Sohbet İşlemleri")}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("9:16 dikey Instagram Reels / Story formatına uyarla", "9:16")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          9:16 Reels / Story
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("4:5 dikey Instagram gönderi formatına uyarla", "4:5")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          4:5 Instagram Post
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => applyQuickFormatCommand("1:1 kare gönderi formatına uyarla", "1:1")}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-fg/50"
+                        >
+                          1:1 Kare
+                        </button>
+                        {result.kind === "image" ? (
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() => applyQuickFormatCommand("5 saniyelik akıcı kamera hareketli ve Türkçe seslendirmeli 9:16 Reels videosuna dönüştür", "9:16")}
+                            className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg hover:border-fg/50"
+                          >
+                            {tt("Sesli Videoya Çevir")}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <input
+                          type="text"
+                          value={quickCmd}
+                          onChange={(e) => setQuickCmd(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                            }
+                          }}
+                          placeholder={tt("Komut yazın (örn: arka planı sadeleştir, ışığı ısıt)…")}
+                          className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] text-fg placeholder:text-fg-passive focus:border-fg focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          disabled={pending || !quickCmd.trim()}
+                          onClick={() => {
+                            if (quickCmd.trim()) applyQuickFormatCommand(quickCmd.trim());
+                          }}
+                          className="h-8 rounded-lg bg-fg px-3 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
+                        >
+                          {tt("Uygula")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
 
           <div className="flex flex-col gap-1.5 border-t border-line pt-2.5">
-            {result.kind !== "audio" ? (
-              <form action={openAssetInStudioAction}>
-                <input type="hidden" name="assetId" value={result.assetId} />
-                <button
-                  type="submit"
-                  className="w-full rounded-xl border border-line px-3 py-1.5 text-center text-[12px] font-medium text-fg hover:border-fg/40"
-                >
-                  {result.kind === "video" ? tt("Videoyu Düzenleyicide Aç →") : tt("Fotoğrafı Düzenleyicide Aç →")}
-                </button>
-              </form>
-            ) : null}
             <button
               type="button"
               onClick={() =>

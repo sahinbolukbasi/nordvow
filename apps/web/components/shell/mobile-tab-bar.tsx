@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Role } from "@infulancer/core/enums";
 import { cn } from "@/lib/cn";
-import { getAllPlatformPagesForRole, isActive, isDefaultOpenForRole, navLabel } from "./nav";
+import { isActive, isDefaultOpenForRole, navByRole, navLabel } from "./nav";
 import { useT } from "@/lib/i18n/client";
 import { isPathVisibleForMenu } from "@infulancer/core/access/page-visibility";
 import type { PermCtx } from "./sidebar";
@@ -16,7 +16,8 @@ export function MobileTabBar({ role, perm }: { role: Role; perm?: PermCtx }) {
   const pathname = usePathname();
   const t = useT();
   // Admin'de öğe çok: alt çubukta ilk 5, gerisi kenar çubuğu/arama ile.
-  const items = getAllPlatformPagesForRole(role)
+  const candidateItems = role === "AGENCY" ? navByRole.ADMIN : (navByRole[role] ?? []);
+  const items = candidateItems
     .filter((i) => (perm ? isPathVisibleForMenu(perm.perms, perm.role, perm.userId, i.href, isDefaultOpenForRole(role, i.href)) : isDefaultOpenForRole(role, i.href)))
     .slice(0, 5);
   return (

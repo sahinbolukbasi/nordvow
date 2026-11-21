@@ -70,22 +70,74 @@ export function chunkText(text: string, size = 800, overlap = 100): string[] {
   return out;
 }
 
-export type SourceType = "manual" | "pdf" | "docx" | "url" | "catalog_csv" | "message";
+export type SourceType =
+  | "manual"
+  | "pdf"
+  | "docx"
+  | "url"
+  | "catalog_csv"
+  | "message"
+  | "brand_profile"
+  | "campaign"
+  | "website"
+  | "influencer_brief";
 
-/** Metin kaynağını parçalara ayırıp tenant kapsamında indeksler. */
-export async function ingestText(tenantId: string, input: { type: SourceType; uri: string; text: string; messageId?: string }) {
+export type KnowledgeStatus = "ready" | "approved" | "draft" | "rejected";
+export type KnowledgeScope = "brand" | "influencer";
+
+export function formatSourceTitle(uri: string): string {
+  const cleaned = uri
+    .replace(/^(?:manual|draft|brand_profile|campaign|website|influencer_brief):\/\//i, "")
+    .trim();
+  return cleaned || "Bilgi tabanı kaynağı";
+}
+
+/** Metin kaynağını parçalara ayırıp tenant kapsamında indeksler (varsayılan status="ready"; taslak için "draft"). */
+export async function ingestText(
+  tenantId: string,
+  input: { type: SourceType; uri: string; text: string; messageId?: string; status?: KnowledgeStatus },
+) {
   const chunks = chunkText(input.text);
   const vectors = await Promise.all(chunks.map(embed));
+  const status = input.status ?? "ready";
   return withTenant(tenantId, async (tx) => {
     const source = await tx.knowledgeSource.create({
-      data: { tenantId, type: input.type, uri: input.uri, status: "ready", messageId: input.messageId ?? null },
+      data: { tenantId, type: input.type, uri: input.uri, status, messageId: input.messageId ?? null },
     });
     for (let i = 0; i < chunks.length; i++) {
       await tx.$executeRaw`
         INSERT INTO knowledge_chunks (id, "tenantId", "sourceId", content, embedding, "messageId", "createdAt")
         VALUES (${`${source.id}_${i}`}, ${tenantId}, ${source.id}, ${chunks[i]}, ${toVectorLiteral(vectors[i]!)}::vector, ${input.messageId ?? null}, now())`;
     }
-    return { sourceId: source.id, chunks: chunks.length };
+    return { sourceId: source.id, chunks: chunks.length, status };
+  });
+}
+
+/** Taslak bir bilgi tabanı maddesini onaylar (isteğe bağlı düzenlenmiş metinle yeniden indeksler). */
+export async function approveKnowledgeSource(tenantId: string, sourceId: string, editedText?: string) {
+  return withTenant(tenantId, async (tx) => {
+    const src = await tx.knowledgeSource.findFirst({ where: { id: sourceId, tenantId } });
+    if (!src) throw new Error("Bilgi tabanı kaynağı bulunamadı.");
+    if (editedText && editedText.trim().length >= 5) {
+      const chunks = chunkText(editedText.trim());
+      const vectors = await Promise.all(chunks.map(embed));
+      await tx.knowledgeChunk.deleteMany({ where: { sourceId, tenantId } });
+      for (let i = 0; i < chunks.length; i++) {
+        await tx.$executeRaw`
+          INSERT INTO knowledge_chunks (id, "tenantId", "sourceId", content, embedding, "createdAt")
+          VALUES (${`${sourceId}_${Date.now()}_${i}`}, ${tenantId}, ${sourceId}, ${chunks[i]}, ${toVectorLiteral(vectors[i]!)}::vector, now())`;
+      }
+    }
+    await tx.knowledgeSource.update({ where: { id: sourceId }, data: { status: "ready" } });
+    return { ok: true as const, sourceId };
+  });
+}
+
+/** Taslak veya gereksiz bilgi tabanı maddesini reddeder ve aramadan çıkarır. */
+export async function rejectKnowledgeSource(tenantId: string, sourceId: string) {
+  return withTenant(tenantId, async (tx) => {
+    await tx.knowledgeSource.updateMany({ where: { id: sourceId, tenantId }, data: { status: "rejected" } });
+    return { ok: true as const, sourceId };
   });
 }
 
@@ -97,18 +149,54 @@ export async function ingestCatalogCsv(tenantId: string, uri: string, csv: strin
   return ingestText(tenantId, { type: "catalog_csv", uri, text });
 }
 
-export type Retrieved = { id: string; content: string; score: number };
+export type Retrieved = {
+  id: string;
+  sourceId: string;
+  sourceUri: string;
+  sourceTitle: string;
+  content: string;
+  score: number;
+};
 
-export async function retrieve(tenantId: string, query: string, k = 4): Promise<Retrieved[]> {
+/**
+ * Yalnızca onaylanmış ('ready' | 'approved') bilgi tabanı kaynaklarından arama yapar.
+ * 'draft' ve 'rejected' kaynaklar kesinlikle yanıt üretiminde kullanılmaz.
+ * `scope="influencer"` yalnız influencer brief kaynaklarını; `scope="brand"` yalnız marka kaynaklarını okur.
+ */
+export async function retrieve(
+  tenantId: string,
+  query: string,
+  k = 4,
+  scope: KnowledgeScope = "brand",
+): Promise<Retrieved[]> {
   const q = toVectorLiteral(await embed(query));
-  return withTenant(tenantId, (tx) =>
-    tx.$queryRaw<Retrieved[]>`
-      SELECT id, content, (1 - (embedding <=> ${q}::vector))::float8 AS score
-      FROM knowledge_chunks
-      WHERE "tenantId" = ${tenantId} AND embedding IS NOT NULL
-      ORDER BY embedding <=> ${q}::vector
-      LIMIT ${k}`,
+  const rows = await withTenant(tenantId, (tx) =>
+    scope === "influencer"
+      ? tx.$queryRaw<{ id: string; sourceId: string; sourceUri: string; content: string; score: number }[]>`
+          SELECT c.id, c."sourceId", s.uri AS "sourceUri", c.content, (1 - (c.embedding <=> ${q}::vector))::float8 AS score
+          FROM knowledge_chunks c
+          INNER JOIN knowledge_sources s ON s.id = c."sourceId"
+          WHERE c."tenantId" = ${tenantId}
+            AND c.embedding IS NOT NULL
+            AND s.status IN ('ready', 'approved')
+            AND s.type = 'influencer_brief'
+          ORDER BY c.embedding <=> ${q}::vector
+          LIMIT ${k}`
+      : tx.$queryRaw<{ id: string; sourceId: string; sourceUri: string; content: string; score: number }[]>`
+          SELECT c.id, c."sourceId", s.uri AS "sourceUri", c.content, (1 - (c.embedding <=> ${q}::vector))::float8 AS score
+          FROM knowledge_chunks c
+          INNER JOIN knowledge_sources s ON s.id = c."sourceId"
+          WHERE c."tenantId" = ${tenantId}
+            AND c.embedding IS NOT NULL
+            AND s.status IN ('ready', 'approved')
+            AND s.type <> 'influencer_brief'
+          ORDER BY c.embedding <=> ${q}::vector
+          LIMIT ${k}`,
   );
+  return rows.map((r) => ({
+    ...r,
+    sourceTitle: formatSourceTitle(r.sourceUri),
+  }));
 }
 
 const STOP = new Set(["kac", "ne", "mi", "mu", "nasil", "nedir", "var", "icin", "ve", "ile", "bir", "bu", "da", "de", "ben", "siz", "acaba", "midir", "mudur"]);
@@ -125,8 +213,13 @@ export function lexicalCoverage(query: string, content: string): number {
   return q.filter((t) => c.has(t)).length / q.length;
 }
 
-export async function retrieveWithConfidence(tenantId: string, query: string, k = 4) {
-  const hits = await retrieve(tenantId, query, k);
+export async function retrieveWithConfidence(
+  tenantId: string,
+  query: string,
+  k = 4,
+  scope: KnowledgeScope = "brand",
+) {
+  const hits = await retrieve(tenantId, query, k, scope);
   const scored = hits.map((h) => ({ ...h, confidence: Math.max(h.score, lexicalCoverage(query, h.content)) }));
   scored.sort((a, b) => b.confidence - a.confidence);
   return scored;

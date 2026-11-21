@@ -40,7 +40,7 @@ export type VideoOps = z.infer<typeof videoOpsSchema>;
 const ASPECT: Record<Exclude<VideoOps["aspect"], "orijinal">, number> = { "9:16": 9 / 16, "1:1": 1, "4:5": 4 / 5, "16:9": 16 / 9 };
 
 /** ffmpeg argümanları (saf; test edilebilir). Çıktı: H.264/AAC MP4, ≤720p, web için faststart. */
-export function buildFfmpegArgs(input: string, output: string, ops: VideoOps, sourceDuration: number | null): string[] {
+export function buildFfmpegArgs(input: string, output: string, ops: VideoOps, sourceDuration: number | null, hasAudio = true): string[] {
   const start = Math.max(0, ops.trimStart);
   const endRaw = ops.trimEnd ?? sourceDuration ?? start + MAX_VIDEO_SECONDS;
   const end = Math.min(endRaw, start + MAX_VIDEO_SECONDS);
@@ -62,7 +62,7 @@ export function buildFfmpegArgs(input: string, output: string, ops: VideoOps, so
     if (outDur > 1.5) filters.push(`fade=t=out:st=${(outDur - 0.5).toFixed(2)}:d=0.5`);
   }
   const args = ["-y", "-hide_banner", "-loglevel", "error", "-ss", String(start), "-to", String(end), "-i", input, "-vf", filters.join(",")];
-  if (ops.mute) args.push("-an");
+  if (ops.mute || !hasAudio) args.push("-an");
   else {
     if (ops.speed !== 1) args.push("-af", `atempo=${ops.speed}`);
     args.push("-c:a", "aac", "-b:a", "128k");
@@ -91,9 +91,18 @@ function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: nu
 }
 
 async function probeDuration(file: string): Promise<number | null> {
-  const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", file], 30_000);
-  const n = Number(r.out.trim());
-  return r.code === 0 && Number.isFinite(n) ? n : null;
+  const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=duration", "-of", "default=nw=1:nk=1", file], 30_000);
+  if (r.code !== 0) return null;
+  for (const line of r.out.split(/\r?\n/)) {
+    const n = Number(line.trim());
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+async function probeHasAudio(file: string): Promise<boolean> {
+  const r = await run("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", file], 15_000);
+  return r.code === 0 && r.out.trim().length > 0;
 }
 
 /** Düzenleme isteğini kuyruğa alır (sahiplik, tür ve günlük sınır kontrolü). */
@@ -130,6 +139,7 @@ export async function processVideoQueue(): Promise<void> {
         const outId = await runVideoJob(next.tenantId, next.uploadId, videoOpsSchema.parse(next.ops));
         await prisma.videoEditJob.update({ where: { id: next.id }, data: { status: "DONE", outputUploadId: outId } });
       } catch (e) {
+        console.error("[video-edit] job failed:", next.id, e);
         const msg = e instanceof DomainError ? e.message : "Video işlenemedi. Dosya bozuk veya desteklenmeyen bir kodek olabilir.";
         await prisma.videoEditJob.update({ where: { id: next.id }, data: { status: "FAILED", error: msg } });
       }
@@ -146,9 +156,8 @@ async function runVideoJob(tenantId: string, uploadId: string, ops: VideoOps): P
     const src = path.join(dir, `src${path.extname(upload.s3Key) || ".mp4"}`);
     const out = path.join(dir, "out.mp4");
     await downloadToFile(upload.s3Key, src);
-    const duration = await probeDuration(src);
-    if (duration == null) throw new DomainError("DOGRULAMA", "Video okunamadı.");
-    const r = await run("ffmpeg", buildFfmpegArgs(src, out, ops, duration), 5 * 60 * 1000);
+    const [duration, hasAudio] = await Promise.all([probeDuration(src), probeHasAudio(src)]);
+    const r = await run("ffmpeg", buildFfmpegArgs(src, out, ops, duration, hasAudio), 5 * 60 * 1000);
     if (r.code !== 0) throw new Error(r.err.slice(0, 500));
     const outDuration = await probeDuration(out);
     const saved = await saveEditedFile({ tenantId, parentId: upload.id, body: readFileSync(out), mime: "video/mp4", name: upload.name ? `${upload.name} (düzenlendi)` : "Düzenlenmiş video", durationSec: outDuration });

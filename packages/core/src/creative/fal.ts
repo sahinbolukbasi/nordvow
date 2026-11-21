@@ -1,10 +1,10 @@
 import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { chargeIn, creativePricing } from "./pricing";
+import { chargeIn, creativePricing, unitPriceTry } from "./pricing";
 import { tenantCurrency } from "./tenant";
 import { prisma } from "../db";
 import { envStr } from "../env";
@@ -12,7 +12,9 @@ import { objectStore } from "../channels/raw-store";
 import { embedC2pa } from "./c2pa";
 import { chargeHold, placeHold, releaseHold } from "./credits";
 import { assertNoRealPersonClone } from "./md2712";
+import { humanizeCreativeError } from "./errors";
 import { resolveModel } from "./registry";
+import { withCircuitBreaker } from "../resilience/circuit-breaker";
 
 /**
  * fal queue + Nordvow Creative AI Studio entegrasyonu.
@@ -53,13 +55,79 @@ export function clearFalKeyCache(): void {
   cachedDbFalKey = null;
 }
 
+/** fal.ai API anahtarının geçerli ve aktif olduğunu fal.ai sunucusuna sorarak doğrular. */
+export async function verifyFalKeyConnection(candidateKey?: string): Promise<{ ok: boolean; status: number; message: string }> {
+  const key = (candidateKey ?? (await resolveFalKey())).trim().replace(/^Key\s+/i, "");
+  if (!key) {
+    return { ok: false, status: 0, message: "FAL_KEY tanımlı değil. Lütfen geçerli bir fal.ai API anahtarı (key_id:key_secret) girin." };
+  }
+  try {
+    const res = await fetch("https://queue.fal.run/fal-ai/flux/schnell/requests/healthcheck-nonexistent", {
+      method: "GET",
+      headers: { authorization: `Key ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, message: `fal.ai API anahtarı geçersiz (HTTP ${res.status}).` };
+    }
+    return { ok: true, status: res.status, message: "fal.ai API bağlantısı doğrulandı ve aktif." };
+  } catch (err) {
+    return { ok: false, status: 0, message: `fal.ai bağlantı hatası: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 type StudioJobMeta = {
   appPath: string;
   input: Record<string, unknown>;
 };
 
-const studioJobCache = new Map<string, StudioJobMeta>();
-const syncPayloadCache = new Map<string, FalWebhook["payload"]>();
+class BoundedTtlMap<V> {
+  private readonly store = new Map<string, { val: V; at: number }>();
+  constructor(private readonly max = 500, private readonly ttlMs = 15 * 60 * 1000) {}
+
+  set(key: string, val: V): void {
+    const now = Date.now();
+    for (const [k, entry] of this.store) {
+      if (now - entry.at > this.ttlMs || this.store.size >= this.max) this.store.delete(k);
+      else break;
+    }
+    this.store.set(key, { val, at: now });
+  }
+
+  get(key: string): V | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.at > this.ttlMs) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.val;
+  }
+
+  delete(key: string): void {
+    this.store.delete(key);
+  }
+}
+
+function spawnAsync(cmd: string, args: string[], timeoutMs: number): Promise<{ status: number; stderr: string }> {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args);
+    let stderr = "";
+    const timer = setTimeout(() => p.kill("SIGKILL"), timeoutMs);
+    p.stderr.on("data", (d) => (stderr += String(d)));
+    p.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ status: -1, stderr: String(e.message) });
+    });
+    p.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ status: code ?? -1, stderr });
+    });
+  });
+}
+
+const studioJobCache = new BoundedTtlMap<StudioJobMeta>(500, 30 * 60 * 1000);
+const syncPayloadCache = new BoundedTtlMap<FalWebhook["payload"]>(500, 15 * 60 * 1000);
 
 let pollyCredClient: BedrockRuntimeClient | undefined;
 
@@ -138,7 +206,7 @@ export async function synthesizeTurkishSpeech(rawText: string): Promise<Uint8Arr
   const dir = mkdtempSync(path.join(tmpdir(), "nv-tts-"));
   try {
     const outMp3 = path.join(dir, "out.mp3");
-    const r = spawnSync(
+    const r = await spawnAsync(
       "ffmpeg",
       [
         "-y",
@@ -157,7 +225,7 @@ export async function synthesizeTurkishSpeech(rawText: string): Promise<Uint8Arr
         "128k",
         outMp3,
       ],
-      { timeout: 15_000 },
+      15_000,
     );
     if (r.status === 0) return new Uint8Array(readFileSync(outMp3));
   } catch {
@@ -378,23 +446,54 @@ function dimensionsForAspect(aspect?: string): { w: number; h: number } {
 }
 
 /**
- * Stüdyo Görsel Üretici: SVG sahnesini rsvg-convert veya ffmpeg ile gerçek PNG görüntüsüne dönüştürür.
+ * Stüdyo Görsel Üretici: referans görsel varsa ürünü koruyarak yeni sahneyle kompozitler;
+ * yoksa SVG sahnesini rsvg-convert veya ffmpeg ile gerçek PNG görüntüsüne dönüştürür.
  */
-export async function renderStudioImagePng(prompt: string, aspect?: string): Promise<{ bytes: Uint8Array; mime: string }> {
+export async function renderStudioImagePng(prompt: string, aspect?: string, referenceImageUrl?: string): Promise<{ bytes: Uint8Array; mime: string }> {
   const { w, h } = dimensionsForAspect(aspect);
   const svg = buildStudioSceneSvg(prompt, w, h);
   const dir = mkdtempSync(path.join(tmpdir(), "nv-img-"));
   try {
+    if (referenceImageUrl && !referenceImageUrl.includes("example.invalid")) {
+      try {
+        const res = await fetch(referenceImageUrl, { signal: AbortSignal.timeout(15_000) });
+        if (res.ok) {
+          const refPath = path.join(dir, "ref.bin");
+          const outRefPng = path.join(dir, "ref-out.png");
+          writeFileSync(refPath, Buffer.from(await res.arrayBuffer()));
+          const ffRef = await spawnAsync(
+            "ffmpeg",
+            [
+              "-y",
+              "-hide_banner",
+              "-loglevel",
+              "error",
+              "-i",
+              refPath,
+              "-vf",
+              `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=#111827`,
+              outRefPng,
+            ],
+            15_000,
+          );
+          if (ffRef.status === 0) {
+            return { bytes: new Uint8Array(readFileSync(outRefPng)), mime: "image/png" };
+          }
+        }
+      } catch {
+        // referans indirilemezse standart stüdyo sahnesine devam et
+      }
+    }
     const svgPath = path.join(dir, "scene.svg");
     const pngPath = path.join(dir, "scene.png");
     writeFileSync(svgPath, svg, "utf8");
-    const rsvg = spawnSync("rsvg-convert", ["-w", String(w), "-h", String(h), svgPath, "-o", pngPath], { timeout: 15_000 });
+    const rsvg = await spawnAsync("rsvg-convert", ["-w", String(w), "-h", String(h), svgPath, "-o", pngPath], 15_000);
     if (rsvg.status === 0) {
       return { bytes: new Uint8Array(readFileSync(pngPath)), mime: "image/png" };
     }
     const ppmPath = path.join(dir, "scene.ppm");
     writeFileSync(ppmPath, buildPpmBuffer(prompt, Math.round(w / 2), Math.round(h / 2)));
-    const ff = spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, "-vf", `scale=${w}:${h}`, pngPath], { timeout: 15_000 });
+    const ff = await spawnAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, "-vf", `scale=${w}:${h}`, pngPath], 15_000);
     if (ff.status === 0) {
       return { bytes: new Uint8Array(readFileSync(pngPath)), mime: "image/png" };
     }
@@ -446,7 +545,7 @@ export async function renderStudioVideoMp4(opts: {
       } else {
         const ppmPath = path.join(dir, "frame.ppm");
         writeFileSync(ppmPath, buildPpmBuffer(opts.prompt, vidW, vidH));
-        spawnSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, framePath], { timeout: 15_000 });
+        await spawnAsync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-i", ppmPath, framePath], 15_000);
       }
     }
 
@@ -457,7 +556,7 @@ export async function renderStudioVideoMp4(opts: {
       const audioBytes = await synthesizeTurkishSpeech(opts.voiceText);
       const mp3Path = path.join(dir, "voice.mp3");
       writeFileSync(mp3Path, Buffer.from(audioBytes));
-      const r = spawnSync(
+      const r = await spawnAsync(
         "ffmpeg",
         [
           "-y",
@@ -489,14 +588,14 @@ export async function renderStudioVideoMp4(opts: {
           "+faststart",
           outMp4,
         ],
-        { timeout: 45_000 },
+        45_000,
       );
       if (r.status === 0) {
         return { bytes: new Uint8Array(readFileSync(outMp4)), mime: "video/mp4" };
       }
     }
 
-    const r = spawnSync(
+    const r = await spawnAsync(
       "ffmpeg",
       [
         "-y",
@@ -521,7 +620,7 @@ export async function renderStudioVideoMp4(opts: {
         "+faststart",
         outMp4,
       ],
-      { timeout: 45_000 },
+      45_000,
     );
     if (r.status === 0) {
       return { bytes: new Uint8Array(readFileSync(outMp4)), mime: "video/mp4" };
@@ -544,40 +643,58 @@ export async function mergeVoiceoverOntoVideoBytes(videoBytes: Uint8Array, voice
     const outPath = path.join(dir, "out.mp4");
     writeFileSync(vidPath, Buffer.from(videoBytes));
     writeFileSync(mp3Path, Buffer.from(speechBytes));
-    const r = spawnSync(
+    const commonArgs = [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      vidPath,
+      "-i",
+      mp3Path,
+    ];
+    // Hızlı yol: video akışını kopyala (H.264 MP4).
+    let r = await spawnAsync(
       "ffmpeg",
-      [
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        vidPath,
-        "-i",
-        mp3Path,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-movflags",
-        "+faststart",
-        outPath,
-      ],
-      { timeout: 60_000 },
+      [...commonArgs, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-map", "0:v:0", "-map", "1:a:0", "-movflags", "+faststart", outPath],
+      60_000,
     );
+    // WebM/MOV gibi MP4'e doğrudan kopyalanamayan kodeklerde H.264'e yeniden kodla.
+    if (r.status !== 0) {
+      r = await spawnAsync(
+        "ffmpeg",
+        [
+          ...commonArgs,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-crf",
+          "23",
+          "-pix_fmt",
+          "yuv420p",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "192k",
+          "-map",
+          "0:v:0",
+          "-map",
+          "1:a:0",
+          "-movflags",
+          "+faststart",
+          outPath,
+        ],
+        120_000,
+      );
+    }
     if (r.status === 0) {
       return new Uint8Array(readFileSync(outPath));
     }
+    throw new Error(`Video ses birleştirme hatası: ${r.stderr.slice(0, 240) || "ffmpeg başarısız"}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  return videoBytes;
 }
 
 export const mockFal: FalClient = {
@@ -593,14 +710,19 @@ export const mockFal: FalClient = {
       const prompt = String(meta?.input?.prompt ?? meta?.input?.text ?? "Nordvow Creative AI");
       const aspect = String(meta?.input?.aspect_ratio ?? meta?.input?.image_size ?? "9:16");
       const voiceText = typeof meta?.input?.voiceText === "string" ? meta.input.voiceText : undefined;
-      const refUrl = typeof meta?.input?.image_url === "string" ? meta.input.image_url : undefined;
+      const refUrl =
+        typeof meta?.input?.image_url === "string"
+          ? meta.input.image_url
+          : Array.isArray(meta?.input?.image_urls) && typeof meta.input.image_urls[0] === "string"
+            ? (meta.input.image_urls[0] as string)
+            : undefined;
       if (url.startsWith("studio://audio/")) {
         return { bytes: await synthesizeTurkishSpeech(prompt), mime: "audio/mpeg" };
       }
       if (url.startsWith("studio://video/")) {
         return renderStudioVideoMp4({ prompt, aspect, voiceText, referenceImageUrl: refUrl });
       }
-      return renderStudioImagePng(prompt, aspect);
+      return renderStudioImagePng(prompt, aspect, refUrl);
     }
     const u = url.toLowerCase();
     if (u.endsWith(".mp4") || u.endsWith(".mov") || u.endsWith(".webm") || u.includes("/video")) {
@@ -625,9 +747,9 @@ export function httpFal(): FalClient {
     async submit(appPath, input, webhookUrl) {
       const key = await resolveFalKey();
       if (!key) {
-        const requestId = `req_studio_${Date.now()}_${++n}`;
-        studioJobCache.set(requestId, { appPath, input });
-        return { requestId };
+        throw new CreativeRejectedError(
+          "fal.ai API anahtarı (FAL_KEY) tanımlı değil. Sahte görsel yerine gerçek fal.ai üretimi için lütfen Yönetim → fal.ai API Bağlantısı bölümünden geçerli FAL_KEY girin.",
+        );
       }
 
       const authHeader = `Key ${key}`;
@@ -635,14 +757,14 @@ export function httpFal(): FalClient {
       delete cleanInput.voiceText;
 
       // Hızlı görsel/ses modellerinde önce senkron fal.run uç noktasını dene (webhook beklemeden anında sonuç)
-      const isFastSyncCandidate = !appPath.includes("kling") && !appPath.includes("hailuo") && !appPath.includes("seedance");
+      const isFastSyncCandidate = !appPath.includes("kling") && !appPath.includes("hailuo") && !appPath.includes("seedance") && !appPath.includes("minimax") && !appPath.includes("wan") && !appPath.includes("veo");
       if (isFastSyncCandidate) {
         try {
           const syncRes = await fetch(`https://fal.run/${appPath}`, {
             method: "POST",
             headers: { authorization: authHeader, "content-type": "application/json" },
             body: JSON.stringify(cleanInput),
-            signal: AbortSignal.timeout(22_000),
+            signal: AbortSignal.timeout(35_000),
           });
           if (syncRes.ok) {
             const payload = (await syncRes.json()) as FalWebhook["payload"];
@@ -653,12 +775,32 @@ export function httpFal(): FalClient {
               return { requestId };
             }
           } else if (syncRes.status === 401 || syncRes.status === 403) {
-            console.warn(`[fal] HTTP ${syncRes.status} (FAL_KEY geçersiz); stüdyo motoru ile tamamlanıyor.`);
-            const requestId = `req_studio_${Date.now()}_${++n}`;
-            studioJobCache.set(requestId, { appPath, input });
-            return { requestId };
+            throw new CreativeRejectedError(humanizeCreativeError(`HTTP ${syncRes.status}`));
+          } else if (syncRes.status === 400 || syncRes.status === 402 || syncRes.status === 413 || syncRes.status === 422) {
+            const errText = await syncRes.text().catch(() => "");
+            if (appPath.includes("nano-banana/edit") && ("output_format" in cleanInput || "num_images" in cleanInput)) {
+              const fallbackInput: Record<string, unknown> = { prompt: cleanInput.prompt, image_urls: cleanInput.image_urls };
+              const retryRes = await fetch(`https://fal.run/${appPath}`, {
+                method: "POST",
+                headers: { authorization: authHeader, "content-type": "application/json" },
+                body: JSON.stringify(fallbackInput),
+                signal: AbortSignal.timeout(35_000),
+              }).catch(() => null);
+              if (retryRes?.ok) {
+                const payload = (await retryRes.json()) as FalWebhook["payload"];
+                if (payload?.images?.[0]?.url || payload?.image?.url) {
+                  const requestId = `req_sync_${Date.now()}_${++n}`;
+                  syncPayloadCache.set(requestId, payload);
+                  studioJobCache.set(requestId, { appPath, input });
+                  return { requestId };
+                }
+              }
+            }
+            console.warn("[fal] sync rejected:", appPath, syncRes.status, errText.slice(0, 300));
+            throw new CreativeRejectedError(humanizeCreativeError(errText, syncRes.status));
           }
-        } catch {
+        } catch (err) {
+          if (err instanceof CreativeRejectedError) throw err;
           // Senkron çağrı zaman aşımına uğrarsa queue.fal.run ile devam et
         }
       }
@@ -667,15 +809,16 @@ export function httpFal(): FalClient {
         method: "POST",
         headers: { authorization: authHeader, "content-type": "application/json" },
         body: JSON.stringify(cleanInput),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(25_000),
       });
       if (res.status === 401 || res.status === 403) {
-        console.warn(`[fal] HTTP ${res.status} (FAL_KEY geçersiz/eksik); stüdyo motoru ile tamamlanıyor.`);
-        const requestId = `req_studio_${Date.now()}_${++n}`;
-        studioJobCache.set(requestId, { appPath, input });
-        return { requestId };
+        throw new CreativeRejectedError(`fal.ai API anahtarı geçersiz veya yetkisiz (HTTP ${res.status}). Lütfen FAL_KEY değerini kontrol edin.`);
       }
-      if (!res.ok) throw new Error(`fal submit HTTP ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        console.warn("[fal] queue error:", appPath, res.status, errBody.slice(0, 300));
+        throw new Error(humanizeCreativeError(errBody, res.status));
+      }
       const j = (await res.json()) as { request_id: string };
       studioJobCache.set(j.request_id, { appPath, input });
       return { requestId: j.request_id };
@@ -748,14 +891,17 @@ export async function submitCreative(input: {
     throw new CreativeRejectedError(`${model.key} için üst sınır ${model.maxUnits} ${model.unit}.`);
   }
   const pricing = await creativePricing();
-  const credits = chargeIn(Number(model.creditsPerUnit), input.units, pricing, await tenantCurrency(input.tenantId));
+  const effectiveCpu = Number(model.unitPriceUsd) > 0 ? unitPriceTry(Number(model.unitPriceUsd), pricing) : Number(model.creditsPerUnit);
+  const credits = chargeIn(effectiveCpu, input.units, pricing, await tenantCurrency(input.tenantId));
   const hold = await placeHold(input.tenantId, credits);
   const job = await prisma.creativeJob.create({
     data: { tenantId: input.tenantId, campaignId: input.campaignId, modelKey: model.key, modelId: model.modelId, prompt: input.prompt, promptHash, units: input.units, creditHoldId: hold.id, inputUploadId: input.inputUploadId ?? null, status: "HELD" },
   });
   try {
     const webhookUrl = `${envStr("APP_URL", "http://localhost:3000")}/api/webhooks/fal`;
-    const { requestId } = await fal().submit(model.modelId, input.falInput ?? { prompt: input.prompt }, webhookUrl);
+    const { requestId } = await withCircuitBreaker("fal", () =>
+      fal().submit(model.modelId, input.falInput ?? { prompt: input.prompt }, webhookUrl),
+    );
     const updated = await prisma.creativeJob.update({ where: { id: job.id }, data: { requestId, status: "IN_QUEUE", submittedAt: new Date() } });
 
     if (requestId.startsWith("req_sync_")) {
@@ -776,12 +922,18 @@ export async function submitCreative(input: {
     return updated;
   } catch (e) {
     await releaseHold(hold.id);
-    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: String((e as Error).message) } });
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: humanizeCreativeError(e).slice(0, 300) } });
     throw e;
   }
 }
 
-export type FalWebhook = { request_id: string; status: "OK" | "ERROR"; payload?: { images?: { url: string }[]; image?: { url: string }; video?: { url: string }; audio?: { url: string } }; metrics?: { inference_time?: number }; error?: string };
+export type FalWebhook = {
+  request_id: string;
+  status: "OK" | "ERROR";
+  payload?: { images?: { url: string }[]; image?: { url: string }; video?: { url: string }; audio?: { url: string } };
+  metrics?: { inference_time?: number; cost_usd?: number; cost?: number };
+  error?: string;
+};
 
 /** fal webhook işleyicisi — idempotent. */
 export async function handleFalWebhook(w: FalWebhook) {
@@ -792,7 +944,7 @@ export async function handleFalWebhook(w: FalWebhook) {
 
   if (w.status !== "OK") {
     if (job.creditHoldId) await releaseHold(job.creditHoldId);
-    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: w.error ?? "fal ERROR", completedAt: new Date() } });
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: humanizeCreativeError(w.error ?? "fal ERROR").slice(0, 300), completedAt: new Date() } });
     return { handled: true, status: "FAILED" as const };
   }
   const url = w.payload?.images?.[0]?.url ?? w.payload?.image?.url ?? w.payload?.video?.url ?? w.payload?.audio?.url;
@@ -820,38 +972,54 @@ export async function handleFalWebhook(w: FalWebhook) {
       : isAudioPayload && !out.mime.startsWith("audio/")
         ? "audio/mpeg"
         : out.mime;
-  const c2pa = embedC2pa({ assetBytes: out.bytes, mime: effectiveMime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
-  const key = `generated/${job.tenantId}/${job.id}`;
-  await objectStore().put(key, c2pa.signedBytes, effectiveMime);
-  await objectStore().put(`${key}.c2pa.json`, c2pa.sidecarJson, "application/json");
-  const asset = await prisma.$transaction(async (tx) => {
-    const a = await tx.generatedAsset.create({
-      data: { tenantId: job.tenantId, campaignId: job.campaignId, jobId: job.id, modelKey: job.modelKey, modelId: job.modelId, promptHash: job.promptHash, s3Key: key, c2paManifestId: c2pa.manifestId, isAiGenerated: true },
-    });
-    if (effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/")) {
-      const kind = effectiveMime.startsWith("video/") ? "video" : "image";
-      const cleanPrompt = job.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
-      const existingLib = await tx.creativeUpload.findFirst({ where: { tenantId: job.tenantId, s3Key: key }, select: { id: true } });
-      if (!existingLib) {
-        await tx.creativeUpload.create({
-          data: {
-            tenantId: job.tenantId,
-            kind,
-            mime: effectiveMime,
-            sizeBytes: Math.max(1, c2pa.signedBytes.byteLength),
-            s3Key: key,
-            name: (cleanPrompt || `AI ${kind === "video" ? "Video" : "Fotoğraf"} · ${job.modelKey}`).slice(0, 120),
-            source: "ai",
-            parentId: job.inputUploadId ?? null,
-            durationSec: kind === "video" ? Number(job.units) || 5 : null,
-          },
-        });
+  let asset: { id: string };
+  try {
+    const c2pa = embedC2pa({ assetBytes: out.bytes, mime: effectiveMime, modelKey: job.modelKey, modelId: job.modelId, tenantId: job.tenantId, promptHash: job.promptHash });
+    const key = `generated/${job.tenantId}/${job.id}`;
+    await objectStore().put(key, c2pa.signedBytes, effectiveMime);
+    await objectStore().put(`${key}.c2pa.json`, c2pa.sidecarJson, "application/json");
+    asset = await prisma.$transaction(async (tx) => {
+      const a = await tx.generatedAsset.create({
+        data: { tenantId: job.tenantId, campaignId: job.campaignId, jobId: job.id, modelKey: job.modelKey, modelId: job.modelId, promptHash: job.promptHash, s3Key: key, c2paManifestId: c2pa.manifestId, isAiGenerated: true },
+      });
+      if (effectiveMime.startsWith("image/") || effectiveMime.startsWith("video/")) {
+        const kind = effectiveMime.startsWith("video/") ? "video" : "image";
+        const cleanPrompt = job.prompt.split(". Format:")[0]!.split(". Stil:")[0]!.split(". Instagram Story")[0]!.trim();
+        const existingLib = await tx.creativeUpload.findFirst({ where: { tenantId: job.tenantId, s3Key: key }, select: { id: true } });
+        if (!existingLib) {
+          await tx.creativeUpload.create({
+            data: {
+              tenantId: job.tenantId,
+              kind,
+              mime: effectiveMime,
+              sizeBytes: Math.max(1, c2pa.signedBytes.byteLength),
+              s3Key: key,
+              name: (cleanPrompt || `AI ${kind === "video" ? "Video" : "Fotoğraf"} · ${job.modelKey}`).slice(0, 120),
+              source: "ai",
+              parentId: job.inputUploadId ?? null,
+              durationSec: kind === "video" ? Number(job.units) || 5 : null,
+            },
+          });
+        }
       }
-    }
-    if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
-    await tx.creativeJob.update({ where: { id: job.id }, data: { status: "COMPLETED", completedAt: new Date(), inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null } });
-    return a;
-  });
+      if (job.creditHoldId) await chargeHold(job.creditHoldId, tx);
+      const reportedCost = w.metrics?.cost_usd ?? w.metrics?.cost;
+      await tx.creativeJob.update({
+        where: { id: job.id },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          inferenceMs: w.metrics?.inference_time != null ? Math.round(w.metrics.inference_time * 1000) : null,
+          actualCostUsd: typeof reportedCost === "number" && Number.isFinite(reportedCost) && reportedCost >= 0 ? reportedCost : undefined,
+        },
+      });
+      return a;
+    });
+  } catch (e) {
+    if (job.creditHoldId) await releaseHold(job.creditHoldId);
+    await prisma.creativeJob.update({ where: { id: job.id }, data: { status: "FAILED", rejectReason: `Çıktı kaydedilemedi: ${(e as Error).message}`.slice(0, 300), completedAt: new Date() } });
+    return { handled: true, status: "FAILED" as const };
+  }
   if (job.pipeline) {
     const { continuePipeline } = await import("./edit");
     await continuePipeline(job.id, asset.id).catch((e) => console.error("[creative] zincir", job.id, (e as Error).message));
@@ -890,6 +1058,9 @@ export async function reconcileStaleJobs(opts: { olderThanMs?: number; giveUpAft
         if (st.status === "COMPLETED") {
           if (st.error) await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: st.error });
           else await handleFalWebhook({ request_id: j.requestId!, status: "OK", payload: await client.result(j.modelId, j.requestId!) });
+          settled++;
+        } else if (st.status === "FAILED" || st.status === "ERROR") {
+          await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: st.error ?? "Model üretim hatası; ücret alınmadı." });
           settled++;
         } else if (j.submittedAt && j.submittedAt < giveUp) {
           await handleFalWebhook({ request_id: j.requestId!, status: "ERROR", error: "Zaman aşımı (6 saat); ücret alınmadı." });

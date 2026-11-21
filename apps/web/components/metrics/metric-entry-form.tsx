@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { Platform } from "@infulancer/core/enums";
 import { ActionForm } from "@/components/forms/action-form";
 import { FileUploader } from "@/components/files/file-uploader";
-import { Field, Input, Select } from "@/components/ui/form";
+import { Button, Field, Input, Select } from "@/components/ui/form";
 import { submitMetric } from "@/lib/actions/metrics";
 import { commonMetricFields, platformMetricFields, type MetricField } from "@/lib/metric-fields";
 
@@ -56,13 +56,12 @@ export function MetricEntryForm({
 }) {
   const tt = useTT();
   const [shot, setShot] = useState<string>(screenshots[0]?.id ?? "");
-  const required = isStory || role === "INFLUENCER";
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
-        <p className="text-label text-fg-muted">{tt("Ekran görüntüsü")}{" "}{required ? tt("(zorunlu)") : tt("(opsiyonel — yoksa kaynak: manuel)")}</p>
+        <p className="text-label text-fg-muted">{tt("Ekran görüntüsü (opsiyonel)")}</p>
         {isStory ? (
-          <p className="text-[13px] text-fg-muted">{tt("Story metrikleri 24 saatte kaybolur: ekran görüntüsü olmadan iş tamamlanamaz.")}</p>
+          <p className="text-[13px] text-fg-muted">{tt("İsterseniz Story istatistik ekran görüntüsü ekleyebilir veya boş bırakarak devam edebilirsiniz.")}</p>
         ) : null}
         <FileUploader
           target={{ type: "deliverable", id: deliverableId }}
@@ -76,7 +75,7 @@ export function MetricEntryForm({
           <Field label={tt("Kullanılacak ekran görüntüsü")}>
             {(p) => (
               <Select {...p} value={shot} onChange={(e) => setShot(e.target.value)}>
-                {!required ? <option value="">{tt("Görüntüsüz (manuel giriş)")}</option> : null}
+                <option value="">{tt("Görüntüsüz (opsiyonel)")}</option>
                 {screenshots.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.fileName}
@@ -87,7 +86,18 @@ export function MetricEntryForm({
           </Field>
         ) : null}
       </div>
-      <ActionForm action={submitMetric} submitLabel={tt("Metriği kaydet")} resetOnSuccess onSuccess={() => setShot("")} aria-label={tt("Metrik girişi")}>
+      <ActionForm
+        action={submitMetric}
+        submitLabel={tt("Metrik Kaydet")}
+        resetOnSuccess
+        onSuccess={() => setShot("")}
+        aria-label={tt("Metrik girişi")}
+        footer={
+          <Button type="submit" name="complete" value="1" variant="secondary">
+            {tt("Tamamla / Bitir")}
+          </Button>
+        }
+      >
         <input type="hidden" name="deliverableId" value={deliverableId} />
         <input type="hidden" name="screenshotAssetId" value={shot} />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

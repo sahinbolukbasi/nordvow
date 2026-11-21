@@ -45,15 +45,27 @@ function readNumber(fd: FormData, name: string, field: MetricField): number | un
  * Ekran görüntüsü → EKRAN_GORUNTUSU; yalnız admin görüntüsüz MANUEL girebilir; IG Story'de görüntü şart.
  */
 export async function submitMetric(_prev: ActionState, fd: FormData): Promise<ActionState> {
-  const actor = requireRole(await requireActor("ADMIN", "INFLUENCER"), "ADMIN", "INFLUENCER");
+  const actor = await requireActor("ADMIN", "INFLUENCER", "BRAND");
   return attempt(async () => {
     const deliverableId = str(fd, "deliverableId");
-    const stage = stageSchema.safeParse(str(fd, "stage"));
+    const stageRaw = optStr(fd, "stage") ?? "H24";
+    const stage = stageSchema.safeParse(stageRaw);
     if (!stage.success) throw new DomainError("DOGRULAMA", "Ölçüm aşaması seçin.");
     const screenshotAssetId = optStr(fd, "screenshotAssetId");
+    const completeNow = str(fd, "complete") === "1";
 
     const result = await prisma.$transaction(async (tx) => {
-      await assertDeliverableAccess(tx, actor, deliverableId);
+      if (actor.role === "BRAND") {
+        const check = await tx.deliverable.findUnique({
+          where: { id: deliverableId },
+          select: { assignment: { select: { campaign: { select: { brandId: true } } } } },
+        });
+        if (!check || check.assignment.campaign.brandId !== actor.brandId) {
+          throw new DomainError("YETKISIZ", "Bu teslimat size ait değil.");
+        }
+      } else {
+        await assertDeliverableAccess(tx, actor, deliverableId);
+      }
       const d = await tx.deliverable.findUniqueOrThrow({
         where: { id: deliverableId },
         select: {
@@ -65,8 +77,8 @@ export async function submitMetric(_prev: ActionState, fd: FormData): Promise<Ac
           assignment: { select: { influencer: { select: { name: true, audienceTimezone: true } } } },
         },
       });
-      if (!d.publishedAt || !["YAYINLANDI", "METRIK_BEKLIYOR", "TAMAMLANDI"].includes(d.status)) {
-        throw new DomainError("KURAL_IHLALI", "Metrik yalnız yayınlanmış iş için girilebilir.");
+      if (!["ICERIK_YUKLENDI", "ONAYLANDI", "YAYINLANDI", "METRIK_BEKLIYOR", "TAMAMLANDI"].includes(d.status)) {
+        throw new DomainError("KURAL_IHLALI", "Metrik yalnızca içerik yüklendikten veya yayınlandıktan sonra girilebilir.");
       }
 
       const common: Record<string, number> = {};
@@ -80,11 +92,9 @@ export async function submitMetric(_prev: ActionState, fd: FormData): Promise<Ac
         if (v !== undefined) pmRaw[f.key] = v;
       }
       const platformMetrics = parsePlatformMetrics(d.platform, pmRaw);
-      if (Object.keys(common).length === 0 && Object.keys(platformMetrics).length === 0) {
-        throw new DomainError("DOGRULAMA", "En az bir metrik değeri girin.");
-      }
+      const hasAnyMetric = Object.keys(common).length > 0 || Object.keys(platformMetrics).length > 0;
 
-      let source: MetricSource = "MANUEL";
+      let source: MetricSource = actor.role === "BRAND" ? "MARKA" : "MANUEL";
       if (screenshotAssetId) {
         const asset = await tx.asset.findUnique({
           where: { id: screenshotAssetId },
@@ -97,52 +107,55 @@ export async function submitMetric(_prev: ActionState, fd: FormData): Promise<Ac
           throw new DomainError("DOGRULAMA", "Bu ekran görüntüsü başka bir metrik girişinde kullanıldı; yenisini yükleyin.");
         }
         source = "EKRAN_GORUNTUSU";
-      } else if (isStory(d)) {
-        throw new DomainError("KURAL_IHLALI", "Instagram Story metrikleri 24 saatte kaybolur; ekran görüntüsü zorunlu.");
-      } else if (actor.role !== "ADMIN") {
-        throw new DomainError("DOGRULAMA", "Metrik ekran görüntüsü yüklemek zorunlu.");
       }
 
       const measuredLocal = parseLocalInput(str(fd, "measuredAt"));
       const tz = d.assignment.influencer.audienceTimezone;
       const measuredAt = measuredLocal ? zonedToUtc(measuredLocal.day, measuredLocal.time, tz) : new Date();
-      if (measuredAt.getTime() > Date.now() + 5 * 60_000) throw new DomainError("DOGRULAMA", "Ölçüm zamanı gelecekte olamaz.");
-      if (measuredAt < d.publishedAt) throw new DomainError("DOGRULAMA", "Ölçüm zamanı yayından önce olamaz.");
 
-      const snapshot = await tx.metricSnapshot.create({
-        data: {
-          deliverableId: d.id,
-          stage: stage.data,
-          source,
-          measuredAt,
-          ...common,
-          platformMetrics,
-          screenshotAssetId,
-          enteredById: actor.userId,
-        },
-      });
-      await audit.append({
-        actor: toAuditActor(actor),
-        action: "METRIC_SUBMITTED",
-        entityType: "Deliverable",
-        entityId: d.id,
-        data: { metricSnapshotId: snapshot.id, stage: stage.data, source, ...common, platformMetrics },
-      });
-      if (d.status === "YAYINLANDI") {
-        await transitionDeliverable(tx, { deliverableId: d.id, to: "METRIK_BEKLIYOR", actor, asSystem: true, note: "Metrik girildi" });
+      let snapshotId: string | null = null;
+      if (hasAnyMetric || screenshotAssetId) {
+        const snapshot = await tx.metricSnapshot.create({
+          data: {
+            deliverableId: d.id,
+            stage: stage.data,
+            source,
+            measuredAt,
+            ...common,
+            platformMetrics,
+            screenshotAssetId,
+            enteredById: actor.userId,
+          },
+        });
+        snapshotId = snapshot.id;
+        await audit.append({
+          actor: toAuditActor(actor),
+          action: "METRIC_SUBMITTED",
+          entityType: "Deliverable",
+          entityId: d.id,
+          data: { metricSnapshotId: snapshot.id, stage: stage.data, source, ...common, platformMetrics },
+        });
+      }
+
+      if (completeNow && d.status !== "TAMAMLANDI") {
+        await transitionDeliverable(tx, { deliverableId: d.id, to: "TAMAMLANDI", actor, asSystem: true, note: "Kampanya / iş tamamlandı" });
+      } else if (d.status === "YAYINLANDI") {
+        await transitionDeliverable(tx, { deliverableId: d.id, to: "METRIK_BEKLIYOR", actor, asSystem: true, note: "Metrik kaydedildi" });
       }
       if (actor.role === "INFLUENCER") {
         await notifyAdmins(tx, {
-          title: `Metrik girildi: ${d.assignment.influencer.name}`,
-          body: "Yeni metrik girişi kontrol için hazır.",
+          title: `Metrik / tamamlama: ${d.assignment.influencer.name}`,
+          body: completeNow ? "İş tamamlandı olarak işaretlendi." : "Yeni metrik girişi kaydedildi.",
           href: `/admin/teslimler/${d.id}`,
         });
       }
-      return { snapshotId: snapshot.id, deliverableId: d.id };
+      return { snapshotId, deliverableId: d.id };
     });
-    await publish({ type: "METRIC_SUBMITTED", metricSnapshotId: result.snapshotId, deliverableId: result.deliverableId });
+    if (result.snapshotId) {
+      await publish({ type: "METRIC_SUBMITTED", metricSnapshotId: result.snapshotId, deliverableId: result.deliverableId });
+    }
     revalidateAll();
-    return { ok: true, message: "Metrik kaydedildi." };
+    return { ok: true, message: completeNow ? "İş tamamlandı ve hak edişe yansıtıldı." : "Metrik kaydedildi." };
   });
 }
 

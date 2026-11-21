@@ -35,8 +35,8 @@ const rank = (s: string) => (s === "KRITIK" ? 3 : s === "UYARI" ? 2 : 1);
 export async function trackerTargets(): Promise<Record<"CAMPAIGN" | "INFLUENCER" | "BRAND", TargetOption[]>> {
   const [CAMPAIGN, INFLUENCER, BRAND] = await Promise.all([
     prisma.campaign.findMany({ where: { status: { in: ["TASLAK", "AKTIF"] } }, orderBy: { startsAt: "desc" }, select: { id: true, name: true }, take: 300 }),
-    prisma.influencer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 500 }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }),
+    prisma.influencer.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 500 }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }),
   ]);
   return { CAMPAIGN, INFLUENCER, BRAND };
 }

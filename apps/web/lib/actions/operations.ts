@@ -4,16 +4,16 @@ import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { requestBudgetChange } from "@infulancer/core/ads/budget-optimizer";
-import { ensureStarterCredits, topUp } from "@infulancer/core/creative/credits";
+import { adjustCredits, ensureStarterCredits, InsufficientCreditsError, setCreditBalance, topUp } from "@infulancer/core/creative/credits";
 import { CreativeRejectedError, handleFalWebhook } from "@infulancer/core/creative/fal";
 import { ModelUnavailableError, resolveModel, seedModelRegistry } from "@infulancer/core/creative/registry";
 import { getConfig, setConfig } from "@infulancer/core/config/store";
+import { runMultiAgentSocialPipeline, runMultiAgentSocialPipelineAll } from "@infulancer/core/social/multi-agent-analytics";
 import type { Aspect } from "@infulancer/core/creative/adapters";
 import { submitGeneration } from "@infulancer/core/creative/generate";
-import { InsufficientCreditsError } from "@infulancer/core/creative/credits";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
-import { attempt, parseInput, revalidateAll, str } from "@/lib/action-utils";
+import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
 import { ownTenant } from "@/lib/creative-tenant";
 import { isAgencyTenant } from "@infulancer/core/creative/tenant";
@@ -94,6 +94,137 @@ export async function topUpCredits(_p: ActionState, fd: FormData): Promise<Actio
     await audit.append({ actor: toAuditActor(actor), action: "CREDITS_TOPPED_UP", entityType: "CreditAccount", entityId: input.tenantId, data: { credits: input.credits } });
     revalidateAll();
     return { ok: true, message: `${input.credits.toLocaleString("tr-TR")} TL bakiye yüklendi.` };
+  });
+}
+
+/** Yönetici: Yeni gelen kullanıcılara otomatik verilen hoş geldin kredisini (TL) günceller. */
+export async function saveStarterCreditsAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      z.object({ starterCreditsTry: z.number().min(0, { error: "Tutar 0 veya daha büyük olmalı." }).max(1_000_000) }),
+      { starterCreditsTry: Math.round(Number(str(fd, "starterCreditsTry").replace(",", "."))) },
+      { starterCreditsTry: "Hoş geldin kredisi" },
+    );
+    await setConfig("creative.starterCreditsTry", input.starterCreditsTry, true);
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "STARTER_CREDITS_UPDATED",
+      entityType: "ConfigValue",
+      entityId: "creative.starterCreditsTry",
+      data: { starterCreditsTry: input.starterCreditsTry },
+    });
+    revalidateAll();
+    return { ok: true, message: `Yeni kullanıcı hoş geldin kredisi ${input.starterCreditsTry.toLocaleString("tr-TR")} TL olarak kaydedildi.` };
+  });
+}
+
+/** Yönetici: Tablodan herhangi bir hesabın kredisini artırır, azaltır veya doğrudan belirler. */
+export async function manageCreditAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(
+      z.object({
+        tenantId: z.string().min(1).max(64),
+        mode: z.enum(["add", "deduct", "set"]),
+        amount: z.number().min(0, { error: "Tutar negatif olamaz." }).max(10_000_000),
+        note: z.string().trim().max(200).optional(),
+      }),
+      {
+        tenantId: str(fd, "tenantId"),
+        mode: str(fd, "mode"),
+        amount: Number(str(fd, "amount").replace(",", ".")),
+        note: optStr(fd, "note") ?? undefined,
+      },
+      { tenantId: "Hesap", mode: "İşlem", amount: "Tutar", note: "Not" },
+    );
+    if ((input.mode === "add" || input.mode === "deduct") && input.amount <= 0) {
+      throw new DomainError("DOGRULAMA", "Ekleme veya düşme tutarı 0'dan büyük olmalı.");
+    }
+    const [b, i] = await Promise.all([
+      prisma.brand.findUnique({ where: { id: input.tenantId }, select: { id: true } }),
+      prisma.influencer.findUnique({ where: { id: input.tenantId }, select: { id: true } }),
+    ]);
+    if (!b && !i && !isAgencyTenant(input.tenantId)) throw new DomainError("BULUNAMADI", "Hesap bulunamadı.");
+
+    try {
+      if (input.mode === "add") {
+        await adjustCredits(input.tenantId, input.amount, input.note);
+      } else if (input.mode === "deduct") {
+        await adjustCredits(input.tenantId, -input.amount, input.note);
+      } else {
+        await setCreditBalance(input.tenantId, input.amount, input.note);
+      }
+    } catch (e) {
+      if (e instanceof InsufficientCreditsError) throw new DomainError("KURAL_IHLALI", e.message);
+      throw e;
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "CREDITS_MANAGED",
+      entityType: "CreditAccount",
+      entityId: input.tenantId,
+      data: { mode: input.mode, amount: input.amount, note: input.note ?? null },
+    });
+    revalidateAll();
+    const msg =
+      input.mode === "add"
+        ? `${input.amount.toLocaleString("tr-TR")} kredi eklendi.`
+        : input.mode === "deduct"
+          ? `${input.amount.toLocaleString("tr-TR")} kredi düşüldü.`
+          : `Bakiye ${input.amount.toLocaleString("tr-TR")} olarak güncellendi.`;
+    return { ok: true, message: msg };
+  });
+}
+
+/** Yönetici: Belirli bir influencer için 4 ajanlı Meta Graph API analizini ve telemetriyi şimdi çalıştırır. */
+export async function runMultiAgentScanAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  return attempt(async () => {
+    const influencerId = str(fd, "influencerId");
+    const report = await runMultiAgentSocialPipeline(influencerId, { mode: "DAILY_WORKER" });
+    if (!report) throw new DomainError("BULUNAMADI", "Influencer bulunamadı.");
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "MULTI_AGENT_SCAN_RUN",
+      entityType: "Influencer",
+      entityId: influencerId,
+      data: {
+        apiConnected: report.ingestion.apiConnected,
+        errors: report.telemetry.admin_telemetry.errors.map((e) => e.error_code),
+      },
+    });
+    revalidateAll();
+    return {
+      ok: true,
+      message: report.ingestion.apiConnected
+        ? `@${report.handle.replace(/^@+/, "")} için 4 ajanlı analiz ve telemetri güncellendi.`
+        : `@${report.handle.replace(/^@+/, "")} taraması tamamlandı (Meta API durumu: ${report.ingestion.apiMessage}).`,
+    };
+  });
+}
+
+/** Yönetici: Tüm aktif influencer'lar için 4 ajanlı Meta Graph API analizini toplu çalıştırır. */
+export async function runAllMultiAgentScansAction(_p: ActionState): Promise<ActionState> {
+  void _p;
+  const actor = await requireActor("ADMIN");
+  return attempt(async () => {
+    const r = await runMultiAgentSocialPipelineAll(50);
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "MULTI_AGENT_SCAN_ALL",
+      entityType: "AgentJobRun",
+      entityId: "social-multi-agent",
+      data: r,
+    });
+    revalidateAll();
+    return {
+      ok: true,
+      message: `${r.processed} influencer tarandı (${r.withData} hesapta gerçek veri bulundu).`,
+    };
   });
 }
 

@@ -86,9 +86,9 @@ export function fmtTl(n: number, _currency = "TRY"): string {
   const v = Math.abs(n) < 10 && !Number.isInteger(n) ? n : Math.round(n);
   return `${fmtCredits(v)} Kredi`;
 }
-/** Sunucudaki pricing.chargeIn ile aynı: TRY tam TL, diğerleri cent'e yukarı yuvarlanır; en az min. */
-export function chargeAmount(cpu: number, units: number, min: number, currency = "TRY"): number {
+/** Sunucudaki pricing.chargeIn ile aynı: 2 hane yukarı yuvarlanır; en az min. */
+export function chargeAmount(cpu: number, units: number, min: number, _currency = "TRY"): number {
   const raw = cpu * units;
-  const v = currency === "TRY" ? Math.ceil(raw - 1e-9) : Math.ceil(raw * 100 - 1e-9) / 100;
+  const v = Math.ceil(raw * 100 - 1e-9) / 100;
   return Math.max(min, v);
 }

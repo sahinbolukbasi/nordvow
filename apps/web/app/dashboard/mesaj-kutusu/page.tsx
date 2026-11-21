@@ -1,0 +1,62 @@
+import type { Metadata } from "next";
+import { prisma } from "@infulancer/core/db";
+import {
+  UnifiedInboxShell,
+  type TenantOption,
+} from "@/components/inbox/unified-inbox-shell";
+import { AppShell } from "@/components/shell/app-shell";
+import { requireActor } from "@/lib/auth-guard";
+
+export const metadata: Metadata = { title: "Mesaj Kutusu (Instagram + WhatsApp)" };
+export const dynamic = "force-dynamic";
+
+export default async function UnifiedInboxPage() {
+  const actor = await requireActor("ADMIN", "BRAND", "INFLUENCER");
+  const user = await prisma.user.findUnique({
+    where: { id: actor.userId },
+    select: { name: true, email: true },
+  });
+  const actorName = user?.name ?? user?.email?.split("@")[0] ?? "Temsilci";
+
+  let tenantOptions: TenantOption[] = [];
+  let initialTenantId = "ajans";
+
+  if (actor.role === "BRAND" && actor.brandId) {
+    const b = await prisma.brand.findUnique({
+      where: { id: actor.brandId },
+      select: { id: true, name: true },
+    });
+    initialTenantId = actor.brandId;
+    if (b) tenantOptions = [{ id: b.id, name: b.name, kind: "Marka" }];
+  } else if (actor.role === "INFLUENCER" && actor.influencerId) {
+    const inf = await prisma.influencer.findUnique({
+      where: { id: actor.influencerId },
+      select: { id: true, name: true },
+    });
+    initialTenantId = actor.influencerId;
+    if (inf) tenantOptions = [{ id: inf.id, name: inf.name, kind: "Creator" }];
+  } else {
+    const [brands, influencers] = await Promise.all([
+      prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
+      prisma.influencer.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, take: 30, select: { id: true, name: true } }),
+    ]);
+    tenantOptions = [
+      ...brands.map((b): TenantOption => ({ id: b.id, name: b.name, kind: "Marka" })),
+      ...influencers.map((i): TenantOption => ({ id: i.id, name: i.name, kind: "Creator" })),
+    ];
+    initialTenantId = brands[0]?.id ?? influencers[0]?.id ?? "ajans";
+  }
+
+  return (
+    <AppShell role={actor.role} fullBleed>
+      <div className="p-2 sm:p-4">
+        <UnifiedInboxShell
+          initialTenantId={initialTenantId}
+          tenantOptions={tenantOptions}
+          actorName={actorName}
+        />
+      </div>
+    </AppShell>
+  );
+}
+

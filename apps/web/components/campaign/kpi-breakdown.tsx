@@ -18,6 +18,26 @@ export async function KpiBreakdown({ score, large = false }: { score: CampaignSc
   if (score.kpis.length === 0) {
     return <p className="text-sm text-fg-passive">{tt("Bu kampanyada hedef tanımlı değil; skor hesaplanamaz.")}</p>;
   }
+  const hasAnyMeasurement = score.kpis.some((k) => k.actual > 0 || k.status !== "OLCULUYOR");
+  if (!hasAnyMeasurement) {
+    return (
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-fg">{tt("Hedefe karşı henüz ölçüm yok")}</span>
+          <p className="text-[13px] text-fg-muted">
+            {tt("İçerikler yayına girdiğinde erişim, etkileşim ve hedef ilerlemesi burada hesaplanacaktır.")}
+          </p>
+        </div>
+        <ul className="flex flex-wrap gap-2 text-[12px] text-fg-muted">
+          {score.kpis.map((k) => (
+            <li key={k.kpi} className="rounded-full border border-border px-3 py-1 tabular-nums">
+              {kpiLabels[k.kpi]} {tt("hedefi:")} {fmtKpi(k.kpi, k.target)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
       <div className="shrink-0">

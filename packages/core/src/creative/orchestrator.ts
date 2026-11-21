@@ -1,5 +1,12 @@
 import { converseStructured, type ChatTurn } from "../llm/bedrock";
 import { envStr } from "../env";
+import {
+  compileFidelityLockedPrompt,
+  type BoundAsset,
+  type CreativeSessionState,
+  type TimelinePlan,
+} from "./vision-session";
+import { autoPlanProductSfxAndMotion } from "./sfx-timeline";
 
 /**
  * Nordvow Creative AI — fal.ai Medya Üretim Orkestratörü & AWS Bedrock Structured Output Chatbot Servisi.
@@ -19,7 +26,20 @@ export type StoryChatbotPayload = {
   };
 };
 
-export const STORY_DIRECTOR_SYSTEM_PROMPT = `Sen uzman bir Instagram Story Kreatif Direktörü ve fal.ai Prompt Mühendisisin. Amacın; kullanıcıyla doğal, kısa ve yönlendirici bir sohbet kurarak en iyi 9:16 dikey Instagram Story görselini üretmek için gereken bilgileri toplamak ve hazır olduğunda fal.ai API parametrelerini üretmektir.
+export function stripMarkdownStars(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,!?:;)]|$)/g, "$1$2")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*/g, "")
+    .trim();
+}
+
+export const STORY_DIRECTOR_SYSTEM_PROMPT = `Sen uzman bir Instagram Story Kreatif Direktörü ve fal.ai Prompt Mühendisisin. Amacın; kullanıcıyla doğal, akıcı, kısa ve yönlendirici bir sohbet kurarak en iyi 9:16 dikey Instagram Story görselini üretmek için gereken bilgileri toplamak ve hazır olduğunda fal.ai API parametrelerini üretmektir.
+
+BİÇİM VE ÜSLUP KURALLARI:
+- Yanıtlarını akıcı, doğal ve anlaşılır düz Türkçe cümlelerle yaz.
+- Kesinlikle yıldız (** veya *), markdown başlığı (#) veya kod bloğu kullanma.
 
 TOPLANMASI GEREKEN 4 TEMEL BİLGİ (SLOTS):
 1. \`subject\`: Görselin ana konusu/sahnesi (ne, nerede, ne yapıyor?).
@@ -213,6 +233,16 @@ export async function runStoryChatbotConverse(opts: {
         typeof data.fal_payload.prompt === "string"
       ) {
         if (opts.forceReady) data.status = "ready";
+        if (data.fal_payload.prompt.trim().length < 8) {
+          const userCombined = opts.messages
+            .filter((m) => m.role === "user")
+            .map((m) => m.text.trim())
+            .filter(Boolean)
+            .join(". ");
+          const asp = data.fal_payload.aspect_ratio || "9:16";
+          data.fal_payload.prompt = `Editorial ${asp} composition, professional studio lighting, high detail, modern social media aesthetic: ${userCombined || "luxury product lifestyle shot"}`;
+        }
+        data.assistant_reply = stripMarkdownStars(data.assistant_reply);
         return data;
       }
     } catch (e) {
@@ -239,10 +269,10 @@ export async function runStoryChatbotConverse(opts: {
     return {
       status: "needs_info",
       assistant_reply:
-        `Harika bir başlangıç! **"${lastMsg}"** için en etkileyici Instagram görselini hazırlamam için 2 kısa detayı netleştirelim:\n\n` +
-        `1. **Görsel tarzı ve ışık nasıl olsun?** (Örn: Doğal sabah güneşi, lüks karanlık stüdyo çekimi, minimal pastel tonlar)\n` +
-        `2. **Görselin içinde bir başlık/yazı yer alsın mı**, yoksa sonradan Instagram'da yazı ekleyebilmeniz için üst kısmı ferah mı bırakalım?\n\n` +
-        `*(Dilerseniz "sen seç" yazabilir veya aşağıdaki hazır kartlardan birine tıklayarak detayı sohbet kutusuna ekleyebilirsiniz.)*`,
+        `Harika bir başlangıç! "${lastMsg}" fikri için en etkileyici Instagram görselini hazırlayabilmem adına iki küçük detayı netleştirelim:\n\n` +
+        `1. Görsel tarzı ve ışık nasıl olsun? Örneğin doğal sabah güneşi, lüks karanlık stüdyo çekimi ya da minimal pastel tonlar tercih edebiliriz.\n` +
+        `2. Görselin içinde yazılı bir başlık yer alsın mı, yoksa sonradan Instagram'da yazı ekleyebilmeniz için üst kısmı sade mi bırakalım?\n\n` +
+        `Dilerseniz "sen seç" yazabilir veya aşağıdaki hazır seçeneklerden birine dokunabilirsiniz.`,
       missing_slots: ["style_mood", "text_overlay"],
       fal_payload: {
         model_endpoint: opts.tier === "economy" ? "fal-ai/flux/schnell" : "fal-ai/flux/dev",
@@ -266,7 +296,7 @@ export async function runStoryChatbotConverse(opts: {
 
   return {
     status: "ready",
-    assistant_reply: `Harika! Tüm detaylar tamamlandı. Görselinizi **${endpoint}** modeliyle (${aspect} formatında) üretiyor ve altına hazır Instagram Post/Story metninizi ekliyorum.`,
+    assistant_reply: `Harika, tüm detaylar hazır! Görselinizi ${aspect} formatında üretmeye başlıyorum; hemen ardından kullanıma hazır paylaşım metninizi de ekleyeceğim.`,
     missing_slots: [],
     fal_payload: {
       model_endpoint: endpoint,
@@ -275,4 +305,257 @@ export async function runStoryChatbotConverse(opts: {
     },
   };
 }
+
+/**
+ * NordVow Creative Studio — Ana Orkestratör System Prompt
+ * Vision-First, Asset Binding, Fidelity Lock, 0-Kredi Programatik Post-Prodüksiyon ve Cost-Aware fal.ai Routing.
+ */
+export const NORDVOW_CREATIVE_ORCHESTRATOR_SYSTEM_PROMPT = `Sen NordVow Creative Studio'nun Baş AI Sistem Mimarı ve Baş Kreatif Orkestratörüsün. Görevin; UGC ve sosyal medya odaklı görsel, video, ürün odaklı ses efekti (SFX) ve programatik animasyon katmanlarını en düşük API maliyetiyle en yüksek ticari kalitede orkestre etmektir.
+
+TEMEL ÇALIŞMA İLKELERİN:
+1. VİZYON ÖNCELİĞİ VE VARLIK KİLİDİ (Vision-First & Asset Binding):
+   - Kullanıcı bilgisayardan veya Kitaplık'tan bir görsel seçtiğinde, üretim aracını çağırmadan önce bu görseli \`VisionAssetAnalysis\` JSON şemasıyla kilitle.
+   - Kilitli varlık (\`asset_id\`) varken "arkayı değiştir", "bunu videoya çevir", "üzerine damlalar ekle" gibi komutlarda görseli sıfırdan üretmek KESİNLİKLE YASAKTIR. Görsel düzenlemede \`fal-ai/nano-banana/edit\`, canlandırmada \`hailuo-02-fast/image-to-video\` (veya Pro'da \`kling-v2-5-turbo/pro/image-to-video\`) kullan ve \`STRICT FIDELITY LOCK\` prompt derlemesiyle ürün geometrisini, etiketini ve dokusunu %100 koru.
+
+2. SIFIR KREDİ PROGRAMATİK KURGU ÖNCELİĞİ (Zero-Credit First):
+   - Aktif tuvalde (\`current_canvas\`) zaten bir video veya görsel varken kullanıcı şu isteklerden birini yaparsa AI video modelini ASLA yeniden çağırma:
+     • Ürüne özel ses efekti ekleme (kapak pop, sprey, klik, whoosh, kutu açılma, kumaş hışırtısı)
+     • Soldan kayan ürün adı, fiyat/indirim rozeti, kinetik altyazı, hızlandırma (speed ramp), 9:16 kırpma veya renk filtresi
+   - Bu istekleri sadece \`timeline_plan\` nesnesini güncelleyip FFmpeg + Prosedürel SFX Render motoruna yönlendirerek 0 kredi maliyetiyle tamamla.
+
+3. ÜRÜNE VE SAHNEYE ÖZEL AKILLI SFX:
+   - Kozmetik/şişe -> \`cap_open_pop\`, \`spray_mist\`, \`water_drop\`
+   - Kutu açılımı -> \`tape_rip\`, \`box_slide_open\`, \`paper_rustle\`
+   - Teknoloji/aksesuar -> \`mech_click\`, \`magnetic_snap\`, \`startup_chime\`
+   - Giyim/tekstil -> \`fabric_swoosh\`, \`zipper_pull\`, \`soft_whoosh\`
+   - Önce ücretsiz yerleşik SFX kütüphanesini kullan; her cue'yu aksiyon milisaniyesine hizala.
+
+4. AI'A METİN VE GRAFİK ÜRETTİRME (Clean AI Base):
+   - Video üretim promptlarına her zaman "clean composition, strictly no text overlays, no garbled typography, no watermarks" ekle; tüm başlık ve grafik animasyonlarını programatik katmanda render et.
+
+5. HALÜSİNASYONSUNUZ BAĞLAM VE PRE-FLIGHT ÖZETİ:
+   - Kararlarını sadece \`CreativeSessionState\` içindeki \`active_assets\`, \`current_canvas\`, \`timeline_plan\` ve \`intent_history\` verilerine dayandır.
+   - Kredi harcayacak işlem öncesi hangi modelin seçildiğini, bağlı varlığı, planlanan SFX/animasyonları ve tahmini maliyeti şeffaf biçimde belirt. Muğlak taleplerde kredi yakmadan 2-3 netleştirici seçenek sun.`;
+
+export type CostAwareOperationType =
+  | "programmatic_edit"
+  | "bg_remove"
+  | "upscale"
+  | "edit_image_kontext"
+  | "image_to_video"
+  | "generate_image"
+  | "generate_video"
+  | "voiceover";
+
+export type CostAwareRouteDecision = {
+  operation: CostAwareOperationType;
+  modelKey: string;
+  endpoint: string;
+  estimatedCostUsd: number;
+  zeroCreditEdit: boolean;
+  boundAsset: BoundAsset | null;
+  sourceCanvasId: string | null;
+  fidelityPrompt: string | null;
+  timeline: TimelinePlan;
+  preFlightSummaryTr: string;
+};
+
+/**
+ * Cost-Aware fal.ai Router Karar Matrisi:
+ * 1) Aktif tuval/varlık + post-prodüksiyon (SFX, kayan başlık, rozet, altyazı, kırpma, hız, filtre) -> 0 Kredi programmatic_edit
+ * 2) Bağlı görsel + arka plan kaldır / 2x netleştir -> bria-bg-remove ($0.018) / esrgan-upscale ($0.005)
+ * 3) Bağlı görsel + sahne/arkaplan/ışık değişikliği -> nano-banana-edit (Fidelity Lock, $0.0398)
+ * 4) Bağlı görsel + video/animasyon -> hailuo-02-fast-i2v ($0.017/sn) / kling-v2-5-i2v ($0.07/sn) + SFX Timeline
+ * 5) Referans yok -> kademeli tier yönlendirmesi (economy / standard / pro)
+ */
+export function routeCostAwareOperation(input: {
+  message: string;
+  tier: "economy" | "standard" | "pro";
+  session: CreativeSessionState;
+  explicitRefs?: BoundAsset[];
+  targetVideoId?: string | null;
+  wantsBriefOnly?: boolean;
+}): CostAwareRouteDecision {
+  const norm = input.message.toLocaleLowerCase("tr");
+  const primaryBound = input.explicitRefs?.[0] ?? input.session.active_assets[0] ?? null;
+  const activeCanvasId = input.session.current_canvas.asset_id ?? input.targetVideoId ?? null;
+  const hasActiveVisual = Boolean(primaryBound || activeCanvasId);
+
+  const wantsNewVideoGen = /(bunu videoya çevir|videoya çevir|videoya cevir|canlandır|canlandir|reels üret|video üret|video uret|hareketlendir)/.test(norm);
+  const wantsNewImageGen = /(yeni görsel|sıfırdan|sifirdan|fotoğraf üret|fotograf uret|resim üret)/.test(norm);
+  const wantsBgRemove = /(arka plan.*kaldır|arkaplan.*kaldir|arka planı sil|bg remove|transparan|şeffaf yap)/.test(norm);
+  const wantsUpscale = /(netleştir|netlestir|2x|upscale|çözünürlük artır)/.test(norm);
+  const wantsVoiceoverOnly = !wantsNewVideoGen && /(videoma ses|videoya ses|seslendirme|dış ses|dis ses|voiceover|konuşma ekle)/.test(norm);
+
+  const wantsSfxOrMotion =
+    /(ses efekt|sfx|tıklama|tiklama|kapak.*ses|sprey.*ses|damla.*ses|whoosh|soldan kay|kayan.*başlık|kayan.*yazı|ürün adı.*gelsin|fiyat rozeti|indirim etiketi|rozet ekle|kinetik|altyazı|altyazi|9:16 yap|hızlandır|yavaşlat|renk.*filtre|siyah beyaz)/.test(
+      norm,
+    );
+  const wantsVisualSceneEdit =
+    /(arkayı|arkasını|arka planı|masaya koy|zemin|ışığı|isigi|ortamı|ortami|stüdyo|mermer|ahşap|su damla|çiçek|güneş|değiştir|degistir|yerleştir|yerlestir|ekle)/.test(
+      norm,
+    );
+
+  // Planla: ürüne özel SFX + animasyon katmanı
+  const timeline = autoPlanProductSfxAndMotion({
+    userMessage: input.message,
+    vision: primaryBound?.vision ?? null,
+    currentTimeline: input.session.timeline_plan,
+    productTitleHint: primaryBound?.name ?? undefined,
+  });
+
+  // Karar 1: 0-Kredi Programatik Post-Prodüksiyon (aktif tuval veya bağlı varlık varken SFX/animasyon/kurgu komutu)
+  const canZeroCreditEdit =
+    Boolean(activeCanvasId || primaryBound?.upload_id) &&
+    wantsSfxOrMotion &&
+    !wantsNewImageGen &&
+    !wantsNewVideoGen &&
+    !wantsBgRemove &&
+    !wantsUpscale;
+
+  if (canZeroCreditEdit) {
+    const sourceId = input.targetVideoId ?? activeCanvasId ?? primaryBound!.upload_id;
+    const sfxSummary = timeline.sfx_track.map((s) => `${(s.timestamp_ms / 1000).toFixed(1)}s ${s.label_tr}`).join(", ") || "Otomatik ses dengesi";
+    const mgSummary = timeline.motion_layers.map((m) => m.text).filter(Boolean).join(", ");
+    return {
+      operation: "programmatic_edit",
+      modelKey: "ffmpeg-programmatic",
+      endpoint: "local/ffmpeg-sfx-timeline",
+      estimatedCostUsd: 0,
+      zeroCreditEdit: true,
+      boundAsset: primaryBound,
+      sourceCanvasId: sourceId,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `0 AI Kredisi (Programatik Kurgu): Mevcut tuval yeniden AI ile üretilmeden SFX (${sfxSummary})${mgSummary ? ` ve animasyon (${mgSummary})` : ""} işleniyor.`,
+    };
+  }
+
+  // Karar 2: Tek Adımlı Referans Düzenlemeleri (BG Remove / Upscale)
+  if (primaryBound && wantsBgRemove) {
+    return {
+      operation: "bg_remove",
+      modelKey: "bria-bg-remove",
+      endpoint: "fal-ai/bria/background/remove",
+      estimatedCostUsd: 0.018,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Varlık Kilidi Aktif (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/bria/background/remove ($0.018)`,
+    };
+  }
+  if (primaryBound && wantsUpscale) {
+    return {
+      operation: "upscale",
+      modelKey: "esrgan-upscale",
+      endpoint: "fal-ai/esrgan",
+      estimatedCostUsd: 0.005,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Varlık Kilidi Aktif (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/esrgan ($0.005)`,
+    };
+  }
+
+  // Karar 3: Bağlı Görseli Videoya Çevirme (Image-to-Video + Otomatik SFX Timeline)
+  if (primaryBound && primaryBound.kind === "image" && (wantsNewVideoGen || /(video|reels|klip|animasyon)/.test(norm))) {
+    const isPro = input.tier === "pro";
+    const modelKey = isPro ? "kling-v2-5-i2v" : "hailuo-02-fast-i2v";
+    const endpoint = isPro ? "fal-ai/kling-video/v2.5-turbo/pro/image-to-video" : "fal-ai/minimax/hailuo-02-fast/image-to-video";
+    const cost = isPro ? 0.35 : 0.102;
+    const fidelityPrompt = compileFidelityLockedPrompt(primaryBound.vision, input.message, "image_to_video");
+    return {
+      operation: "image_to_video",
+      modelKey,
+      endpoint,
+      estimatedCostUsd: cost,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt,
+      timeline,
+      preFlightSummaryTr: `Fidelity Lock I2V (${primaryBound.vision.subject_summary_tr}) · Model: ${endpoint} (~$${cost.toFixed(3)}) + Akıllı Ürün SFX`,
+    };
+  }
+
+  // Karar 4: Bağlı Görsel Üzerinde Kontext/Non-Destructive Edit (arkayı değiştir vb.)
+  if (primaryBound && primaryBound.kind === "image" && !wantsVoiceoverOnly && (wantsVisualSceneEdit || !wantsNewImageGen)) {
+    const fidelityPrompt = compileFidelityLockedPrompt(primaryBound.vision, input.message, "edit_image");
+    return {
+      operation: "edit_image_kontext",
+      modelKey: "nano-banana-edit",
+      endpoint: "fal-ai/nano-banana/edit",
+      estimatedCostUsd: 0.0398,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: primaryBound.upload_id,
+      fidelityPrompt,
+      timeline,
+      preFlightSummaryTr: `Sadece İsteneni Değiştir Kilidi (${primaryBound.vision.subject_summary_tr}) · Model: fal-ai/nano-banana/edit ($0.0398)`,
+    };
+  }
+
+  // Karar 5: Referanssız veya genel üretim (kademeli model seçimi)
+  if (wantsNewVideoGen || /(video|reels|hareketli|klip)/.test(norm)) {
+    const modelKey =
+      input.tier === "pro" ? "kling-v3-pro" : input.tier === "standard" ? "minimax-h3-max" : "minimax-h3-max-turbo";
+    const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
+    return {
+      operation: "generate_video",
+      modelKey,
+      endpoint: spec?.endpoint ?? "minimax/h3-max-turbo/text-to-video",
+      estimatedCostUsd: (spec?.unitCostUsd ?? 0.02) * 5,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: hasActiveVisual ? activeCanvasId : null,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Clean AI Video (${spec?.endpoint ?? modelKey} · ${spec?.unitLabel ?? "$0.02/sn"}) + Programatik SFX Katmanı`,
+    };
+  }
+
+  if (wantsVoiceoverOnly) {
+    const modelKey = input.tier === "pro" ? "elevenlabs-v3" : "elevenlabs-turbo-2-5";
+    const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === modelKey);
+    return {
+      operation: "voiceover",
+      modelKey,
+      endpoint: spec?.endpoint ?? "fal-ai/elevenlabs/tts/turbo-v2.5",
+      estimatedCostUsd: spec?.unitCostUsd ?? 0.05,
+      zeroCreditEdit: false,
+      boundAsset: primaryBound,
+      sourceCanvasId: activeCanvasId,
+      fidelityPrompt: null,
+      timeline,
+      preFlightSummaryTr: `Türkçe Seslendirme · Model: ${spec?.endpoint ?? modelKey} (${spec?.unitLabel ?? "$0.05/1K kr"})`,
+    };
+  }
+
+  const wantsTextInImage = /(yazı olsun|afiş|poster|tipografi|üzerinde.*yaz)/.test(norm);
+  const imgModelKey = wantsTextInImage
+    ? "nano-banana-2"
+    : input.tier === "pro"
+      ? "nano-banana-pro"
+      : input.tier === "standard"
+        ? "flux-dev"
+        : "flux-schnell";
+  const spec = FAL_ORCHESTRATOR_CATALOG.find((c) => c.key === imgModelKey);
+  return {
+    operation: "generate_image",
+    modelKey: imgModelKey,
+    endpoint: spec?.endpoint ?? "fal-ai/flux/schnell",
+    estimatedCostUsd: spec?.unitCostUsd ?? 0.003,
+    zeroCreditEdit: false,
+    boundAsset: primaryBound,
+    sourceCanvasId: null,
+    fidelityPrompt: null,
+    timeline,
+    preFlightSummaryTr: `Kademeli Görsel Üretimi · Model: ${spec?.endpoint ?? imgModelKey} (${spec?.unitLabel ?? "$0.003/MP"})`,
+  };
+}
+
 

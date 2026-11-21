@@ -6,15 +6,16 @@ import { cn } from "@/lib/cn";
 import { fmtTl } from "@/lib/creative-models";
 
 type Step = { id: string; label: string; status: string; error: string | null; amount: number | null; charged: boolean; refunded: boolean; assetId: string | null };
-type Progress = { currency?: string; done: boolean; failed: boolean; steps: Step[]; finalAssetId: string | null; chainError: string | null };
+type Progress = { currency?: string; availableCredits?: number; done: boolean; failed: boolean; steps: Step[]; finalAssetId: string | null; chainError: string | null };
 type Row = { key: string; label: string; state: "done" | "active" | "wait" | "fail"; note?: string };
+export type JobDoneInfo = { failed: boolean; error: string | null; refundedAmount: number; availableCredits?: number; currency?: string };
 
 /**
  * Üretim/düzenleme ilerlemesi: istek → bakiye ayrıldı → model çalışıyor (her adım) → etiketlendi.
  * Sunucudaki gerçek durumdan beslenir (/api/creative/job/[id]); satırlar okunabilsin diye en az
  * ~0,5 sn arayla açılır. Hata olursa ilgili adımın blokesi iade edilir ve bu açıkça yazılır.
  */
-export function JobProgress({ jobId, onDone, className }: { jobId: string; onDone?: (assetId: string | null) => void; className?: string }) {
+export function JobProgress({ jobId, onDone, className }: { jobId: string; onDone?: (assetId: string | null, info?: JobDoneInfo) => void; className?: string }) {
   const tt = useTT();
   const [p, setP] = useState<Progress | null>(null);
   const [shown, setShown] = useState(1);
@@ -34,7 +35,16 @@ export function JobProgress({ jobId, onDone, className }: { jobId: string; onDon
           setP(j);
           if ((j.done || j.failed) && !notified) {
             notified = true;
-            setTimeout(() => doneRef.current?.(j.finalAssetId), 1200);
+            const failedStep = j.steps.find((s) => s.status === "FAILED" || s.status === "REJECTED");
+            const refundedAmount = j.steps.filter((s) => s.refunded && s.amount).reduce((sum, s) => sum + (s.amount ?? 0), 0);
+            const info: JobDoneInfo = {
+              failed: j.failed,
+              error: failedStep?.error ?? j.chainError ?? null,
+              refundedAmount,
+              availableCredits: j.availableCredits,
+              currency: j.currency,
+            };
+            setTimeout(() => doneRef.current?.(j.finalAssetId, info), 1200);
             return;
           }
         }

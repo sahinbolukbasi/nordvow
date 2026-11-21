@@ -1,7 +1,22 @@
 import { BedrockRuntimeClient, ConverseCommand, type ImageFormat } from "@aws-sdk/client-bedrock-runtime";
+import { prisma } from "../db";
 import { envStr, requireEnv } from "../env";
 import { prompts } from "./prompts";
 import type { LlmProvider, TextRequest, VisionRequest } from "./types";
+
+function logBedrockUsage(modelId: string, operation: string, usage: { inputTokens?: number; outputTokens?: number } | undefined, durationMs: number) {
+  const inTok = usage?.inputTokens ?? 0;
+  const outTok = usage?.outputTokens ?? 0;
+  // Yaklaşık USD maliyeti (Nova Lite / Haiku / Sonnet ortalaması)
+  const inRate = modelId.includes("sonnet") ? 0.000003 : modelId.includes("haiku") ? 0.0000008 : 0.00000006;
+  const outRate = modelId.includes("sonnet") ? 0.000015 : modelId.includes("haiku") ? 0.000004 : 0.00000024;
+  const costUsd = inTok * inRate + outTok * outRate;
+  void prisma.aiUsageLog
+    .create({
+      data: { provider: "bedrock", modelId, operation, inputTokens: inTok, outputTokens: outTok, costUsd, durationMs },
+    })
+    .catch(() => undefined);
+}
 
 let client: BedrockRuntimeClient | undefined;
 function bedrock(): BedrockRuntimeClient {
@@ -57,6 +72,7 @@ export async function converseChat(opts: { system: string; turns: ChatTurn[]; ma
   let lastErr: unknown;
   for (const modelId of models) {
     try {
+      const t0 = Date.now();
       const res = await bedrock().send(
         new ConverseCommand({
           modelId,
@@ -65,6 +81,7 @@ export async function converseChat(opts: { system: string; turns: ChatTurn[]; ma
           inferenceConfig: { maxTokens: opts.maxTokens ?? 400, temperature: opts.temperature ?? 0.5 },
         }),
       );
+      logBedrockUsage(modelId, "chat", res.usage, Date.now() - t0);
       return { text: textOf(res.output), model: modelId };
     } catch (e) {
       lastErr = e;
@@ -104,6 +121,7 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
 
   for (const modelId of structuredModels) {
     try {
+      const t0 = Date.now();
       const res = await bedrock().send(
         new ConverseCommand({
           modelId,
@@ -124,6 +142,7 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
           },
         }),
       );
+      logBedrockUsage(modelId, "structured", res.usage, Date.now() - t0);
       const rawText = textOf(res.output);
       const parsed = parseJsonObject(rawText) as T | null;
       if (parsed) return { data: parsed, rawText, model: modelId };
@@ -148,20 +167,32 @@ export async function converseStructured<T = Record<string, unknown>>(opts: {
 export const bedrockProvider: LlmProvider = {
   name: "bedrock",
   async completeText(req: TextRequest) {
-    const modelId = requireEnv("BEDROCK_TEXT_MODEL_ID");
-    const res = await bedrock().send(
-      new ConverseCommand({
-        modelId,
-        system: req.system ? [{ text: req.system }] : undefined,
-        messages: [{ role: "user", content: [{ text: req.prompt }] }],
-        inferenceConfig: { maxTokens: 800, temperature: 0.2 },
-      }),
-    );
-    return { text: textOf(res.output), model: modelId };
+    const modelId = envStr("BEDROCK_TEXT_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0");
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const t0 = Date.now();
+        const res = await bedrock().send(
+          new ConverseCommand({
+            modelId,
+            system: req.system ? [{ text: req.system }] : undefined,
+            messages: [{ role: "user", content: [{ text: req.prompt }] }],
+            inferenceConfig: { maxTokens: 800, temperature: 0.2 },
+          }),
+          { abortSignal: AbortSignal.timeout(15_000) },
+        );
+        logBedrockUsage(modelId, req.promptVersion || "complete_text", res.usage, Date.now() - t0);
+        return { text: textOf(res.output), model: modelId };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("Bedrock metin üretimi başarısız oldu");
   },
   async readScreenshotNumbers(req: VisionRequest) {
-    const modelId = requireEnv("BEDROCK_VISION_MODEL_ID");
+    const modelId = envStr("BEDROCK_VISION_MODEL_ID", "eu.anthropic.claude-haiku-4-5-20251001-v1:0");
     const fields = Object.keys(req.expectedFields);
+    const t0 = Date.now();
     const res = await bedrock().send(
       new ConverseCommand({
         modelId,
@@ -177,7 +208,9 @@ export const bedrockProvider: LlmProvider = {
         ],
         inferenceConfig: { maxTokens: 400, temperature: 0 },
       }),
+      { abortSignal: AbortSignal.timeout(20_000) },
     );
+    logBedrockUsage(modelId, "vision_metrics", res.usage, Date.now() - t0);
     const parsed = parseJsonObject(textOf(res.output)) ?? {};
     const values: Record<string, number | null> = {};
     for (const f of fields) {

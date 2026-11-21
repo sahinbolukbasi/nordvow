@@ -4,18 +4,29 @@ import { redirect } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
-import { createEvent, inviteManyToEvent, inviteToEvent, respondInvite, setEventStatus } from "@infulancer/core/events/service";
+import {
+  cancelEventTicket,
+  createEvent,
+  inviteManyToEvent,
+  inviteToEvent,
+  issueQuickTicket,
+  respondInvite,
+  setEventStatus,
+  undoCheckInTicket,
+} from "@infulancer/core/events/service";
+import { canBrandManageEvent, setEventPartnerIds } from "@infulancer/core/events/partners";
 import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import { fmtDateTime } from "@/lib/time";
 import { DomainError } from "@infulancer/core/domain/errors";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
-import { AGENCY_TZ, isDay } from "@/lib/time";
-import { zonedToUtc } from "@/lib/time";
+import { majorToMinor } from "@infulancer/core/i18n/currency-service";
+import { AGENCY_TZ, isDay, isValidTimeZone, zonedToUtc } from "@/lib/time";
 
-function dayToUtc(day: string, time: string): Date {
-  return zonedToUtc(day, time, AGENCY_TZ);
+function dayToUtc(day: string, time: string, tz?: string): Date {
+  const safeTz = tz && isValidTimeZone(tz) ? tz : AGENCY_TZ;
+  return zonedToUtc(day, time, safeTz);
 }
 
 const createSchema = z.object({
@@ -24,6 +35,11 @@ const createSchema = z.object({
   venueName: z.string().max(200).optional(),
   address: z.string().max(400).optional(),
   city: z.string().max(80).optional(),
+  countryId: z.string().max(64).optional(),
+  cityId: z.string().max(64).optional(),
+  timezone: z.string().max(80).optional(),
+  priceMinor: z.number().int().nonnegative().nullable().optional(),
+  currency: z.string().max(8).optional(),
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
   startsAtDay: z.string().refine(isDay, { error: "Geçerli bir başlangıç tarihi girin." }),
@@ -43,12 +59,27 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
     const latRaw = str(fd, "latitude");
     const lngRaw = str(fd, "longitude");
     const capRaw = str(fd, "capacity");
+    const priceRaw = str(fd, "price");
+    const currencyRaw = (str(fd, "currency") || "TRY").toUpperCase();
+    const countryIdRaw = str(fd, "countryId");
+    const cityIdRaw = str(fd, "cityId");
+    const timezoneRaw = str(fd, "timezone") || AGENCY_TZ;
+    const parsedPrice = priceRaw ? Number(priceRaw.replace(",", ".")) : null;
+    const priceMinor = parsedPrice != null && Number.isFinite(parsedPrice) && parsedPrice >= 0 ? majorToMinor(parsedPrice, currencyRaw) : null;
+    const safeCountryId = countryIdRaw && !countryIdRaw.startsWith("seed-") ? countryIdRaw : undefined;
+    const safeCityId = cityIdRaw && !cityIdRaw.startsWith("seed-") ? cityIdRaw : undefined;
+
     const input = parseInput(createSchema, {
       title: str(fd, "title"),
       description: str(fd, "description"),
       venueName: str(fd, "venueName") || undefined,
       address: str(fd, "address") || undefined,
       city: str(fd, "city") || undefined,
+      countryId: safeCountryId,
+      cityId: safeCityId,
+      timezone: isValidTimeZone(timezoneRaw) ? timezoneRaw : AGENCY_TZ,
+      priceMinor,
+      currency: currencyRaw,
       latitude: latRaw ? Number(latRaw.replace(",", ".")) : null,
       longitude: lngRaw ? Number(lngRaw.replace(",", ".")) : null,
       startsAtDay: str(fd, "startsAtDay"),
@@ -60,6 +91,11 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
       coverImageKey: str(fd, "coverImageKey") || undefined,
     });
     const tenantId = actor.role === "BRAND" ? actor.brandId! : optStr(fd, "tenantId");
+    const partnerIds = [...new Set(fd.getAll("partnerBrandIds").map(String).filter((id) => id && id !== tenantId))];
+    if (partnerIds.length) {
+      const found = await prisma.brand.count({ where: { id: { in: partnerIds } } });
+      if (found !== partnerIds.length) throw new DomainError("DOGRULAMA", "İş birliği marka listesi geçersiz.");
+    }
     const e: { id: string } = await createEvent({
       tenantId,
       title: input.title,
@@ -67,16 +103,24 @@ export async function createEventAction(_p: ActionState, fd: FormData): Promise<
       venueName: input.venueName,
       address: input.address,
       city: input.city,
+      countryId: input.countryId,
+      cityId: input.cityId,
+      timezone: input.timezone,
+      priceMinor: input.priceMinor ?? null,
+      currency: input.currency,
       latitude: input.latitude,
       longitude: input.longitude,
-      startsAt: dayToUtc(input.startsAtDay, input.startsAtTime),
-      endsAt: input.endsAtDay && isDay(input.endsAtDay) ? dayToUtc(input.endsAtDay, input.endsAtTime || "23:59") : null,
+      startsAt: dayToUtc(input.startsAtDay, input.startsAtTime, input.timezone),
+      endsAt: input.endsAtDay && isDay(input.endsAtDay) ? dayToUtc(input.endsAtDay, input.endsAtTime || "23:59", input.timezone) : null,
       visibility: input.visibility,
       capacity: input.capacity,
       coverImageKey: input.coverImageKey,
       createdByUserId: actor.userId,
     });
-    await audit.append({ actor: toAuditActor(actor), action: "EVENT_CREATED", entityType: "Event", entityId: e.id, data: { title: input.title } });
+    if (partnerIds.length) {
+      await setEventPartnerIds(e.id, partnerIds);
+    }
+    await audit.append({ actor: toAuditActor(actor), action: "EVENT_CREATED", entityType: "Event", entityId: e.id, data: { title: input.title, partnerBrandIds: partnerIds } });
     created.id = e.id;
     revalidateAll();
     return { ok: true, message: "Etkinlik taslağı oluşturuldu." };
@@ -90,9 +134,9 @@ export async function setEventStatusAction(_p: ActionState, fd: FormData): Promi
   return attempt(async () => {
     const id = str(fd, "id");
     const to = str(fd, "to") as "TASLAK" | "YAYINDA" | "IPTAL" | "TAMAMLANDI";
-    const ev = await prisma.event.findUnique({ where: { id }, select: { tenantId: true } });
+    const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, tenantId: true } });
     if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
-    if (actor.role === "BRAND" && ev.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     await setEventStatus(id, to);
     await audit.append({ actor: toAuditActor(actor), action: "EVENT_STATUS", entityType: "Event", entityId: id, data: { to } });
     revalidateAll();
@@ -107,17 +151,17 @@ export async function inviteEventAction(_p: ActionState, fd: FormData): Promise<
     const eventId = str(fd, "eventId");
     const ids = fd.getAll("influencerId").map(String).filter(Boolean);
     const guestName = str(fd, "guestName");
-    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { tenantId: true } });
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
     if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
-    if (actor.role === "BRAND" && ev.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     if (ids.length) {
       const r = await inviteManyToEvent(eventId, ids);
       await audit.append({ actor: toAuditActor(actor), action: "EVENT_INVITED", entityType: "Event", entityId: eventId, data: { count: r.length } });
       // Davet edilenlere çok kanallı bildirim.
       try {
         const full = await prisma.event.findUnique({ where: { id: eventId }, select: { title: true, startsAt: true } });
-        const invited = await prisma.influencer.findMany({ where: { id: { in: r.map((x) => x.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { select: { platform: true, handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true } } } });
-        const recipients = invited.filter((i) => i.user).map((i) => ({ userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, vars: { ad: i.name, baslik: full?.title ?? "", tarih: full ? fmtDateTime(full.startsAt) : "", link: `/influencer/davetlerim` } }));
+        const invited = await prisma.influencer.findMany({ where: { id: { in: r.map((x) => x.influencerId).filter((y): y is string => !!y) } }, select: { id: true, name: true, socialAccounts: { where: { platform: "INSTAGRAM" }, select: { platform: true, handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true, locale: true } } } });
+        const recipients = invited.filter((i) => i.user).map((i) => ({ userId: i.user!.id, email: i.user!.email, phone: i.user!.phone, instagram: i.socialAccounts[0]?.handle ?? null, locale: i.user!.locale, vars: { ad: i.name, baslik: full?.title ?? "", tarih: full ? fmtDateTime(full.startsAt) : "", link: `/influencer/davetlerim` } }));
         if (recipients.length) await dispatchNotification("EVENT_INVITED", recipients);
       } catch { /* bildirim hatası daveti bozmasın */ }
       revalidateAll();
@@ -140,12 +184,34 @@ export async function respondInviteAction(_p: ActionState, fd: FormData): Promis
     const accept = bool(fd, "accept");
     const holderName = str(fd, "holderName") || undefined;
     // Sahiplik: influencer yalnız kendi davetini, marka yalnız kendi etkinliğinin davetini yanıtlar.
-    const inv = await prisma.eventInvite.findUnique({ where: { id: inviteId }, select: { influencerId: true, event: { select: { tenantId: true } } } });
+    const inv = await prisma.eventInvite.findUnique({ where: { id: inviteId }, select: { influencerId: true, event: { select: { id: true, tenantId: true } } } });
     if (!inv) throw new DomainError("BULUNAMADI", "Davet bulunamadı.");
     if (actor.role === "INFLUENCER" && inv.influencerId !== actor.influencerId) throw new DomainError("YETKISIZ", "Bu davet size ait değil.");
-    if (actor.role === "BRAND" && inv.event.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(inv.event, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
     await respondInvite(inviteId, accept, holderName);
     await audit.append({ actor: toAuditActor(actor), action: "EVENT_INVITE_RESPONSE", entityType: "EventInvite", entityId: inviteId, data: { accept } });
+    if (accept && inv.influencerId) {
+      try {
+        const ticket = await prisma.eventTicket.findUnique({ where: { inviteId }, select: { id: true, code: true } });
+        const inf = await prisma.influencer.findUnique({
+          where: { id: inv.influencerId },
+          select: { name: true, socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 }, user: { select: { id: true, email: true, phone: true, locale: true } } },
+        });
+        const ev = await prisma.event.findUnique({ where: { id: inv.event.id }, select: { title: true } });
+        if (ticket && inf?.user) {
+          await dispatchNotification("EVENT_TICKET_ISSUED", [
+            {
+              userId: inf.user.id,
+              email: inf.user.email,
+              phone: inf.user.phone,
+              instagram: inf.socialAccounts[0]?.handle ?? null,
+              locale: inf.user.locale,
+              vars: { ad: inf.name, baslik: ev?.title ?? "Etkinlik", kod: ticket.code, link: `/bilet/${ticket.id}` },
+            },
+          ]);
+        }
+      } catch { /* bildirim hatası bilet yanıtını bozmasın */ }
+    }
     revalidateAll();
     return { ok: true, message: accept ? "Katılımınız onaylandı; biletiniz hazır." : "Katılmayacağınız kaydedildi." };
   });
@@ -158,12 +224,121 @@ export async function checkInAction(_p: ActionState, fd: FormData): Promise<Acti
     const { checkInTicket } = await import("@infulancer/core/events/service");
     const code = str(fd, "code").trim().toUpperCase();
     if (actor.role === "BRAND") {
-      const t = await prisma.eventTicket.findUnique({ where: { code }, select: { event: { select: { tenantId: true } } } });
-      if (t && t.event.tenantId !== actor.brandId) throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+      const t = await prisma.eventTicket.findUnique({ where: { code }, select: { event: { select: { id: true, tenantId: true } } } });
+      if (t && !(await canBrandManageEvent(t.event, actor.brandId!))) throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
     }
     const r = await checkInTicket(code);
     revalidateAll();
     if (r.alreadyUsed) return { ok: true, message: `Bu bilet zaten kullanılmış (${r.ticket.holderName}).` };
     return { ok: true, message: `Giriş onaylandı: ${r.ticket.holderName}.` };
   });
+}
+
+/** Kapıdan veya bilet yönetimi ekranından tek adımda yeni bilet ekler. */
+export async function issueQuickTicketAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const eventId = str(fd, "eventId");
+    const holderName = str(fd, "holderName");
+    const guestEmail = str(fd, "guestEmail") || undefined;
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
+    if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu etkinlik sizin değil.");
+    }
+    const ticket = await issueQuickTicket({ eventId, holderName, guestEmail });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_TICKET_ISSUED",
+      entityType: "EventTicket",
+      entityId: ticket.id,
+      data: { eventId, holderName, code: ticket.code },
+    });
+    revalidateAll();
+    return { ok: true, message: `Bilet oluşturuldu: ${ticket.holderName} (${ticket.code})` };
+  });
+}
+
+/** Yanlışlıkla okutulan bileti geri alır. */
+export async function undoCheckInAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const ticketId = str(fd, "ticketId");
+    const t = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { event: { select: { id: true, tenantId: true } } } });
+    if (!t) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(t.event, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+    }
+    await undoCheckInTicket(ticketId);
+    revalidateAll();
+    return { ok: true, message: "Giriş kaydı geri alındı." };
+  });
+}
+
+/** Bileti iptal eder. */
+export async function cancelTicketAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const ticketId = str(fd, "ticketId");
+    const t = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { event: { select: { id: true, tenantId: true } } } });
+    if (!t) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(t.event, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu bilet sizin etkinliğinize ait değil.");
+    }
+    await cancelEventTicket(ticketId);
+    revalidateAll();
+    return { ok: true, message: "Bilet iptal edildi." };
+  });
+}
+
+/** Etkinliğe iş birliği (partner) markaları ekler veya günceller; tüm ortak markalar etkinliği yönetebilir. */
+export async function updateEventPartnersAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  return attempt(async () => {
+    const eventId = str(fd, "eventId");
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true } });
+    if (!ev) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      throw new DomainError("YETKISIZ", "Bu etkinliği düzenleme yetkiniz yok.");
+    }
+    const partnerIds = [...new Set(fd.getAll("partnerBrandIds").map(String).filter((id) => id && id !== ev.tenantId))];
+    if (partnerIds.length) {
+      const found = await prisma.brand.count({ where: { id: { in: partnerIds } } });
+      if (found !== partnerIds.length) throw new DomainError("DOGRULAMA", "İş birliği marka listesi geçersiz.");
+    }
+    await setEventPartnerIds(eventId, partnerIds);
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_PARTNERS_UPDATED",
+      entityType: "Event",
+      entityId: eventId,
+      data: { partnerBrandIds: partnerIds },
+    });
+    revalidateAll();
+    return { ok: true, message: "İş birliği markaları güncellendi." };
+  });
+}
+
+/** Etkinliği kalıcı olarak siler (Admin veya etkinliğin sahibi Marka). */
+export async function deleteEventAction(eventId: string): Promise<{ ok: boolean; error?: string }> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  try {
+    const ev = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true, tenantId: true, title: true } });
+    if (!ev) return { ok: false, error: "Etkinlik bulunamadı." };
+    if (actor.role === "BRAND" && !(await canBrandManageEvent(ev, actor.brandId!))) {
+      return { ok: false, error: "Bu etkinliği silme yetkiniz yok." };
+    }
+    await prisma.event.delete({ where: { id: eventId } });
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "EVENT_DELETED",
+      entityType: "Event",
+      entityId: eventId,
+      data: { title: ev.title },
+    });
+    revalidateAll();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Etkinlik silinemedi." };
+  }
 }

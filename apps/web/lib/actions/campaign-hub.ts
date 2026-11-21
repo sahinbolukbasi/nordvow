@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { transitionDeliverable } from "@infulancer/core/domain/deliverable-status";
 import { contentTypeLabels, platformLabels } from "@infulancer/core/domain/labels";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, revalidateAll, str } from "@/lib/action-utils";
@@ -380,6 +382,96 @@ export async function influencerMarkDeliverableDoneAction(
  * Kampanyadaki influencer'ların Instagram hesaplarını ve Story/Post görevlerini tarar,
  * ShortLink tıklamalarını ve sosyal hesap verilerini birleştirerek gerçek MetricSnapshot kayıtlarını günceller.
  */
+export async function brandReviewDeliverableAction(
+  _prev: ActionState,
+  fd: FormData,
+): Promise<ActionState> {
+  return attempt(async () => {
+    const actor = await requireActor("ADMIN", "BRAND");
+    const deliverableId = str(fd, "deliverableId");
+    const decision = str(fd, "decision");
+    const note = optStr(fd, "note");
+    if (!deliverableId) throw new DomainError("DOGRULAMA", "İş kaydı seçilmedi.");
+    if (decision !== "ONAY" && decision !== "REVIZYON") {
+      throw new DomainError("DOGRULAMA", "Geçersiz karar.");
+    }
+
+    const d = await prisma.deliverable.findUnique({
+      where: { id: deliverableId },
+      select: {
+        id: true,
+        assignment: {
+          select: {
+            campaignId: true,
+            campaign: { select: { brandId: true, name: true } },
+            influencer: { select: { user: { select: { id: true } } } },
+          },
+        },
+      },
+    });
+    if (!d) throw new DomainError("BULUNAMADI", "İş kaydı bulunamadı.");
+    if (actor.role === "BRAND" && d.assignment.campaign.brandId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kampanyaya erişim yetkiniz yok.");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (decision === "ONAY") {
+        await transitionDeliverable(tx, {
+          deliverableId,
+          to: "TAMAMLANDI",
+          actor,
+          asSystem: true,
+          note: note ?? "Marka tarafından onaylandı ve hak edişe aktarıldı.",
+        });
+        const influencerUserId = d.assignment.influencer.user?.id;
+        if (influencerUserId) {
+          await tx.notification.create({
+            data: {
+              userId: influencerUserId,
+              title: "Hak ediş yansıdı",
+              body: `${d.assignment.campaign.name} kampanyasındaki işiniz marka tarafından onaylandı ve kazancınız Ödemeler sayfasına Hak Ediş olarak yansıtıldı.`,
+              href: "/influencer/odemeler",
+            },
+          });
+        }
+      } else {
+        const revisionNote = note ?? "Marka tarafından revizyon talep edildi.";
+        await transitionDeliverable(tx, {
+          deliverableId,
+          to: "REVIZYON",
+          actor,
+          asSystem: true,
+          note: revisionNote,
+        });
+        const influencerUserId = d.assignment.influencer.user?.id;
+        if (influencerUserId) {
+          await tx.notification.create({
+            data: {
+              userId: influencerUserId,
+              title: "Revizyon talebi",
+              body: `${d.assignment.campaign.name}: ${revisionNote}`,
+              href: `/influencer/isler/${deliverableId}`,
+            },
+          });
+        }
+      }
+    });
+
+    revalidatePath(`/marka/kampanyalar/${d.assignment.campaignId}`);
+    revalidatePath(`/influencer/isler/${deliverableId}`);
+    revalidatePath("/influencer/odemeler");
+    revalidatePath("/influencer");
+    revalidateAll();
+    return {
+      ok: true,
+      message:
+        decision === "ONAY"
+          ? "İş onaylandı ve hak edişe aktarıldı."
+          : "Revizyon talebi influencer'a iletildi.",
+    };
+  });
+}
+
 export async function runCampaignStoryAgentAction(
   _prev: ActionState,
   fd: FormData,
@@ -503,4 +595,62 @@ export async function runCampaignStoryAgentAction(
       message: `Otonom Story & Gönderi Ajanı tamamlandı (${scannedDeliverables} içerik metriği güncellendi).`,
     };
   });
+}
+
+/**
+ * Kampanyayı siler (ilişkili bekleyen teklifleri ve takip botlarını temizler).
+ * Eğer kampanyada kilitli finansal hareket / tamamlanmış teslimat varsa güvenli şekilde IPTAL durumuna çeker.
+ */
+export async function deleteCampaignAction(
+  _prev: ActionState,
+  fd: FormData,
+): Promise<ActionState> {
+  const actor = await requireActor("ADMIN", "BRAND");
+  const campaignId = str(fd, "campaignId");
+  const backTo = actor.role === "ADMIN" ? "/admin/kampanyalar" : "/marka/kampanyalar";
+
+  const res = await attempt(async () => {
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true, brandId: true, status: true },
+    });
+    if (!campaign) throw new DomainError("BULUNAMADI", "Kampanya bulunamadı.");
+    if (actor.role === "BRAND" && campaign.brandId !== actor.brandId) {
+      throw new DomainError("YETKISIZ", "Bu kampanyayı silme yetkiniz yok.");
+    }
+
+    await prisma.trackerAgent.deleteMany({
+      where: { scope: "CAMPAIGN", targetId: campaignId },
+    });
+    await prisma.offer.updateMany({
+      where: { campaignId, status: { in: ["GONDERILDI", "KARSI_TEKLIF"] } },
+      data: { status: "GERI_CEKILDI" },
+    });
+
+    try {
+      await prisma.campaign.delete({ where: { id: campaignId } });
+    } catch {
+      // Finansal / metrik kısıtı olan eski kampanyalar güvenli şekilde IPTAL olarak arşivlenir
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: "IPTAL" },
+      });
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "CAMPAIGN_DELETED",
+      entityType: "Campaign",
+      entityId: campaignId,
+      data: { name: campaign.name },
+    });
+
+    revalidateAll();
+    return { ok: true, message: "Kampanya silindi." };
+  });
+
+  if (res.ok) {
+    redirect(backTo);
+  }
+  return res;
 }

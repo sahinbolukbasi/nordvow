@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties, type ElementType, type ReactNode, type PointerEvent } from "react";
 import { cn } from "@/lib/cn";
+import { compact, num } from "@/lib/format";
 
 function prefersReduced() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -75,7 +76,7 @@ export function RotatingWord({ words, interval = 2200 }: { words: string[]; inte
 export function CountUp({ value, format = "compact", suffix = "", duration = 1600 }: { value: number; format?: "compact" | "plain"; suffix?: string; duration?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [n, setN] = useState(0);
-  const fmt = new Intl.NumberFormat("tr-TR", format === "compact" ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 0 });
+  const fmt = format === "compact" ? compact : num;
   useEffect(() => {
     const el = ref.current;
     if (!el) return;

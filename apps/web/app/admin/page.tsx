@@ -285,11 +285,11 @@ export default async function AdminHomePage({ searchParams }: { searchParams: Pr
     copilot: <CopilotHome actor={actor} />,
     kpi: (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label={tt("Aktif kampanya")} value={activeCount} sparkline={sparkActive} hint={tt("Son 8 hafta")} />
-          <MetricCard label={tt("Bekleyen onay")} value={pending.length} sparkline={sparkPending} hint={tt("Yüklenen taslak / hafta")} />
-          <MetricCard label={tt("Geciken teslim")} value={overdue.length} sparkline={sparkOverdue} hint={tt("Geç yayın / hafta")} />
-          <MetricCard label={tt("Ödenecek tutar")} value={payable} format="currency-kurus" sparkline={sparkPayable} hint={tt("Onaylı + ödeme listesinde")} />
-        </div>
+        <MetricCard label={tt("Aktif kampanya")} value={activeCount} sparkline={sparkActive} hint={tt("Son 8 hafta")} />
+        <MetricCard label={tt("Bekleyen onay")} value={pending.length} sparkline={sparkPending} hint={tt("Yüklenen taslak / hafta")} />
+        <MetricCard label={tt("Geciken teslim")} value={overdue.length} sparkline={sparkOverdue} hint={tt("Geç yayın / hafta")} />
+        <MetricCard label={tt("Ödenecek tutar")} value={payable} format="currency-kurus" sparkline={sparkPayable} hint={tt("Onaylı + ödeme listesinde")} />
+      </div>
     ),
     quick: (
       <Card interactive={false} className="flex flex-col gap-3">
@@ -374,13 +374,13 @@ export default async function AdminHomePage({ searchParams }: { searchParams: Pr
                     <span className="flex items-center gap-2">
                       <StatusDot tone={c.status === "AKTIF" ? "active" : "muted"}>{campaignStatusLabels[c.status]}</StatusDot>
                       <Tooltip label={tt("Influencer ekle")}>
-                      <Link
-                        href={`/admin/kampanyalar/${c.id}?sekme=influencerlar`}
-                        aria-label={`${c.name}: influencer ekle`}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-fg-muted hover:bg-surface-hover hover:text-fg"
-                      >
-                        <UserPlusIcon size={15} />
-                      </Link>
+                        <Link
+                          href={`/admin/kampanyalar/${c.id}?sekme=influencerlar`}
+                          aria-label={`${c.name}: influencer ekle`}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-fg-muted hover:bg-surface-hover hover:text-fg"
+                        >
+                          <UserPlusIcon size={15} />
+                        </Link>
                       </Tooltip>
                     </span>
                   </div>
@@ -483,7 +483,7 @@ export default async function AdminHomePage({ searchParams }: { searchParams: Pr
                   <Link href={`/admin/influencerlar/${a.influencer.id}`} className="hover:underline">
                     {a.influencer.name}
                   </Link>
-                  <span className="text-[12px] text-fg-passive">@{a.handle}</span>
+                  <span className="text-[12px] text-fg-passive">@{a.handle.replace(/^@+/, "")}</span>
                 </span>
                 <span className="text-[12px] tabular-nums text-fg-muted">
                   {compact.format(a.followers)} · {pct.format(Number(a.engagementRate))}

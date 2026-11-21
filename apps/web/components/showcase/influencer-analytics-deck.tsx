@@ -9,31 +9,23 @@ import { BarChart, LineChart } from "@/components/charts/charts";
 import { ExternalIcon, SparkleIcon } from "@/components/icons";
 import { StatusDot } from "@/components/ui/status";
 import { cn } from "@/lib/cn";
+import { compact, fmtPctValue, num as intFmt } from "@/lib/format";
 import { fmtDate, fmtDateTime } from "@/lib/time";
 
 type TimeRange = "7d" | "30d" | "90d" | "all";
 type ChartMetric = "followers" | "views_saves" | "er" | "frequency";
 type SectionTab = "genel" | "icerik" | "markalar" | "kitle";
 
-const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
-const intFmt = new Intl.NumberFormat("tr-TR");
-
-function countText(n: number | null | undefined) {
-  if (n == null) return "—";
-  return compact.format(n);
-}
-
 const VERIFICATION_LABEL: Record<InfluencerExplorerReport["verificationStatus"], { label: string; tone: "active" | "muted" | "passive" }> = {
-  META_API: { label: "Meta API doğrulandı", tone: "active" },
-  INSTAGRAM_OAUTH: { label: "Instagram OAuth", tone: "active" },
-  INSTAGRAM_PUBLIC: { label: "Public profil verisi", tone: "muted" },
-  NONE: { label: "Veri yok", tone: "passive" },
+  META_API_VERIFIED: { label: "Meta Graph API Doğrulandı", tone: "active" },
+  HYBRID_API_BOT: { label: "Hibrit (Meta API + Gezgin Bot)", tone: "active" },
+  EXPLORER_BOT: { label: "Instagram Gezgini Otonom Bot Taraması", tone: "muted" },
 };
 
 const SOURCE_BADGE: Record<string, string> = {
-  meta_api: "Meta API doğrulandı",
-  instagram_oauth: "Instagram OAuth",
-  platform_campaign: "Platform kampanyası",
+  meta_api: "Meta Graph API",
+  explorer_bot: "Gezgin Bot (@mention/#reklam)",
+  platform_campaign: "Platform Kampanyası",
 };
 
 export function InfluencerAnalyticsDeck({
@@ -47,7 +39,13 @@ export function InfluencerAnalyticsDeck({
   const [range, setRange] = useState<TimeRange>("30d");
   const [chartMetric, setChartMetric] = useState<ChartMetric>("followers");
   const [activeTab, setActiveTab] = useState<SectionTab>("genel");
+  const [mediaFilter, setMediaFilter] = useState<"ALL" | "REELS" | "POST" | "CAROUSEL" | "STORY">("ALL");
   const [showRawLogs, setShowRawLogs] = useState(false);
+
+  const filteredMedia = useMemo(() => {
+    if (mediaFilter === "ALL") return report.recentMedia;
+    return report.recentMedia.filter((m) => m.mediaType === mediaFilter);
+  }, [report.recentMedia, mediaFilter]);
 
   const filteredSeries = useMemo(() => {
     const all = report.dailySeries;
@@ -59,16 +57,14 @@ export function InfluencerAnalyticsDeck({
 
   const periodStats = useMemo(() => {
     if (!filteredSeries.length) {
-      return { netFollowers: 0, growthPct: 0, avgViews: null as number | null, avgSaves: null as number | null, totalPosts: 0, totalReels: 0, totalStories: 0 };
+      return { netFollowers: 0, growthPct: 0, avgViews: 0, avgSaves: 0, totalPosts: 0, totalReels: 0, totalStories: 0 };
     }
     const first = filteredSeries[0]!.followers;
     const last = filteredSeries[filteredSeries.length - 1]!.followers;
     const netFollowers = last - first;
     const growthPct = first > 0 ? Number(((netFollowers / first) * 100).toFixed(2)) : 0;
-    const viewNums = filteredSeries.map((d) => d.avgViews).filter((n): n is number => n != null);
-    const saveNums = filteredSeries.map((d) => d.avgSaves).filter((n): n is number => n != null);
-    const avgViews = viewNums.length ? Math.round(viewNums.reduce((s, n) => s + n, 0) / viewNums.length) : null;
-    const avgSaves = saveNums.length ? Math.round(saveNums.reduce((s, n) => s + n, 0) / saveNums.length) : null;
+    const avgViews = Math.round(filteredSeries.reduce((s, d) => s + d.avgViews, 0) / filteredSeries.length);
+    const avgSaves = Math.round(filteredSeries.reduce((s, d) => s + d.avgSaves, 0) / filteredSeries.length);
     const totalPosts = filteredSeries.reduce((s, d) => s + d.postsPublished, 0);
     const totalReels = filteredSeries.reduce((s, d) => s + d.reelsPublished, 0);
     const totalStories = filteredSeries.reduce((s, d) => s + d.storiesPublished, 0);
@@ -91,14 +87,16 @@ export function InfluencerAnalyticsDeck({
             </span>
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-fg">{tt("Instagram Gezgini (AI Performans & Kimlik Analizi)")}</h2>
+                <h2 className="text-base font-semibold text-fg">
+                  {isAdmin ? tt("Instagram Gezgini (AI Performans & Kimlik Analizi)") : tt("İçerik Performansı & Kitle Özeti")}
+                </h2>
                 <span className="rounded-full bg-fg px-2.5 py-0.5 text-[11px] font-semibold text-bg">
-                  {report.scores.known && report.scores.overallScore != null ? `${report.scores.priorityTier} · ${report.scores.overallScore}/100` : tt("Skor üretilmedi")}
+                  {report.scores.priorityTier} · {report.scores.overallScore}/100
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
-                <StatusDot tone={verInfo.tone}>{verInfo.label}</StatusDot>
-                <span>· @{report.handle}</span>
+                <StatusDot tone={verInfo.tone}>{isAdmin ? verInfo.label : report.verificationStatus === "EXPLORER_BOT" ? tt("Güncel Profil Verisi") : tt("Doğrulanmış Hesap")}</StatusDot>
+                <span>· @{report.handle.replace(/^@+/, "")}</span>
                 <span>· {tt("Son güncelleme:")} {fmtDateTime(new Date(report.generatedAt))}</span>
               </div>
             </div>
@@ -108,7 +106,7 @@ export function InfluencerAnalyticsDeck({
           <div className="flex flex-wrap items-center gap-2">
             <ActionForm
               action={triggerInfluencerExplorerAction}
-              submitLabel={tt("Canlı Verileri Şimdi Güncelle (Bot/API Tetikle)")}
+              submitLabel={isAdmin ? tt("Canlı Verileri Şimdi Güncelle (Bot/API Tetikle)") : tt("Verileri Yenile")}
               submitVariant="secondary"
               submitSize="sm"
             >
@@ -203,39 +201,43 @@ export function InfluencerAnalyticsDeck({
               <span className="text-xl font-bold tabular-nums text-fg">{report.scores.overallScore} / 100</span>
             </div>
             <div className="flex flex-col gap-2.5">
-              {report.scores.known ? null : <p className="text-[12px] text-fg-muted">{tt("Uydurma uyum skoru gösterilmez. Yalnız doğrulanmış takipçi ve beğeni vardır.")}</p>}
-              {(report.scores.known
-                ? [
-                    { label: tt("Güvenilirlik & Gerçek Kitle"), val: report.scores.reliabilityScore },
-                    { label: tt("İçerik & Yayın İstikrarı"), val: report.scores.consistencyScore },
-                    { label: tt("Kaydetme & Dönüşüm Potansiyeli"), val: report.scores.conversionPotentialScore },
-                    { label: tt("Sponsorlu / Organik Performans Koruma"), val: report.scores.sponsoredRetentionScore },
-                  ]
-                : []
-              ).map((s) => (
+              {[
+                { label: tt("Güvenilirlik & Gerçek Kitle"), val: report.scores.reliabilityScore },
+                { label: tt("İçerik & Yayın İstikrarı"), val: report.scores.consistencyScore },
+                { label: tt("Kaydetme & Dönüşüm Potansiyeli"), val: report.scores.conversionPotentialScore },
+                { label: tt("Sponsorlu / Organik Performans Koruma"), val: report.scores.sponsoredRetentionScore },
+              ].map((s) => (
                 <div key={s.label} className="flex flex-col gap-1">
                   <div className="flex justify-between text-[12px]">
                     <span className="text-fg-muted">{s.label}</span>
-                    <span className="font-semibold tabular-nums text-fg">{s.val == null ? "—" : `%${s.val}`}</span>
+                    <span className="font-semibold tabular-nums text-fg">%{s.val}</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-line">
-                    <div className="h-full rounded-full bg-fg transition-all" style={{ width: `${Math.min(100, s.val ?? 0)}%` }} />
+                    <div className="h-full rounded-full bg-fg transition-all" style={{ width: `${Math.min(100, s.val)}%` }} />
                   </div>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-2 border-t border-line/60 pt-2.5 text-center text-[11px]">
+            <div className="grid grid-cols-1 gap-2 border-t border-line/60 pt-2.5 text-center text-[11px] sm:grid-cols-3">
               <div className="rounded-xl border border-line bg-surface p-2">
                 <span className="block text-fg-muted">{tt("Ort. İzlenme")}</span>
-                <strong className="text-[13px] tabular-nums text-fg">{countText(report.avgReelsViews)}</strong>
+                <strong className="text-[13px] tabular-nums text-fg">
+                  {report.avgReelsViews > 0 ? compact.format(report.avgReelsViews) : tt("Hesap bağlanınca görünür")}
+                </strong>
               </div>
               <div className="rounded-xl border border-line bg-surface p-2">
                 <span className="block text-fg-muted">{tt("Ort. Kaydetme")}</span>
-                <strong className="text-[13px] tabular-nums text-fg">{countText(report.avgSaves)}</strong>
+                <strong className="text-[13px] tabular-nums text-fg">
+                  {report.avgSaves > 0 ? compact.format(report.avgSaves) : tt("Hesap bağlanınca görünür")}
+                </strong>
               </div>
               <div className="rounded-xl border border-line bg-surface p-2">
                 <span className="block text-fg-muted">{tt("Satın Alma Niyeti")}</span>
-                <strong className="text-[13px] tabular-nums text-fg">{report.sentiment.available ? `%${report.sentiment.purchaseIntentPct}` : "—"}</strong>
+                <strong className="text-[13px] tabular-nums text-fg">
+                  {report.verificationStatus === "EXPLORER_BOT" && report.sentiment.purchaseIntentPct === 0
+                    ? tt("OAuth gerekir")
+                    : `%${report.sentiment.purchaseIntentPct}`}
+                </strong>
               </div>
             </div>
           </div>
@@ -316,27 +318,41 @@ export function InfluencerAnalyticsDeck({
             </div>
             <div className="rounded-2xl border border-line bg-bg/40 p-3">
               <span className="text-[11px] text-fg-muted">{tt("Dönem Ort. İzlenme")}</span>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">{countText(periodStats.avgViews)}</p>
-              <span className="text-[11px] text-fg-passive">Reels / Video</span>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
+                {periodStats.avgViews > 0 ? compact.format(periodStats.avgViews) : "—"}
+              </p>
+              <span className="text-[11px] text-fg-passive">
+                {periodStats.avgViews > 0 ? "Reels / Video" : tt("Hesap bağlanınca görünür")}
+              </span>
             </div>
             <div className="rounded-2xl border border-line bg-bg/40 p-3">
               <span className="text-[11px] text-fg-muted">{tt("Dönem Ort. Kaydetme")}</span>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">{countText(periodStats.avgSaves)}</p>
-              <span className="text-[11px] text-fg-passive">Saves / Gönderi</span>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
+                {periodStats.avgSaves > 0 ? compact.format(periodStats.avgSaves) : "—"}
+              </p>
+              <span className="text-[11px] text-fg-passive">
+                {periodStats.avgSaves > 0 ? "Saves / Gönderi" : tt("Hesap bağlanınca görünür")}
+              </span>
             </div>
             <div className="rounded-2xl border border-line bg-bg/40 p-3">
               <span className="text-[11px] text-fg-muted">{tt("Yayınlanan Reels")}</span>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">{periodStats.totalReels}</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
+                {periodStats.totalReels > 0 ? periodStats.totalReels : "—"}
+              </p>
               <span className="text-[11px] text-fg-passive">{tt("dikey video")}</span>
             </div>
             <div className="rounded-2xl border border-line bg-bg/40 p-3">
               <span className="text-[11px] text-fg-muted">{tt("Yayınlanan Gönderi")}</span>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">{periodStats.totalPosts}</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
+                {periodStats.totalPosts > 0 ? periodStats.totalPosts : "—"}
+              </p>
               <span className="text-[11px] text-fg-passive">Post & Carousel</span>
             </div>
             <div className="rounded-2xl border border-line bg-bg/40 p-3">
               <span className="text-[11px] text-fg-muted">{tt("Yayınlanan Story")}</span>
-              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">{periodStats.totalStories}</p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
+                {periodStats.totalStories > 0 ? periodStats.totalStories : "—"}
+              </p>
               <span className="text-[11px] text-fg-passive">24s Hikaye</span>
             </div>
           </div>
@@ -372,7 +388,7 @@ export function InfluencerAnalyticsDeck({
                 <span className="text-[12px] font-medium text-fg">{tt("Toplam Takipçi Gelişimi")}</span>
                 <LineChart
                   label={tt("Toplam takipçi")}
-                  format={(v) => countText(v)}
+                  format={(v) => compact.format(v)}
                   points={filteredSeries.map((d) => ({ label: d.label, value: d.followers }))}
                 />
               </div>
@@ -381,7 +397,7 @@ export function InfluencerAnalyticsDeck({
                 <BarChart
                   label={tt("Günlük takipçi değişimi")}
                   format={(v) => `${v >= 0 ? "+" : ""}${intFmt.format(v)}`}
-                  bars={filteredSeries.slice(-14).map((d) => ({ label: d.label, value: Math.max(0, d.followersDelta) }))}
+                  bars={filteredSeries.slice(-14).map((d) => ({ label: d.label, value: d.followersDelta }))}
                 />
               </div>
             </div>
@@ -391,16 +407,16 @@ export function InfluencerAnalyticsDeck({
                 <span className="text-[12px] font-medium text-fg">{tt("Günlük Ortalama Reels / Video İzlenme (Views)")}</span>
                 <LineChart
                   label={tt("Reels izlenme")}
-                  format={(v) => countText(v)}
-                  points={filteredSeries.flatMap((d) => (d.avgViews == null ? [] : [{ label: d.label, value: d.avgViews }]))}
+                  format={(v) => compact.format(v)}
+                  points={filteredSeries.map((d) => ({ label: d.label, value: d.avgViews }))}
                 />
               </div>
               <div className="flex flex-col gap-2 rounded-2xl border border-line bg-bg/30 p-4">
                 <span className="text-[12px] font-medium text-fg">{tt("Günlük Ortalama Kaydetme (Saves) Sayısı")}</span>
                 <LineChart
                   label={tt("Kaydetme sayısı")}
-                  format={(v) => countText(v)}
-                  points={filteredSeries.flatMap((d) => (d.avgSaves == null ? [] : [{ label: d.label, value: d.avgSaves }]))}
+                  format={(v) => compact.format(v)}
+                  points={filteredSeries.map((d) => ({ label: d.label, value: d.avgSaves }))}
                 />
               </div>
             </div>
@@ -418,8 +434,8 @@ export function InfluencerAnalyticsDeck({
                 <span className="text-[12px] font-medium text-fg">{tt("Günlük Ortalama Beğeni (Likes)")}</span>
                 <LineChart
                   label={tt("Ortalama beğeni")}
-                  format={(v) => countText(v)}
-                  points={filteredSeries.flatMap((d) => (d.avgLikes == null ? [] : [{ label: d.label, value: d.avgLikes }]))}
+                  format={(v) => compact.format(v)}
+                  points={filteredSeries.map((d) => ({ label: d.label, value: d.avgLikes }))}
                 />
               </div>
             </div>
@@ -462,26 +478,26 @@ export function InfluencerAnalyticsDeck({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] font-semibold text-fg">{f.label}</span>
                   <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-semibold text-fg">
-                    {f.erPct == null ? "ER —" : `ER %${f.erPct}`}
+                    ER %{f.erPct}
                   </span>
                 </div>
                 <dl className="grid grid-cols-2 gap-2 text-[12px]">
                   <div>
                     <dt className="text-fg-passive">{tt("Ort. İzlenme")}</dt>
-                    <dd className="font-semibold tabular-nums text-fg">{countText(f.avgViews)}</dd>
+                    <dd className="font-semibold tabular-nums text-fg">{compact.format(f.avgViews)}</dd>
                   </div>
                   <div>
                     <dt className="text-fg-passive">{tt("Ort. Kaydetme")}</dt>
-                    <dd className="font-semibold tabular-nums text-fg">{countText(f.avgSaves)}</dd>
+                    <dd className="font-semibold tabular-nums text-fg">{compact.format(f.avgSaves)}</dd>
                   </div>
                   <div>
                     <dt className="text-fg-passive">{tt("Ort. Beğeni")}</dt>
-                    <dd className="font-semibold tabular-nums text-fg">{countText(f.avgLikes)}</dd>
+                    <dd className="font-semibold tabular-nums text-fg">{compact.format(f.avgLikes)}</dd>
                   </div>
                   <div>
                     <dt className="text-fg-passive">{tt("Ort. Yorum / Paylaşım")}</dt>
                     <dd className="font-semibold tabular-nums text-fg">
-                      {countText(f.avgComments)} / {countText(f.avgShares)}
+                      {compact.format(f.avgComments)} / {compact.format(f.avgShares)}
                     </dd>
                   </div>
                 </dl>
@@ -492,12 +508,31 @@ export function InfluencerAnalyticsDeck({
             ))}
           </div>
 
-          {/* Son Gönderiler & Reels Detay Tablosu */}
-          <div className="flex flex-col gap-2">
-            <h4 className="text-sm font-semibold text-fg">{tt("Son Paylaşılan Gönderi ve Reels Performansları")}</h4>
-            <div className="overflow-x-auto rounded-2xl border border-line">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-fg/[0.03] text-left text-[12px] text-fg-muted">
+          {/* Son 50 Gönderi, Reels & Hikâye Detay Tablosu */}
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-fg">
+                {tt("Son Paylaşımlar (Reels, Post, Carousel, Hikâye)")} · {filteredMedia.length}
+              </h4>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(["ALL", "REELS", "POST", "CAROUSEL", "STORY"] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => setMediaFilter(fmt)}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[11px] font-semibold transition-standard",
+                      mediaFilter === fmt ? "bg-fg text-bg" : "border border-line bg-bg text-fg-muted hover:text-fg",
+                    )}
+                  >
+                    {fmt === "ALL" ? tt("Tümü") : fmt}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="max-h-[560px] overflow-auto rounded-2xl border border-line">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="sticky top-0 z-10 bg-surface text-left text-[12px] text-fg-muted shadow-xs">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">{tt("Tür")}</th>
                     <th className="px-4 py-2.5 font-medium">{tt("İçerik / Açıklama")}</th>
@@ -510,30 +545,74 @@ export function InfluencerAnalyticsDeck({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
-                  {report.recentMedia.map((m) => (
-                    <tr key={m.id} className="align-top">
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <span className="rounded-full border border-line bg-bg px-2.5 py-0.5 text-[11px] font-semibold text-fg">
-                          {m.mediaType}
-                        </span>
-                        {m.isSponsored ? (
-                          <span className="ml-1.5 rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
-                            {m.detectedBrand ?? tt("İşbirliği")}
-                          </span>
-                        ) : null}
+                  {filteredMedia.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-6 text-center text-[13px] text-fg-muted">
+                        {mediaFilter === "STORY"
+                          ? tt("Aktif hikâye (Story) verisi yalnızca içerik üreticisi Instagram OAuth bağlantısı yaptığında 24 saatlik pencereden çekilebilir.")
+                          : tt("Bu formatta paylaşım kaydı bulunamadı.")}
                       </td>
-                      <td className="max-w-xs px-4 py-2.5">
-                        <p className="line-clamp-2 text-[12px] text-fg">{m.caption}</p>
-                        <span className="text-[11px] text-fg-passive">{fmtDate(new Date(m.publishedAt))}</span>
-                      </td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums">{countText(m.views)}</td>
-                      <td className="px-4 py-2.5 tabular-nums">{countText(m.likes)}</td>
-                      <td className="px-4 py-2.5 tabular-nums">{countText(m.comments)}</td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums text-fg">{countText(m.saves)}</td>
-                      <td className="px-4 py-2.5 tabular-nums text-fg-muted">{countText(m.shares)}</td>
-                      <td className="px-4 py-2.5 font-semibold tabular-nums">{m.erPct == null ? "—" : `%${m.erPct.toFixed(2)}`}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredMedia.map((m) => (
+                      <tr key={m.id} className="align-top">
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <span className="rounded-full border border-line bg-bg px-2.5 py-0.5 text-[11px] font-semibold text-fg">
+                            {m.mediaType}
+                          </span>
+                          {m.isSponsored ? (
+                            <span className="ml-1.5 rounded-full bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg">
+                              {m.detectedBrand ?? tt("İşbirliği")}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="max-w-sm px-4 py-2.5">
+                          <div className="flex items-start gap-2.5">
+                            {m.thumbnailUrl ? (
+                              <img
+                                src={m.thumbnailUrl}
+                                alt=""
+                                loading="lazy"
+                                className="h-11 w-11 shrink-0 rounded-lg border border-line object-cover"
+                              />
+                            ) : null}
+                            <div className="min-w-0 flex-1">
+                              <p className="line-clamp-2 text-[12px] text-fg">{m.caption}</p>
+                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-passive">
+                                <span>{fmtDate(new Date(m.publishedAt))}</span>
+                                {m.permalink ? (
+                                  <a
+                                    href={m.permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-fg-muted underline hover:text-fg"
+                                  >
+                                    Instagram <ExternalIcon size={10} />
+                                  </a>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums">{m.views > 0 ? compact.format(m.views) : "—"}</td>
+                        <td className="px-4 py-2.5 tabular-nums">{compact.format(m.likes)}</td>
+                        <td className="px-4 py-2.5 tabular-nums">
+                          {compact.format(m.comments)}
+                          {m.likes > 20 && m.comments / m.likes > 0.35 ? (
+                            <span
+                              title={tt("Yorum/beğeni oranı olağandışı yüksek; incelenebilir")}
+                              className="ml-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
+                            >
+                              {tt("İncelenebilir")}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums text-fg">{m.saves > 0 ? compact.format(m.saves) : "—"}</td>
+                        <td className="px-4 py-2.5 tabular-nums text-fg-muted">{m.shares > 0 ? compact.format(m.shares) : "—"}</td>
+                        <td className="px-4 py-2.5 font-semibold tabular-nums">{fmtPctValue(m.erPct)}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -552,7 +631,8 @@ export function InfluencerAnalyticsDeck({
               </p>
             </div>
             <span className="rounded-full border border-line bg-bg px-3 py-1 text-[12px] font-semibold text-fg">
-              {tt("Sponsorlu Performans Koruma:")} %{report.organicVsSponsored.performanceRetentionPct}
+              {tt("Sponsorlu Performans Koruma:")}{" "}
+              {report.scores.sponsoredRetentionScore > 0 ? `%${report.scores.sponsoredRetentionScore}` : tt("Ölçülmedi")}
             </span>
           </div>
 
@@ -567,25 +647,25 @@ export function InfluencerAnalyticsDeck({
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. İzlenme")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.organicAvgViews)}
+                    {report.organicVsSponsored.organicAvgViews > 0 ? compact.format(report.organicVsSponsored.organicAvgViews) : "—"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. Beğeni")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.organicAvgLikes)}
+                    {report.organicVsSponsored.organicAvgLikes > 0 ? compact.format(report.organicVsSponsored.organicAvgLikes) : "—"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. Kaydetme")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.organicAvgSaves)}
+                    {report.organicVsSponsored.organicAvgSaves > 0 ? compact.format(report.organicVsSponsored.organicAvgSaves) : "—"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Organik ER%")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {report.organicVsSponsored.organicErPct == null ? "—" : `%${report.organicVsSponsored.organicErPct.toFixed(2)}`}
+                    {fmtPctValue(report.organicVsSponsored.organicErPct)}
                   </dd>
                 </div>
               </dl>
@@ -600,25 +680,25 @@ export function InfluencerAnalyticsDeck({
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. İzlenme")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.sponsoredAvgViews)}
+                    {compact.format(report.organicVsSponsored.sponsoredAvgViews)}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. Beğeni")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.sponsoredAvgLikes)}
+                    {compact.format(report.organicVsSponsored.sponsoredAvgLikes)}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Ort. Kaydetme")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {countText(report.organicVsSponsored.sponsoredAvgSaves)}
+                    {compact.format(report.organicVsSponsored.sponsoredAvgSaves)}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] text-fg-passive">{tt("Sponsorlu ER%")}</dt>
                   <dd className="text-base font-semibold tabular-nums text-fg">
-                    {report.organicVsSponsored.sponsoredErPct == null ? "—" : `%${report.organicVsSponsored.sponsoredErPct.toFixed(2)}`}
+                    %{report.organicVsSponsored.sponsoredErPct.toFixed(2)}
                   </dd>
                 </div>
               </dl>
@@ -654,10 +734,10 @@ export function InfluencerAnalyticsDeck({
                       </span>
                       <span className="ml-1.5 text-[11px] text-fg-passive">{b.disclosureTag}</span>
                     </td>
-                    <td className="px-4 py-2.5 font-semibold tabular-nums">{countText(b.views)}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{countText(b.likes)}</td>
-                    <td className="px-4 py-2.5 font-semibold tabular-nums">{countText(b.saves)}</td>
-                    <td className="px-4 py-2.5 font-semibold tabular-nums">{b.erPct == null ? "—" : `%${b.erPct.toFixed(2)}`}</td>
+                    <td className="px-4 py-2.5 font-semibold tabular-nums">{compact.format(b.views)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{compact.format(b.likes)}</td>
+                    <td className="px-4 py-2.5 font-semibold tabular-nums">{compact.format(b.saves)}</td>
+                    <td className="px-4 py-2.5 font-semibold tabular-nums">%{b.erPct.toFixed(2)}</td>
                     <td className="px-4 py-2.5 text-[11px] text-fg-muted">
                       <span className="block text-fg">{SOURCE_BADGE[b.source] ?? b.source}</span>
                       <span>{fmtDate(new Date(b.lastWorkedAt))}</span>
@@ -694,22 +774,33 @@ export function InfluencerAnalyticsDeck({
             {/* Yorum Duygu Analizi */}
             <div className="flex flex-col gap-3 rounded-2xl border border-line bg-bg/40 p-4">
               <span className="text-sm font-semibold text-fg">{tt("Gönderi Yorumları NLP Duygu Dağılımı")}</span>
-              {[
-                { label: tt("Pozitif & Beğeni Yorumları"), val: report.sentiment.positivePct },
-                { label: tt("Satın Alma Niyeti Taşıyan Yorumlar ('link', 'fiyat', 'kod')"), val: report.sentiment.purchaseIntentPct },
-                { label: tt("Nötr / Emoji Yorumları"), val: report.sentiment.neutralPct },
-                { label: tt("Negatif / Şikayet Yorumları"), val: report.sentiment.negativePct },
-              ].map((s) => (
-                <div key={s.label} className="flex flex-col gap-1">
-                  <div className="flex justify-between text-[12px]">
-                    <span className="text-fg-muted">{s.label}</span>
-                    <span className="font-semibold tabular-nums text-fg">{s.val == null ? "—" : `%${s.val}`}</span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-line">
-                    <div className="h-full rounded-full bg-fg" style={{ width: `${Math.min(100, s.val ?? 0)}%` }} />
-                  </div>
-                </div>
-              ))}
+              {report.sentiment.positivePct === 0 &&
+                report.sentiment.purchaseIntentPct === 0 &&
+                report.sentiment.neutralPct === 0 &&
+                report.sentiment.negativePct === 0 ? (
+                <p className="rounded-xl border border-dashed border-line px-3 py-4 text-xs text-fg-muted">
+                  {tt("Yorum metni duygu analizi için üreticinin Instagram OAuth bağlantısını onaylaması gerekir.")}
+                </p>
+              ) : (
+                <>
+                  {[
+                    { label: tt("Pozitif & Beğeni Yorumları"), val: report.sentiment.positivePct },
+                    { label: tt("Satın Alma Niyeti Taşıyan Yorumlar ('link', 'fiyat', 'kod')"), val: report.sentiment.purchaseIntentPct },
+                    { label: tt("Nötr / Emoji Yorumları"), val: report.sentiment.neutralPct },
+                    { label: tt("Negatif / Şikayet Yorumları"), val: report.sentiment.negativePct },
+                  ].map((s) => (
+                    <div key={s.label} className="flex flex-col gap-1">
+                      <div className="flex justify-between text-[12px]">
+                        <span className="text-fg-muted">{s.label}</span>
+                        <span className="font-semibold tabular-nums text-fg">%{s.val}</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-line">
+                        <div className="h-full rounded-full bg-fg" style={{ width: `${Math.min(100, s.val)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
               <div className="mt-1 flex flex-wrap gap-1.5 border-t border-line/60 pt-2.5">
                 <span className="text-[11px] text-fg-passive">{tt("Sık Geçen İfadeler:")}</span>
                 {report.sentiment.topKeywords.map((kw) => (

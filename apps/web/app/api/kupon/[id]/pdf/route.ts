@@ -31,8 +31,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     { label: "Geçerlilik", value: coupon.validUntil ? `Son kullanım: ${dateLong(coupon.validUntil)}` : "Süresiz" },
   ];
   const sections: { title: string; body: string }[] = [];
-  if (coupon.description) sections.push({ title: "Açıklama", body: coupon.description.slice(0, 500) });
-  if (coupon.terms) sections.push({ title: "Kullanım koşulları", body: coupon.terms.slice(0, 800) });
+  if (coupon.description) {
+    const desc = coupon.description.trim();
+    sections.push({ title: "Açıklama", body: desc.length > 160 ? `${desc.slice(0, 157)}...` : desc });
+  }
+  if (coupon.terms) {
+    const terms = coupon.terms.trim();
+    sections.push({ title: "Kullanım koşulları", body: terms.length > 220 ? `${terms.slice(0, 217)}...` : terms });
+  }
 
   const pdf = await renderPassPdf({
     kicker: kind,

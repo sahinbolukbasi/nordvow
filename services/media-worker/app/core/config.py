@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: Optional[str] = None
     
-    # Security
-    INTERNAL_API_SECRET: str = "nordvow-internal-secure-key"
+    # Security — ortam değişkeninden zorunlu gelir, kodda sabit anahtar tutulmaz
+    INTERNAL_API_SECRET: str = ""
     
     model_config = SettingsConfigDict(
         env_file=".env",

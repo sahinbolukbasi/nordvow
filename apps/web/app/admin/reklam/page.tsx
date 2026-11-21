@@ -27,7 +27,7 @@ export default async function AdminAdsPage({ searchParams }: { searchParams: Pro
     getConfig("meta.ads.quota"),
     prisma.adBudgetChange.findMany({ orderBy: { requestedAt: "desc" }, take: 40 }),
     prisma.partnershipAdCode.findMany({ orderBy: { createdAt: "desc" }, take: 40 }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.generatedAsset.findMany({ orderBy: { createdAt: "desc" }, take: 20, select: { id: true, modelKey: true, tenantId: true, createdAt: true } }),
     prisma.adDraft.count({ where: { status: "ONAY_BEKLIYOR" } }),
   ]);

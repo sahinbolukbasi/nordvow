@@ -41,7 +41,7 @@ export function Composer({
             </option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name} · {t.category}
+                {t.name} · {t.category === "utility" ? "Bilgilendirme" : t.category === "marketing" ? "Pazarlama" : t.category === "authentication" ? "Doğrulama" : t.category}
               </option>
             ))}
           </Select>)}
@@ -139,9 +139,10 @@ export function EnableAgentButton({ agentKey }: { agentKey: string }) {
   );
 }
 
-export function KnowledgeForm() {
+export function KnowledgeForm({ tenantId }: { tenantId?: string }) {
   return (
     <ActionForm action={addKnowledge} resetOnSuccess submitLabel="Bilgi tabanına ekle" aria-label="Bilgi ekle">
+      {tenantId ? <input type="hidden" name="tenantId" value={tenantId} /> : null}
       <Field label="Başlık">
         {(p) => <Input {...p} name="title" required maxLength={140} />}
       </Field>
@@ -154,23 +155,23 @@ export function KnowledgeForm() {
 
 export function TemplateForm() {
   return (
-    <ActionForm action={createTemplate} resetOnSuccess submitLabel="İncelemeye gönder" aria-label="Template oluştur">
+    <ActionForm action={createTemplate} resetOnSuccess submitLabel="İncelemeye gönder" aria-label="Şablon oluştur">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Ad">
           {(p) => <Input {...p} name="name" required pattern="[a-z0-9_]{3,60}" />}
         </Field>
         <Field label="Kategori">
           {(p) => (<Select {...p} name="category" defaultValue="utility">
-            <option value="utility">utility</option>
-            <option value="marketing">marketing</option>
-            <option value="authentication">authentication</option>
+            <option value="utility">Bilgilendirme</option>
+            <option value="marketing">Pazarlama</option>
+            <option value="authentication">Doğrulama</option>
           </Select>)}
         </Field>
       </div>
       <Field label="Metin">
         {(p) => <Textarea {...p} name="body" rows={3} required maxLength={1024} />}
       </Field>
-      <p className="text-[13px] text-fg-muted">Promosyon unsuru (indirim, kupon…) içeren utility template ticari ileti sayılır ve İYS onayı gerektirir.</p>
+      <p className="text-[13px] text-fg-muted">Promosyon unsuru (indirim, kupon…) içeren bilgilendirme şablonu ticari ileti sayılır ve İYS onayı gerektirir.</p>
     </ActionForm>
   );
 }
@@ -218,14 +219,14 @@ export function KvkkForms({ signed, missing }: { signed: boolean; missing: { key
       ) : null}
       {signed
         ? missing.map((m) => (
-            <ActionForm key={m.key} action={kvkkAction} submitLabel="Makbuzu kaydet" submitSize="sm" aria-label={`${m.label} makbuzu`}>
-              <input type="hidden" name="op" value="receipt" />
-              <input type="hidden" name="target" value={m.key} />
-              <Field label={`${m.label} — bildirim makbuzu (dosya anahtarı)`}>
-                {(p) => <Input {...p} name="s3Key" required placeholder="kvkk/…/makbuz.pdf" />}
-              </Field>
-            </ActionForm>
-          ))
+          <ActionForm key={m.key} action={kvkkAction} submitLabel="Makbuzu kaydet" submitSize="sm" aria-label={`${m.label} makbuzu`}>
+            <input type="hidden" name="op" value="receipt" />
+            <input type="hidden" name="target" value={m.key} />
+            <Field label={`${m.label} — bildirim makbuzu (dosya anahtarı)`}>
+              {(p) => <Input {...p} name="s3Key" required placeholder="kvkk/…/makbuz.pdf" />}
+            </Field>
+          </ActionForm>
+        ))
         : null}
       <ActionForm action={kvkkAction} aria-label="Canlıya geç">
         <input type="hidden" name="op" value="production" />

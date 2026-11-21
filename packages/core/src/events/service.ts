@@ -15,6 +15,11 @@ export type CreateEventInput = {
   venueName?: string | null;
   address?: string | null;
   city?: string | null;
+  countryId?: string | null;
+  cityId?: string | null;
+  timezone?: string | null;
+  priceMinor?: number | null;
+  currency?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   startsAt: Date;
@@ -36,6 +41,11 @@ export async function createEvent(input: CreateEventInput) {
       venueName: input.venueName ?? null,
       address: input.address ?? null,
       city: input.city ?? null,
+      countryId: input.countryId ?? null,
+      cityId: input.cityId ?? null,
+      timezone: input.timezone ?? null,
+      priceMinor: input.priceMinor ?? null,
+      currency: input.currency ?? null,
       latitude: input.latitude ?? null,
       longitude: input.longitude ?? null,
       startsAt: input.startsAt,
@@ -139,11 +149,80 @@ export async function respondInvite(inviteId: string, accept: boolean, holderNam
 }
 
 /** QR jetonuyla bileti doğrular ve giriş yapar (idempotent: ikinci kez KULLANILDI döner). */
-export async function checkInTicket(code: string) {
-  const ticket = await prisma.eventTicket.findUnique({ where: { code }, include: { event: { select: { title: true, status: true } } } });
+export async function checkInTicket(codeOrUrl: string, eventId?: string) {
+  const raw = codeOrUrl.trim();
+  const tktMatch = raw.match(/TKT-[A-Z0-9]+/i);
+  const normalizedCode = (tktMatch ? tktMatch[0] : raw).toUpperCase();
+  const biletIdMatch = raw.match(/\/bilet\/([a-z0-9]+)/i);
+  const ticket =
+    (await prisma.eventTicket.findUnique({
+      where: { code: normalizedCode },
+      include: { event: { select: { id: true, title: true, status: true } } },
+    })) ??
+    (biletIdMatch
+      ? await prisma.eventTicket.findUnique({
+          where: { id: biletIdMatch[1] },
+          include: { event: { select: { id: true, title: true, status: true } } },
+        })
+      : null);
   if (!ticket) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+  if (eventId && ticket.eventId !== eventId) {
+    throw new DomainError("KURAL_IHLALI", `Bu bilet farklı bir etkinliğe ait (${ticket.event.title}).`);
+  }
   if (ticket.status === "IPTAL") throw new DomainError("KURAL_IHLALI", "Bilet iptal edilmiş.");
   if (ticket.status === "KULLANILDI") return { ok: false as const, alreadyUsed: true, ticket };
   const updated = await prisma.eventTicket.update({ where: { id: ticket.id }, data: { status: "KULLANILDI", checkedInAt: new Date() } });
   return { ok: true as const, alreadyUsed: false, ticket: { ...ticket, ...updated } };
+}
+
+/** Kapıdan / yönetim panelinden tek adımda misafir + geçerli bilet ekler. */
+export async function issueQuickTicket(input: { eventId: string; holderName: string; guestEmail?: string | null }) {
+  const name = input.holderName.trim();
+  if (name.length < 2) throw new DomainError("DOGRULAMA", "Katılımcı adı en az 2 karakter olmalı.");
+  const event = await prisma.event.findUnique({ where: { id: input.eventId }, select: { id: true, status: true, capacity: true } });
+  if (!event) throw new DomainError("BULUNAMADI", "Etkinlik bulunamadı.");
+  if (event.status === "IPTAL") throw new DomainError("KURAL_IHLALI", "İptal edilmiş etkinliğe bilet eklenemez.");
+  if (event.capacity != null) {
+    const issued = await prisma.eventTicket.count({ where: { eventId: event.id, status: { not: "IPTAL" } } });
+    if (issued >= event.capacity) throw new DomainError("KURAL_IHLALI", "Etkinlik kapasitesi doldu.");
+  }
+  return prisma.$transaction(async (tx) => {
+    const invite = await tx.eventInvite.create({
+      data: {
+        eventId: event.id,
+        guestName: name,
+        guestEmail: input.guestEmail?.trim() || null,
+        status: "KABUL",
+        respondedAt: new Date(),
+      },
+    });
+    return tx.eventTicket.create({
+      data: {
+        eventId: event.id,
+        inviteId: invite.id,
+        holderName: name,
+        code: uniqueCode("TKT"),
+      },
+    });
+  });
+}
+
+/** Yanlışlıkla okutulan bileti tekrar geçerli (bekleniyor) durumuna alır. */
+export async function undoCheckInTicket(ticketId: string) {
+  const ticket = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { id: true, status: true } });
+  if (!ticket) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+  if (ticket.status === "IPTAL") throw new DomainError("KURAL_IHLALI", "İptal edilmiş bilet geri alınamaz.");
+  return prisma.eventTicket.update({ where: { id: ticketId }, data: { status: "GECERLI", checkedInAt: null } });
+}
+
+/** Bileti iptal eder. */
+export async function cancelEventTicket(ticketId: string) {
+  const ticket = await prisma.eventTicket.findUnique({ where: { id: ticketId }, select: { id: true, inviteId: true } });
+  if (!ticket) throw new DomainError("BULUNAMADI", "Bilet bulunamadı.");
+  return prisma.$transaction(async (tx) => {
+    if (ticket.inviteId) {
+      await tx.eventInvite.update({ where: { id: ticket.inviteId }, data: { status: "IPTAL" } });
+    }
+    return tx.eventTicket.update({ where: { id: ticketId }, data: { status: "IPTAL" } });
+  });
 }

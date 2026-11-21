@@ -5,7 +5,8 @@ export type DomainErrorCode =
   | "DOGRULAMA"
   | "CAKISMA"
   | "YETERSIZ_BAKIYE"
-  | "KURAL_IHLALI";
+  | "KURAL_IHLALI"
+  | "SUNUCU_HATASI";
 
 /** Kullanıcıya gösterilebilir, Türkçe mesajlı alan hatası. */
 export class DomainError extends Error {

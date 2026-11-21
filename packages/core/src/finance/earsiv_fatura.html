@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{faturaNo}} — e-Arşiv Fatura</title>
+  <!--
+    GİB e-Arşiv Portal varsayılan görselinin (UBL-TR general.xslt) HTML/CSS karşılığı.
+    YASAL UYARI: Bu dosya yalnızca görsel bir şablondur. Tek başına geçerli bir e-Arşiv
+    fatura oluşturmaz. Yasal fatura, GİB e-Arşiv Portalı veya yetkili bir özel entegratör
+    üzerinden, mali mühür / e-imza ile imzalanmış UBL-TR XML ve ETTN ile düzenlenir.
+
+    Kullanım (Handlebars / Mustache benzeri):
+      const html = Handlebars.compile(template)(data);
+    Yer tutucular ve örnek veri: earsiv_fatura_ornek.json
+    Resmi etiketler general.xslt ile birebir tutulmuştur (KDV varsayılanı %20).
+  -->
+  <style>
+    @page { size: A4; margin: 15mm 14mm 16mm 14mm; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: #fff;
+      font-family: Tahoma, "Times New Roman", Times, serif;
+      font-size: 11px;
+      color: #666;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .sayfa {
+      position: relative;
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 18mm 15mm 16mm 15mm;
+      background: #fff;
+    }
+    h1 {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 1.4em;
+      font-weight: bold;
+      text-transform: none;
+      color: #666;
+      margin: 6px 0 0;
+      padding: 3px 0;
+    }
+    hr.ayrac {
+      border: 0;
+      height: 2px;
+      background: #000;
+      margin: 6px 0;
+    }
+    table { border-spacing: 0; border-collapse: collapse; }
+    .ust { width: 100%; }
+    .ust td { vertical-align: top; }
+    .satici { width: 40%; }
+    .satici-ic { width: 100%; }
+    .satici-ic td { text-align: left; padding: 1px 0; color: #666; }
+    .logo-hucre { width: 22%; text-align: center; vertical-align: middle; padding-top: 12px; }
+    .logo-svg, .logo-rozet { display: inline-block; width: 91px; height: 91px; vertical-align: middle; }
+    .logo-rozet {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      border: 3px solid #1a3a6b;
+      box-shadow: inset 0 0 0 4px #c9a227;
+      background: #eef2f7;
+      color: #1a3a6b;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: 1px;
+      line-height: 1;
+    }
+    .qr-hucre { text-align: right; vertical-align: top; padding-top: 8px; }
+    #qrcode, .qr-kutu {
+      display: inline-block;
+      width: 150px;
+      height: 150px;
+      vertical-align: top;
+    }
+    .qr-kutu {
+      border: 1px solid #999;
+      background:
+        repeating-linear-gradient(0deg, #ddd 0 4px, #fff 4px 8px),
+        repeating-linear-gradient(90deg, #ddd 0 4px, #fff 4px 8px);
+      background-blend-mode: multiply;
+      color: #333;
+      text-align: center;
+      line-height: 150px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    #qrcode img { width: 150px; height: 150px; display: block; }
+    .orta { width: 100%; margin-top: 4px; }
+    .orta td { vertical-align: top; }
+    .alici { width: 58%; }
+    .alici-ic { width: 100%; }
+    .alici-ic td { text-align: left; padding: 1px 0; }
+    .meta-hucre { text-align: right; }
+    #despatchTable {
+      border-collapse: collapse;
+      font-size: 11px;
+      float: right;
+      border: 1px solid gray;
+      min-width: 230px;
+    }
+    #despatchTable td {
+      border: 1px solid gray;
+      padding: 2px 6px;
+      height: 16px;
+      color: #666;
+    }
+    #despatchTable td.etiket { font-weight: bold; text-align: left; white-space: nowrap; width: 110px; }
+    #despatchTable td.deger { text-align: left; }
+    #ettnTable { font-size: 11px; padding: 8px 0 10px; color: #666; }
+    #lineTable {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      border: 2px solid #000;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+    #lineTable th, #lineTable td {
+      border: 1px solid #000;
+      padding: 3px 3px;
+      background: #fff;
+      color: #000;
+      vertical-align: middle;
+    }
+    #lineTable thead th {
+      font-weight: bold;
+      text-align: center;
+      color: #000;
+      font-size: 10px;
+    }
+    #lineTable td.mal { text-align: left; }
+    #lineTable td.sayi { text-align: right; white-space: nowrap; }
+    #lineTable td.orta { text-align: center; white-space: nowrap; }
+    #lineTable td.sira { text-align: center; width: 28px; }
+    #lineTable col.c-sira { width: 6%; }
+    #lineTable col.c-mal { width: 32%; }
+    #lineTable col.c-miktar { width: 7%; }
+    #lineTable col.c-fiyat { width: 9%; }
+    #lineTable col.c-isk { width: 8%; }
+    #lineTable col.c-kdv { width: 7%; }
+    #lineTable col.c-diger { width: 7%; }
+    #lineTable col.c-tut { width: 10%; }
+    .alt { width: 100%; margin-top: 10px; }
+    .alt td { vertical-align: top; }
+    #notesTable {
+      width: 100%;
+      border: 2px solid #000;
+      border-collapse: collapse;
+      min-height: 90px;
+    }
+    #notesTable td {
+      border: 0;
+      padding: 8px 10px;
+      color: #000;
+      font-size: 11px;
+      vertical-align: top;
+    }
+    .not-satir { margin: 0 0 4px; }
+    .toplam-tablo {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #000;
+      float: right;
+    }
+    .toplam-tablo td {
+      border: 2px solid #000;
+      padding: 3px 6px;
+      color: #000;
+      font-size: 11px;
+    }
+    .toplam-tablo td.etiket { font-weight: bold; text-align: left; }
+    .toplam-tablo td.tutar { text-align: right; white-space: nowrap; width: 110px; }
+    .filigran {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 20;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 92px;
+      font-weight: 800;
+      letter-spacing: 8px;
+      color: rgba(180, 20, 20, 0.13);
+      transform: rotate(-32deg);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .uyari-bant {
+      text-align: center;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10px;
+      font-weight: bold;
+      color: #a00;
+      margin: 0 0 6px;
+      letter-spacing: 0.3px;
+    }
+    @media print {
+      body { background: #fff; }
+      .sayfa { width: auto; min-height: 0; margin: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sayfa">
+    {{#if ornekFiligran}}
+    <div class="filigran">ÖRNEK</div>
+    <div class="uyari-bant">ÖRNEK FATURADIR — YASAL GEÇERLİLİĞİ YOKTUR — TEST / ÖNİZLEME</div>
+    {{/if}}
+
+    <table class="ust" border="0" cellspacing="0" cellpadding="0">
+      <tr>
+        <td class="satici">
+          <hr class="ayrac">
+          <table class="satici-ic" border="0" width="100%">
+            <tr><td>{{satici.unvan}}</td></tr>
+            <tr>
+              <td>
+                {{satici.adres}}{{#if satici.binaNo}} No:{{satici.binaNo}}{{/if}}<br>
+                {{satici.postaKodu}} {{satici.ilce}}/ {{satici.il}}
+              </td>
+            </tr>
+            {{#if satici.tel}}
+            <tr>
+              <td>Tel: {{satici.tel}}{{#if satici.fax}} Fax: {{satici.fax}}{{/if}}</td>
+            </tr>
+            {{/if}}
+            {{#if satici.web}}
+            <tr><td>Web Sitesi: {{satici.web}}</td></tr>
+            {{/if}}
+            {{#if satici.eposta}}
+            <tr><td>E-Posta: {{satici.eposta}}</td></tr>
+            {{/if}}
+            <tr><td>Vergi Dairesi: {{satici.vergiDairesi}}</td></tr>
+            {{#each satici.kimlikler}}
+            <tr><td>{{schemeID}}: {{id}}</td></tr>
+            {{/each}}
+          </table>
+          <hr class="ayrac">
+        </td>
+        <td class="logo-hucre">
+          <!-- Resmi GİB amblemi kopyalanmadı; yer tutucu rozet. Resmi logo general.xslt içindedir. -->
+          {{#if logoDataUrl}}
+          <img src="{{logoDataUrl}}" alt="E-Fatura Logo" style="width:91px;">
+          {{else}}
+          <svg class="logo-svg" width="91" height="91" viewBox="0 0 91 91" xmlns="http://www.w3.org/2000/svg" aria-label="GİB logo yer tutucu">
+            <circle cx="45.5" cy="45.5" r="43.5" fill="#eef2f7" stroke="#1a3a6b" stroke-width="3"/>
+            <circle cx="45.5" cy="45.5" r="36" fill="none" stroke="#c9a227" stroke-width="3"/>
+            <text x="45.5" y="50" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#1a3a6b">GİB</text>
+            <text x="45.5" y="66" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="6.5" fill="#6a5a20">yer tutucu</text>
+          </svg>
+          {{/if}}
+          <h1>e-Arşiv Fatura</h1>
+        </td>
+        <td class="qr-hucre">
+          <div id="qrcode">
+            {{#if karekodDataUrl}}
+            <img src="{{karekodDataUrl}}" width="150" height="150" alt="Karekod">
+            {{else}}
+            <div class="qr-kutu">KAREKOD</div>
+            {{/if}}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <table class="orta" border="0" cellspacing="0" cellpadding="0">
+      <tr>
+        <td class="alici">
+          <hr class="ayrac">
+          <table class="alici-ic" border="0">
+            <tr><td><span style="font-weight:bold;">SAYIN</span></td></tr>
+            <tr><td>{{alici.unvan}}</td></tr>
+            <tr>
+              <td>
+                {{alici.adres}}{{#if alici.binaNo}} No:{{alici.binaNo}}{{/if}}<br>
+                {{alici.postaKodu}} {{alici.ilce}}/ {{alici.il}}
+              </td>
+            </tr>
+            {{#if alici.vergiDairesi}}
+            <tr><td>Vergi Dairesi: {{alici.vergiDairesi}}</td></tr>
+            {{/if}}
+            {{#each alici.kimlikler}}
+            <tr><td>{{schemeID}}: {{id}}</td></tr>
+            {{/each}}
+          </table>
+          <hr class="ayrac">
+          <div id="ettnTable"><span style="font-weight:bold;">ETTN:&nbsp;</span>{{ettn}}</div>
+        </td>
+        <td class="meta-hucre">
+          <table id="despatchTable">
+            <tr>
+              <td class="etiket">Özelleştirme No:</td>
+              <td class="deger">{{ozellestirmeNo}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Senaryo:</td>
+              <td class="deger">{{senaryo}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Fatura Tipi:</td>
+              <td class="deger">{{faturaTipi}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Fatura No:</td>
+              <td class="deger">{{faturaNo}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Fatura Tarihi:</td>
+              <td class="deger">{{faturaTarihi}}</td>
+            </tr>
+            {{#if irsaliyeNo}}
+            <tr>
+              <td class="etiket">İrsaliye No:</td>
+              <td class="deger">{{irsaliyeNo}}</td>
+            </tr>
+            {{/if}}
+            {{#if irsaliyeTarihi}}
+            <tr>
+              <td class="etiket">İrsaliye Tarihi:</td>
+              <td class="deger">{{irsaliyeTarihi}}</td>
+            </tr>
+            {{/if}}
+            {{#if siparisNo}}
+            <tr>
+              <td class="etiket">Sipariş No:</td>
+              <td class="deger">{{siparisNo}}</td>
+            </tr>
+            {{/if}}
+            {{#if siparisTarihi}}
+            <tr>
+              <td class="etiket">Sipariş Tarihi:</td>
+              <td class="deger">{{siparisTarihi}}</td>
+            </tr>
+            {{/if}}
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <table id="lineTable">
+      <colgroup>
+        <col class="c-sira">
+        <col class="c-mal">
+        <col class="c-miktar">
+        <col class="c-fiyat">
+        <col class="c-isk">
+        <col class="c-isk">
+        <col class="c-isk">
+        <col class="c-kdv">
+        <col class="c-kdv">
+        <col class="c-diger">
+        <col class="c-tut">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Sıra No</th>
+          <th>Mal Hizmet</th>
+          <th>Miktar</th>
+          <th>Birim Fiyat</th>
+          <th>İskonto/ Arttırım Oranı</th>
+          <th>İskonto/ Arttırım Tutarı</th>
+          <th>İskonto/ Arttırım Nedeni</th>
+          <th>KDV Oranı</th>
+          <th>KDV Tutarı</th>
+          <th>Diğer Vergiler</th>
+          <th>Mal Hizmet Tutarı</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each kalemler}}
+        <tr>
+          <td class="sira">{{siraNo}}</td>
+          <td class="mal">{{malHizmet}}</td>
+          <td class="orta">{{miktar}} {{birim}}</td>
+          <td class="sayi">{{birimFiyat}}</td>
+          <td class="sayi">{{iskontoOrani}}</td>
+          <td class="sayi">{{iskontoTutari}}</td>
+          <td>{{iskontoNedeni}}</td>
+          <td class="orta">{{kdvOrani}}</td>
+          <td class="sayi">{{kdvTutari}}</td>
+          <td class="sayi">{{digerVergiler}}</td>
+          <td class="sayi">{{malHizmetTutari}}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+    </table>
+
+    <table class="alt" border="0" width="100%">
+      <tr>
+        <td style="width:55%; padding-right:10px;">
+          <table id="notesTable">
+            <tr>
+              <td>
+                {{#if yaziyla}}<p class="not-satir"><b>Yalnız:</b> {{yaziyla}}</p>{{/if}}
+                {{#each notlar}}
+                <p class="not-satir"><b>Not:</b> {{this}}</p>
+                {{/each}}
+              </td>
+            </tr>
+          </table>
+        </td>
+        <td style="width:45%;">
+          <table class="toplam-tablo">
+            <tr>
+              <td class="etiket">Mal Hizmet Toplam Tutarı</td>
+              <td class="tutar">{{toplamlar.malHizmetToplamTutari}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Toplam İskonto</td>
+              <td class="tutar">{{toplamlar.toplamIskonto}}</td>
+            </tr>
+            {{#each toplamlar.hesaplananKdv}}
+            <tr>
+              <td class="etiket">Hesaplanan {{ad}} (%{{oran}})</td>
+              <td class="tutar">{{tutar}}</td>
+            </tr>
+            {{/each}}
+            <tr>
+              <td class="etiket">Vergiler Dahil Toplam Tutar</td>
+              <td class="tutar">{{toplamlar.vergilerDahilToplamTutar}}</td>
+            </tr>
+            <tr>
+              <td class="etiket">Ödenecek Tutar</td>
+              <td class="tutar">{{toplamlar.odenecekTutar}}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>

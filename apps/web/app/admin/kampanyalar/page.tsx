@@ -5,6 +5,7 @@ import { prisma } from "@infulancer/core/db";
 import { campaignStatusLabels } from "@infulancer/core/domain/labels";
 import { formatMinor } from "@infulancer/core/i18n/regions";
 import { DataTable } from "@/components/ui/data-table";
+import { CampaignDeleteButton } from "@/components/campaign/campaign-hub";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader, Stagger } from "@/components/ui/layout";
 import { StatusDot } from "@/components/ui/status";
@@ -89,11 +90,16 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
           { key: "budget", header: "Bütçe", align: "right", sortable: true },
           { key: "progress", header: "Süre", align: "right", sortable: true },
           { key: "payment", header: "Tahsilat", sortable: true },
+          { key: "more", header: "" },
         ]}
         rows={campaigns.map((c) => {
-          const score = scores.get(c.id)?.score ?? null;
+          const scoreRes = scores.get(c.id);
+          const hasMeasurement = Boolean(scoreRes?.kpis.some((k) => k.actual > 0));
+          const score = c.status === "TASLAK" || !hasMeasurement ? null : (scoreRes?.score ?? null);
+          const effectiveBudgetKurus = Number(c.brandTotalFeeKurus || c.budgetKurus);
           const span = c.endsAt.getTime() - c.startsAt.getTime();
-          const progress = span > 0 ? Math.min(1, Math.max(0, (now.getTime() - c.startsAt.getTime()) / span)) : 0;
+          const started = now.getTime() >= c.startsAt.getTime();
+          const progress = c.status === "TASLAK" || !started ? null : span > 0 ? Math.min(1, Math.max(0, (now.getTime() - c.startsAt.getTime()) / span)) : 0;
           const open = c.status === "AKTIF" || c.status === "TASLAK";
           return {
             id: c.id,
@@ -119,20 +125,35 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
                   ),
                 sort: c.status === "TASLAK" && c.submittedAt ? -1 : statusRank[c.status],
               },
-              score: { display: score == null ? "—" : pct.format(score), sort: score },
+              score: {
+                display: score == null ? (
+                  <span className="text-fg-passive" title={c.status === "TASLAK" ? tt("Yayın bekleniyor") : tt("Henüz ölçüm yok")}>—</span>
+                ) : (
+                  pct.format(score)
+                ),
+                sort: score ?? -1,
+              },
               dates: { display: `${fmtDate(c.startsAt)} – ${fmtDate(c.endsAt)}`, sort: c.startsAt.getTime() },
               influencers: { display: c._count.assignments, sort: c._count.assignments },
-              budget: { display: formatMinor(Number(c.budgetKurus), c.currency), sort: Number(c.budgetKurus) },
+              budget: {
+                display: effectiveBudgetKurus > 0 ? formatMinor(effectiveBudgetKurus, c.currency) : "—",
+                sort: effectiveBudgetKurus,
+              },
               progress: {
-                display: (
-                  <span className="inline-flex items-center gap-2">
-                    <span className="h-1.5 w-16 overflow-hidden rounded-full bg-border" aria-hidden>
-                      <span className="block h-full bg-fg" style={{ width: `${Math.round(progress * 100)}%` }} />
+                display:
+                  progress == null ? (
+                    <span className="text-[12px] text-fg-passive">
+                      {c.status === "TASLAK" ? tt("Yayın bekleniyor") : tt("Başlamadı")}
                     </span>
-                    {pct.format(progress)}
-                  </span>
-                ),
-                sort: progress,
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-border" aria-hidden>
+                        <span className="block h-full bg-fg" style={{ width: `${Math.round(progress * 100)}%` }} />
+                      </span>
+                      {pct.format(progress)}
+                    </span>
+                  ),
+                sort: progress ?? -1,
               },
               payment: {
                 display:
@@ -143,12 +164,20 @@ export default async function CampaignsPage({ searchParams }: { searchParams: Pr
                   ),
                 sort: c.brandPaymentReceivedAt ? 2 : c.status === "KAPANDI" ? 0 : 1,
               },
+              more: {
+                display: (
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <Link href={`/admin/kampanyalar/${c.id}`} className="text-xs font-medium text-fg hover:underline">{tt("Aç")}</Link>
+                    {c.status !== "KAPANDI" ? <Link href={`/admin/kampanyalar/${c.id}/duzenle`} className="text-xs font-medium text-fg hover:underline">{tt("Düzenle")}</Link> : null}
+                    <CampaignDeleteButton campaignId={c.id} campaignName={c.name} inline />
+                  </div>
+                ),
+              },
             },
             actions: [
               { label: "Kampanyayı aç", href: `/admin/kampanyalar/${c.id}`, icon: "open" as const },
               ...(open ? [{ label: "Influencer ekle", href: `/admin/kampanyalar/${c.id}?sekme=influencerlar`, icon: "add" as const }] : []),
               { label: "Brief", href: `/admin/kampanyalar/${c.id}/brief`, icon: "file" as const },
-              ...(open ? [{ label: "Kurulum adımları", href: `/admin/kampanyalar/${c.id}/kurulum`, icon: "settings" as const }] : []),
               ...(c.status !== "KAPANDI" ? [{ label: "Düzenle", href: `/admin/kampanyalar/${c.id}/duzenle`, icon: "edit" as const }] : []),
             ],
           };

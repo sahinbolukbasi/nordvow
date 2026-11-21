@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { useTT } from "@/lib/i18n/tt-client";
 import { ActionForm } from "@/components/forms/action-form";
-import { Field, Input, Select } from "@/components/ui/form";
-import { createDirectUserAction, createStaffUserAction, setStaffRoleAction, setUserStatusAction } from "@/lib/actions/users";
+import { Button, Field, Input, Select } from "@/components/ui/form";
+import { createDirectUserAction, createStaffUserAction, deleteUserAction, setStaffRoleAction, setUserStatusAction, updateUserAction } from "@/lib/actions/users";
 
 /** Satır içi askıya al / etkinleştir düğmesi. */
 export function UserStatusButton({ userId, status, name }: { userId: string; status: "ACTIVE" | "SUSPENDED"; name: string }) {
@@ -82,6 +82,11 @@ export function DirectUserForm({ brands = [] }: { brands?: { id: string; name: s
         {role === "INFLUENCER" ? (
           <Field label={tt("Kategori (opsiyonel)")}>{(p) => <Input {...p} name="category" placeholder={tt("Örn. Moda, Teknoloji, Yaşam")} />}</Field>
         ) : null}
+        {role === "INFLUENCER" || role === "BRAND" ? (
+          <Field label={tt("Başlangıç kredisi (TL, opsiyonel)")}>
+            {(p) => <Input {...p} name="initialCredits" type="number" min="0" step="1" placeholder={tt("Boş bırakılırsa varsayılan")} />}
+          </Field>
+        ) : null}
         {role === "BRAND" ? (
           <>
             <Field label={tt("Mevcut markaya bağla (opsiyonel)")}>
@@ -98,6 +103,101 @@ export function DirectUserForm({ brands = [] }: { brands?: { id: string; name: s
           </>
         ) : null}
       </div>
+    </ActionForm>
+  );
+}
+
+/** 2 adımlı onaylı kullanıcı silme butonu. */
+export function UserDeleteButton({ userId, name, email }: { userId: string; name: string; email: string }) {
+  const tt = useTT();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setConfirming(true)}
+        aria-label={`${name}: ${tt("Sil")}`}
+        className="text-critical hover:bg-critical/10 hover:text-critical"
+      >
+        {tt("Sil")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-critical/40 bg-critical/5 px-2.5 py-1.5">
+      <span className="text-[12px] font-medium text-critical">
+        {name} ({email}) {tt("kalıcı olarak silinsin mi?")}
+      </span>
+      <ActionForm action={deleteUserAction} submitLabel={tt("Evet, Sil")} submitSize="sm" submitVariant="primary" className="gap-1">
+        <input type="hidden" name="userId" value={userId} />
+      </ActionForm>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+        {tt("Vazgeç")}
+      </Button>
+    </div>
+  );
+}
+
+/** Satır içi kullanıcı bilgisi düzenleme (ad, e-posta, telefon, bağlı marka, opsiyonel şifre). */
+export function UserEditButton({
+  userId,
+  name,
+  email,
+  phone,
+  role,
+  brandId,
+  brands = [],
+}: {
+  userId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: "ADMIN" | "AGENCY" | "BRAND" | "INFLUENCER";
+  brandId: string | null;
+  brands?: { id: string; name: string }[];
+}) {
+  const tt = useTT();
+  const [editing, setEditing] = useState(false);
+
+  if (!editing) {
+    return (
+      <Button type="button" variant="secondary" size="sm" onClick={() => setEditing(true)} aria-label={`${name}: ${tt("Düzenle")}`}>
+        {tt("Düzenle")}
+      </Button>
+    );
+  }
+
+  return (
+    <ActionForm
+      action={updateUserAction}
+      submitLabel={tt("Kaydet")}
+      submitSize="sm"
+      onSuccess={() => setEditing(false)}
+      className="min-w-[280px] gap-2 rounded-xl border border-line bg-surface p-3"
+      aria-label={`${name}: ${tt("Bilgileri düzenle")}`}
+      footer={
+        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          {tt("İptal")}
+        </Button>
+      }
+    >
+      <input type="hidden" name="userId" value={userId} />
+      <Input name="name" defaultValue={name} required placeholder={tt("Ad soyad")} aria-label={tt("Ad soyad")} />
+      <Input name="email" type="email" defaultValue={email} required placeholder={tt("E-posta")} aria-label={tt("E-posta")} />
+      <Input name="phone" type="tel" defaultValue={phone ?? ""} placeholder={tt("Telefon (opsiyonel)")} aria-label={tt("Telefon")} />
+      {role === "BRAND" ? (
+        <Select name="brandId" defaultValue={brandId ?? ""} aria-label={tt("Bağlı marka")}>
+          <option value="">{tt("Marka atanmamış")}</option>
+          {brands.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </Select>
+      ) : null}
+      <Input name="password" type="text" minLength={8} autoComplete="new-password" placeholder={tt("Yeni şifre (boş = değişmez)")} aria-label={tt("Yeni şifre")} />
     </ActionForm>
   );
 }

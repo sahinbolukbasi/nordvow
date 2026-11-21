@@ -17,7 +17,7 @@ export type PassData = {
   kind: WalletKind;
   /** Pass üzerinde görünen başlık (etkinlik adı veya kupon başlığı). */
   title: string;
-  /** Alt başlık (kişi adı veya marka adı). */
+  /** Alt başlık (kişi adı veya kupon değer etiketi). */
   subtitle: string;
   /** QR içeriğinde kodlanan doğrulama jetonu. */
   code: string;
@@ -25,10 +25,22 @@ export type PassData = {
   fields: { label: string; value: string }[];
   /** Marka rengi (hex). */
   accentColor?: string;
+  /** Organizatör / marka adı (yoksa platform marka adı kullanılır). */
+  organizer?: string;
+  /** Kart durumu etiketi (ör. Geçerli, Kullanılabilir). */
+  statusLabel?: string;
+  /** Arka yüz açıklaması. */
+  description?: string;
+  /** Kullanım koşulları. */
+  terms?: string;
   /** Etkinlik başlangıcı. Varsa Apple `relevantDate` olur. */
   relevantDate?: Date | string | null;
   /** Kupon bitişi. Varsa Apple `expirationDate` ve Google geçerlilik sonu olur. */
   expirationDate?: Date | string | null;
+  /** Etkinlik konumu (Apple Wallet yakında bildirimi için). */
+  location?: { latitude: number; longitude: number; relevantText?: string } | null;
+  /** Web görünümü bağlantısı. */
+  webUrl?: string;
 };
 
 export type WalletLinks = {

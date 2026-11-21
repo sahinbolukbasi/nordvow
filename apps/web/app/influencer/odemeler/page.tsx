@@ -4,6 +4,7 @@ import { prisma, type PayoutStatus } from "@infulancer/core/db";
 import { contentTypeLabels, formatKurus, ledgerReasonLabels, payoutStatusLabels, platformLabels } from "@infulancer/core/domain/labels";
 import { currencyOf } from "@infulancer/core/i18n/regions";
 import { computeBalances, holdDays, minPayoutKurus } from "@infulancer/core/domain/ledger";
+import { autoApproveStaleDeliverables } from "@infulancer/core/domain/deliverable-auto-approve";
 import { BalanceCards } from "@/components/finance/balance-cards";
 import { PayoutRequestButton } from "@/components/finance/payout-forms";
 import { Card, CardTitle } from "@/components/ui/card";
@@ -31,6 +32,7 @@ export default async function InfluencerPaymentsPage() {
   const myCountry = (await prisma.influencer.findUniqueOrThrow({ where: { id: actor.influencerId! }, select: { country: true } })).country;
   const influencerId = actor.influencerId!;
   const now = new Date();
+  await autoApproveStaleDeliverables(now).catch(() => 0);
   const [me, balances, payouts, entries] = await Promise.all([
     prisma.influencer.findUniqueOrThrow({ where: { id: influencerId }, select: { iban: true, ibanHolder: true } }),
     computeBalances(influencerId, now),

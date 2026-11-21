@@ -183,6 +183,33 @@ enum LedgerReason {
   DUZELTME
 }
 
+enum BrandWalletEntryType {
+  TOPUP
+  CREATIVE_USAGE
+  INFLUENCER_PAYMENT
+  SHIPPING
+  REFUND
+  ADJUSTMENT
+}
+
+enum WalletTopupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  GENERATED
+  DOWNLOADED
+  CANCELLED
+}
+
+enum InvoiceScenario {
+  EARSIVFATURA
+  TEMELFATURA
+}
+
 enum PayoutStatus {
   TALEP_EDILDI
   ONAYLANDI
@@ -263,6 +290,12 @@ model Brand {
   contactName        String
   contactEmail       String
   contactPhone       String
+  taxpayerType       String?   @map("taxpayer_type")
+  mersisNumber       String?   @map("mersis_number")
+  tradeRegistryNumber String?  @map("trade_registry_number")
+  eInvoiceType       String?   @map("e_invoice_type")
+  billingEmail       String?   @map("billing_email")
+  billingPhone       String?   @map("billing_phone")
   contractRef        String?
   contractStartsAt   DateTime?
   category           String
@@ -273,13 +306,22 @@ model Brand {
   defaultExecutionMode ExecutionMode @default(AJANS)
   /// Marka ajansla çalışmayı seçtiyse tercih edilen ajans kullanıcısı (User.id, role=AGENCY).
   preferredAgencyUserId String?
+  isActive           Boolean   @default(true)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  users          User[]
-  campaigns      Campaign[]
-  tenantSettings TenantSettings?
-  categories     BrandCategory[]
+  users                User[]
+  campaigns            Campaign[]
+  tenantSettings       TenantSettings?
+  categories           BrandCategory[]
+  shippingIntegrations BrandShippingIntegration[]
+  shipments            Shipment[]
+  addresses            BrandAddress[]
+  walletEntries        BrandWalletEntry[]
+  walletTopupRequests  WalletTopupRequest[]
+  invoices             Invoice[]
+
+  @@index([isActive])
 }
 
 model Influencer {
@@ -302,6 +344,7 @@ model Influencer {
   showcaseVisible    Boolean   @default(true)
   showCollaborations Boolean   @default(true)
   showPrices         Boolean   @default(true)
+  isActive           Boolean   @default(true)
   riskScore        Int?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -313,6 +356,11 @@ model Influencer {
   payoutRequests PayoutRequest[]
   taxProfile     InfluencerTaxProfile?
   categories     InfluencerCategory[]
+  addresses      InfluencerAddress[]
+  shipments      Shipment[]
+  tiktokAccounts TikTokAccount[]
+
+  @@index([isActive])
 }
 
 model SocialAccount {
@@ -433,9 +481,12 @@ model Campaign {
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 
-  briefs      CampaignBrief[]
-  assignments Assignment[]
-  assets      Asset[]
+  briefs         CampaignBrief[]
+  assignments    Assignment[]
+  assets         Asset[]
+  shippingConfig CampaignShippingConfig?
+  shipments      Shipment[]
+  tiktokPosts    TikTokPost[]
 
   @@index([brandId])
   @@index([status])
@@ -479,6 +530,7 @@ model Assignment {
   updatedAt              DateTime       @updatedAt
 
   deliverables Deliverable[]
+  shipments    Shipment[]
 
   @@index([campaignId])
   @@index([influencerId])
@@ -653,12 +705,136 @@ model LedgerEntry {
   reason        LedgerReason
   referenceType String
   referenceId   String
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   availableAt   DateTime?
   createdAt     DateTime        @default(now())
 
   @@index([txId])
   @@index([influencerId])
   @@index([referenceType, referenceId])
+  @@index([invoiceId])
+}
+
+model BrandAddress {
+  id             String   @id @default(cuid())
+  brandId        String   @map("brand_id")
+  brand          Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  label          String   @default("Merkez")
+  companyName    String?  @map("company_name")
+  recipientName  String?  @map("recipient_name")
+  phone          String
+  addressLine    String   @map("address_line")
+  neighborhood   String?
+  city           String
+  district       String
+  postalCode     String?  @map("postal_code")
+  taxOffice      String?  @map("tax_office")
+  taxNumber      String?  @map("tax_number")
+  isBilling      Boolean  @default(false) @map("is_billing")
+  isShipping     Boolean  @default(false) @map("is_shipping")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, isBilling])
+  @@index([brandId, isShipping])
+  @@map("brand_addresses")
+}
+
+model BrandWalletEntry {
+  id             String              @id @default(cuid())
+  brandId        String              @map("brand_id")
+  brand           Brand               @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  type           BrandWalletEntryType
+  direction      LedgerDirection
+  amountKurus    Int                 @map("amount_kurus")
+  referenceType  String              @map("reference_type")
+  referenceId    String              @map("reference_id")
+  idempotencyKey String              @unique @map("idempotency_key")
+  note           String?
+  createdById    String?             @map("created_by_id")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  invoiceId      String?
+  invoice        Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([brandId, createdAt])
+  @@index([brandId, type])
+  @@index([invoiceId])
+  @@map("brand_wallet_entries")
+}
+
+model WalletTopupRequest {
+  id              String            @id @default(cuid())
+  brandId         String            @map("brand_id")
+  brand            Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  amountKurus     Int               @map("amount_kurus")
+  method          String
+  reference       String?
+  receiptStorageKey String?          @map("receipt_storage_key")
+  note            String?
+  rejectionReason String?            @map("rejection_reason")
+  status          WalletTopupStatus @default(PENDING)
+  requestedById   String?           @map("requested_by_id")
+  decidedById     String?           @map("decided_by_id")
+  decidedAt       DateTime?         @map("decided_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([brandId, status, createdAt])
+  @@map("wallet_topup_requests")
+}
+
+model Invoice {
+  id              String          @id @default(cuid())
+  brandId         String          @map("brand_id")
+  brand           Brand           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  status          InvoiceStatus   @default(DRAFT)
+  scenario        InvoiceScenario @default(EARSIVFATURA)
+  invoiceType     String          @default("SATIS") @map("invoice_type")
+  invoiceNumber   String          @unique @map("invoice_number")
+  ettn            String          @unique
+  issuedAt        DateTime        @map("issued_at")
+  sellerSnapshot  Json            @map("seller_snapshot")
+  buyerSnapshot   Json            @map("buyer_snapshot")
+  totalsSnapshot  Json            @map("totals_snapshot")
+  sourceType      String          @map("source_type")
+  sourceId        String          @map("source_id")
+  pdfStorageKey   String?         @map("pdf_storage_key")
+  createdById     String?         @map("created_by_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  items           InvoiceItem[]
+  ledgerEntries   LedgerEntry[]
+  walletEntries   BrandWalletEntry[]
+
+  @@index([brandId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("invoices")
+}
+
+model InvoiceSequence {
+  year      Int      @id
+  nextValue Int      @map("next_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("invoice_sequences")
+}
+
+model InvoiceItem {
+  id             String   @id @default(cuid())
+  invoiceId      String   @map("invoice_id")
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNumber     Int      @map("line_number")
+  description    String
+  quantity       Decimal  @db.Decimal(12, 3)
+  unitPriceKurus Int      @map("unit_price_kurus")
+  vatRate        Decimal  @db.Decimal(5, 2) @map("vat_rate")
+  vatAmountKurus Int      @map("vat_amount_kurus")
+  lineTotalKurus Int      @map("line_total_kurus")
+
+  @@unique([invoiceId, lineNumber])
+  @@map("invoice_items")
 }
 
 model PayoutRequest {
@@ -1333,6 +1509,8 @@ model CreativeJob {
   prompt       String
   promptHash   String
   units        Decimal           @db.Decimal(10, 3)
+  /// Sağlayıcının webhook/uzlaştırma ile bildirdiği gerçek maliyet; yoksa model fiyatı tahmin olarak kullanılır.
+  actualCostUsd Decimal?         @map("actual_cost_usd") @db.Decimal(10, 6)
   requestId    String?           @unique
   creditHoldId String?
   /// Düzenleme işlerinde kaynak dosya (kullanıcı yüklemesi); üretimde null.
@@ -1546,6 +1724,7 @@ model Offer {
   assignmentId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  shipments    Shipment[]
   @@index([influencerId, status])
   @@index([brandId, status])
   @@map("offers")
@@ -1632,6 +1811,13 @@ model Event {
   venueName     String?         @map("venue_name")
   address       String?
   city          String?
+  countryId     String?         @map("country_id")
+  countryRef    Country?        @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  cityId        String?         @map("city_id")
+  cityRef       City?           @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  timezone      String?
+  priceMinor    Int?            @map("price_minor")
+  currency      String?
   latitude      Float?
   longitude     Float?
   startsAt      DateTime        @map("starts_at")
@@ -1648,6 +1834,7 @@ model Event {
   tickets EventTicket[]
   @@index([tenantId, status])
   @@index([visibility, status])
+  @@index([countryId, cityId])
   @@map("events")
 }
 
@@ -2371,4 +2558,586 @@ model MediaJob {
   @@index([promptHash, status])
   @@index([alias, status])
   @@map("media_jobs")
+}
+
+/// Fotoğraftan video ve AI video edit boru hattı işi.
+/// Durumlar: queued | planning | generating | rendering | done | failed
+model VideoPipelineJob {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  kind            String   // "photo_to_video" | "ai_video_edit"
+  status          String   @default("queued")
+  progress        Int      @default(0)
+  aspect          String   @default("9:16")
+  modelKey        String   @default("hailuo") @map("model_key")
+  sourceUploadIds Json     @map("source_upload_ids")
+  storyboard      Json?
+  editPlan        Json?    @map("edit_plan")
+  sceneJobs       Json?    @map("scene_jobs")
+  voiceoverAudio  String?  @map("voiceover_audio")
+  musicAudio      String?  @map("music_audio")
+  logoUploadId    String?  @map("logo_upload_id")
+  outputUploadId  String?  @map("output_upload_id")
+  rootJobId       String?  @map("root_job_id")
+  versionNumber   Int      @default(1) @map("version_number")
+  creditHoldId    String?  @map("credit_hold_id")
+  costUsd         Decimal  @default(0) @map("cost_usd") @db.Decimal(10, 4)
+  durationMs      Int?     @map("duration_ms")
+  error           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  versions        VideoVersion[]
+
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([rootJobId, versionNumber])
+  @@map("video_pipeline_jobs")
+}
+
+/// AI Video Edit versiyon geçmişi — her edit yeni bir versiyon oluşturur; geri dönüş desteklenir.
+model VideoVersion {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  pipelineJobId   String           @map("pipeline_job_id")
+  rootJobId       String           @map("root_job_id")
+  versionNumber   Int              @map("version_number")
+  uploadId        String           @map("upload_id")
+  editCommand     String?          @map("edit_command")
+  editPlan        Json?            @map("edit_plan")
+  parentVersionId String?          @map("parent_version_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  pipelineJob     VideoPipelineJob @relation(fields: [pipelineJobId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rootJobId, versionNumber])
+  @@map("video_versions")
+}
+
+/// Kullanıcı profili ↔ WhatsApp AI Asistan kalıcı eşleştirme kaydı.
+model WhatsAppLink {
+  id          String    @id @default(cuid())
+  userId      String    @unique @map("user_id")
+  waPhone     String?   @unique @map("wa_phone")
+  pairingCode String    @unique @map("pairing_code")
+  verified    Boolean   @default(false)
+  verifiedAt  DateTime? @map("verified_at")
+  history     Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([waPhone, verified])
+  @@map("whatsapp_links")
+}
+
+/// Tüm AI sağlayıcıları (Bedrock LLM, fal.ai, vb.) kullanım & maliyet logu.
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  provider     String   // "bedrock" | "fal" | "polly" | "ffmpeg"
+  modelId      String   @map("model_id")
+  operation    String   // "chat" | "structured" | "vision" | "image" | "video" | "audio"
+  tenantId     String?  @map("tenant_id")
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  costUsd      Decimal  @default(0) @map("cost_usd") @db.Decimal(10, 6)
+  durationMs   Int      @default(0) @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([provider, createdAt])
+  @@index([createdAt])
+  @@map("ai_usage_logs")
+}
+
+/// Marka bazlı AI Sesli Asistan (Amazon Connect + Bedrock KB + fal.ai TTS) yapılandırması.
+model VoiceAssistantConfig {
+  id                 String   @id @default(cuid())
+  brandId            String   @unique @map("brand_id")
+  connectPhoneNumber String?  @unique @map("connect_phone_number")
+  assistantName      String   @default("AI Asistan") @map("assistant_name")
+  greetingText       String   @default("Merhaba, size nasıl yardımcı olabilirim? Görüşmemiz kalite ve KVKK kapsamında kayıt altına alınmaktadır.") @map("greeting_text")
+  greetingCacheKey   String?  @map("greeting_cache_key")
+  ttsModelKey        String   @default("elevenlabs-v3") @map("tts_model_key")
+  ttsVoiceId         String   @default("tr-female-natural") @map("tts_voice_id")
+  tone               String   @default("samimi")
+  businessHours      Json?    @map("business_hours")
+  routingRules       Json?    @map("routing_rules")
+  blockedTopics      String?  @map("blocked_topics")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("voice_assistant_configs")
+}
+
+/// Marka bilgi bankası belgeleri (.md, .pdf, .txt, .docx). S3'te brandId klasöründe izole tutulur.
+model VoiceKnowledgeDoc {
+  id             String   @id @default(cuid())
+  brandId        String   @map("brand_id")
+  fileName       String   @map("file_name")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  s3Key          String   @map("s3_key")
+  metadataS3Key  String?  @map("metadata_s3_key")
+  status         String   @default("processing") // processing | ready | error
+  textPreview    String?  @map("text_preview")
+  ingestionJobId String?  @map("ingestion_job_id")
+  error          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, createdAt])
+  @@map("voice_knowledge_docs")
+}
+
+/// Marka bazlı SSS soru-cevap çiftleri.
+model VoiceFaqItem {
+  id        String   @id @default(cuid())
+  brandId   String   @map("brand_id")
+  question  String
+  answer    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([brandId, active])
+  @@map("voice_faq_items")
+}
+
+/// Sesli asistan arama kayıtları, transkriptler ve cevaplanamayan sorular.
+model VoiceCallLog {
+  id                  String   @id @default(cuid())
+  brandId             String   @map("brand_id")
+  contactId           String?  @unique @map("contact_id")
+  callerPhone         String?  @map("caller_phone")
+  calledPhone         String?  @map("called_phone")
+  durationSec         Int      @default(0) @map("duration_sec")
+  outcome             String   @default("resolved") // resolved | transferred | callback | missed
+  summary             String?
+  transcript          Json?
+  sourcesUsed         Json?    @map("sources_used")
+  recordingS3Key      String?  @map("recording_s3_key")
+  unansweredQuestions Json?    @map("unanswered_questions")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([brandId, createdAt])
+  @@map("voice_call_logs")
+}
+
+/// Mesai dışı veya çözülemeyen aramalar için geri dönüş talepleri.
+model VoiceCallbackRequest {
+  id          String   @id @default(cuid())
+  brandId     String   @map("brand_id")
+  callLogId   String?  @map("call_log_id")
+  callerName  String?  @map("caller_name")
+  callerPhone String   @map("caller_phone")
+  topic       String
+  status      String   @default("bekliyor") // bekliyor | arandi | kapandi
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([brandId, status, createdAt])
+  @@map("voice_callback_requests")
+}
+
+// ═════════════ Ürün Gönderim & Kargo Entegrasyon Modülü ═════════════
+
+enum ShippingProvider {
+  NAVLUNGO
+  YURTICI
+  ARAS
+  MNG
+  UPS
+  HEPSIJET
+  KOLAY_GELSIN
+  CUSTOM_MANUAL
+}
+
+enum ShippingMode {
+  INTEGRATED_CARGO
+  MANUAL_TRACKING
+}
+
+enum ContentTriggerRule {
+  AFTER_DELIVERY
+  ANYTIME
+}
+
+enum ShipmentStatus {
+  PENDING_ADDRESS
+  READY_TO_SHIP
+  LABEL_CREATED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  RETURNED
+}
+
+/// Marka kargo entegrasyon ayarları (API bilgileri AES-256-GCM ile şifreli saklanır).
+model BrandShippingIntegration {
+  id                     String           @id @default(cuid())
+  brandId                String           @map("brand_id")
+  brand                  Brand            @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  provider               ShippingProvider
+  apiKey                 String?          @map("api_key")
+  apiSecret              String?          @map("api_secret")
+  customerCode           String?          @map("customer_code")
+  isActive               Boolean          @default(true) @map("is_active")
+  defaultSenderAddressId String?          @map("default_sender_address_id")
+  senderAddress          Json?            @map("sender_address")
+  lastTestedAt           DateTime?        @map("last_tested_at")
+  lastTestOk             Boolean?         @map("last_test_ok")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  @@unique([brandId, provider])
+  @@index([brandId])
+  @@map("brand_shipping_integrations")
+}
+
+/// Kampanya bazlı ürün gönderim kuralları.
+model CampaignShippingConfig {
+  id                      String             @id @default(cuid())
+  campaignId              String             @unique @map("campaign_id")
+  campaign                Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  requiresProductShipment Boolean            @default(false) @map("requires_product_shipment")
+  shippingMode            ShippingMode       @default(MANUAL_TRACKING) @map("shipping_mode")
+  productDetails          Json               @default("{}") @map("product_details")
+  contentTriggerRule      ContentTriggerRule @default(AFTER_DELIVERY) @map("content_trigger_rule")
+  contentDeadlineDays     Int?               @map("content_deadline_days")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  @@map("campaign_shipping_configs")
+}
+
+/// Influencer kayıtlı teslimat adresleri.
+model InfluencerAddress {
+  id             String     @id @default(cuid())
+  influencerId   String     @map("influencer_id")
+  influencer     Influencer @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  label          String     @default("Ev")
+  recipientName  String     @map("recipient_name")
+  recipientPhone String     @map("recipient_phone")
+  addressLine    String     @map("address_line")
+  neighborhood   String?
+  city           String
+  district       String
+  postalCode     String?    @map("postal_code")
+  addressDescription String? @map("address_description")
+  isDefault      Boolean    @default(false) @map("is_default")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  @@index([influencerId])
+  @@map("influencer_addresses")
+}
+
+/// Gönderi ve kargo takip kayıtları.
+model Shipment {
+  id                    String            @id @default(cuid())
+  collaborationId       String            @map("collaboration_id")
+  campaignId            String            @map("campaign_id")
+  campaign              Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignmentId          String?           @map("assignment_id")
+  assignment            Assignment?       @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  offerId               String?           @map("offer_id")
+  offer                 Offer?            @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  brandId               String            @map("brand_id")
+  brand                 Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  influencerId          String            @map("influencer_id")
+  influencer            Influencer        @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  recipientName         String?           @map("recipient_name")
+  recipientPhone        String?           @map("recipient_phone")
+  shippingAddress       Json?             @map("shipping_address")
+  selectedVariant       Json?             @map("selected_variant")
+  provider              ShippingProvider?
+  carrierName           String?           @map("carrier_name")
+  carrierId             String?           @map("carrier_id")
+  shippingCostKurus     Int?              @map("shipping_cost_kurus")
+  shippingRateSnapshot  Json?             @map("shipping_rate_snapshot")
+  trackingNumber        String?           @map("tracking_number")
+  trackingUrl           String?           @map("tracking_url")
+  barcodeLabelUrl       String?           @map("barcode_label_url")
+  externalShipmentId    String?           @map("external_shipment_id")
+  status                ShipmentStatus    @default(PENDING_ADDRESS)
+  estimatedDeliveryDate DateTime?         @map("estimated_delivery_date")
+  deliveredAt           DateTime?         @map("delivered_at")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  @@unique([collaborationId])
+  @@index([campaignId, status])
+  @@index([brandId, status])
+  @@index([influencerId, status])
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+// ───────────── TikTok Login Kit & Content Posting API ─────────────
+
+enum TikTokAccountStatus {
+  active
+  revoked
+  error
+}
+
+enum TikTokPostSource {
+  FILE_UPLOAD
+  PULL_FROM_URL
+}
+
+enum TikTokPostStatus {
+  PROCESSING_UPLOAD
+  PROCESSING_DOWNLOAD
+  SEND_TO_USER_INBOX
+  PUBLISH_COMPLETE
+  FAILED
+}
+
+/// TikTok Login Kit v2 ile bağlanan creator hesabı; token'lar AES-256-GCM şifreli saklanır.
+model TikTokAccount {
+  id               String              @id @default(cuid())
+  influencerId     String              @map("nordvow_user_id")
+  influencer       Influencer          @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+  openId           String              @unique @map("open_id")
+  unionId          String?             @map("union_id")
+  displayName      String?             @map("display_name")
+  username         String?
+  avatarUrl        String?             @map("avatar_url")
+  bio              String?
+  profileDeepLink  String?             @map("profile_deep_link")
+  isVerified       Boolean             @default(false) @map("is_verified")
+  followerCount    Int                 @default(0) @map("follower_count")
+  followingCount   Int                 @default(0) @map("following_count")
+  likesCount       Int                 @default(0) @map("likes_count")
+  videoCount       Int                 @default(0) @map("video_count")
+  /// AES-256-GCM şifreli access_token
+  accessToken      String              @map("access_token")
+  /// AES-256-GCM şifreli refresh_token
+  refreshToken     String              @map("refresh_token")
+  accessExpiresAt  DateTime            @map("access_expires_at")
+  refreshExpiresAt DateTime            @map("refresh_expires_at")
+  scopes           String[]            @default([])
+  connectedAt      DateTime            @default(now()) @map("connected_at")
+  lastSyncedAt     DateTime?           @map("last_synced_at")
+  status           TikTokAccountStatus @default(active)
+  lastError        String?             @map("last_error")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  videos     TikTokVideo[]
+  dailyStats TikTokAccountStatsDaily[]
+  posts      TikTokPost[]
+
+  @@index([influencerId, status])
+  @@index([accessExpiresAt, status])
+  @@map("tiktok_accounts")
+}
+
+/// TikTok Display / Video List API'den senkronlanan videolar.
+model TikTokVideo {
+  id               String        @id
+  accountId        String        @map("account_id")
+  account          TikTokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  title            String?
+  videoDescription String?       @map("video_description")
+  createTime       DateTime      @map("create_time")
+  coverImageUrl    String?       @map("cover_image_url")
+  shareUrl         String?       @map("share_url")
+  embedLink        String?       @map("embed_link")
+  duration         Int?
+  width            Int?
+  height           Int?
+  viewCount        Int           @default(0) @map("view_count")
+  likeCount        Int           @default(0) @map("like_count")
+  commentCount     Int           @default(0) @map("comment_count")
+  shareCount       Int           @default(0) @map("share_count")
+  lastSyncedAt     DateTime      @default(now()) @map("last_synced_at")
+
+  dailyStats TikTokVideoStatsDaily[]
+
+  @@index([accountId, createTime])
+  @@map("tiktok_videos")
+}
+
+/// Günlük video performans snapshot'ları (grafikler ve trend analizi).
+model TikTokVideoStatsDaily {
+  id           String      @id @default(cuid())
+  videoId      String      @map("video_id")
+  video        TikTokVideo @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  date         DateTime    @db.Date
+  viewCount    Int         @default(0) @map("view_count")
+  likeCount    Int         @default(0) @map("like_count")
+  commentCount Int         @default(0) @map("comment_count")
+  shareCount   Int         @default(0) @map("share_count")
+
+  @@unique([videoId, date])
+  @@index([date])
+  @@map("tiktok_video_stats_daily")
+}
+
+/// Günlük hesap büyüme snapshot'ları.
+model TikTokAccountStatsDaily {
+  id            String        @id @default(cuid())
+  accountId     String        @map("account_id")
+  account       TikTokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date          DateTime      @db.Date
+  followerCount Int           @default(0) @map("follower_count")
+  likesCount    Int           @default(0) @map("likes_count")
+  videoCount    Int           @default(0) @map("video_count")
+
+  @@unique([accountId, date])
+  @@index([date])
+  @@map("tiktok_account_stats_daily")
+}
+
+/// Nordvow'dan TikTok Content Posting API ile yayınlanan veya inbox'a gönderilen içerikler.
+model TikTokPost {
+  id                 String           @id @default(cuid())
+  accountId          String           @map("account_id")
+  account            TikTokAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  campaignId         String?          @map("campaign_id")
+  campaign           Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  deliverableId      String?          @map("deliverable_id")
+  publishId          String           @unique @map("publish_id")
+  source             TikTokPostSource
+  mode               String           @default("DIRECT")
+  privacyLevel       String           @map("privacy_level")
+  caption            String?
+  brandContentToggle Boolean          @default(false) @map("brand_content_toggle")
+  brandOrganicToggle Boolean          @default(false) @map("brand_organic_toggle")
+  disableDuet        Boolean          @default(false) @map("disable_duet")
+  disableComment     Boolean          @default(false) @map("disable_comment")
+  disableStitch      Boolean          @default(false) @map("disable_stitch")
+  status             TikTokPostStatus @default(PROCESSING_UPLOAD)
+  failReason         String?          @map("fail_reason")
+  publishedVideoId   String?          @map("published_video_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@index([accountId, createdAt])
+  @@index([campaignId])
+  @@index([status])
+  @@map("tiktok_posts")
+}
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum BlogAudience {
+  ALL
+  INFLUENCER
+  BRAND
+}
+
+/// SEO destekli blog yazıları ve okunma istatistikleri.
+model BlogPost {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  title            String
+  excerpt          String
+  content          String
+  coverImageUrl    String?      @map("cover_image_url")
+  category         String       @default("Influencer Pazarlama")
+  tags             String[]     @default([])
+  targetAudience   BlogAudience @default(ALL) @map("target_audience")
+  status           BlogStatus   @default(DRAFT)
+  seoTitle         String?      @map("seo_title")
+  seoDescription   String?      @map("seo_description")
+  seoKeywords      String[]     @default([]) @map("seo_keywords")
+  authorName       String       @default("Nordvow Editör") @map("author_name")
+  readingTimeMin   Int          @default(3) @map("reading_time_min")
+  viewCount        Int          @default(0) @map("view_count")
+  readCount        Int          @default(0) @map("read_count")
+  totalReadSeconds Int          @default(0) @map("total_read_seconds")
+  lastReadAt       DateTime?    @map("last_read_at")
+  publishedAt      DateTime?    @map("published_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt])
+  @@index([category])
+  @@index([targetAudience])
+  @@map("blog_posts")
+}
+
+/// Global konum hiyerarşisi: Ülke (ISO kodu, çok dilli adlar, para birimi, dil, saat dilimi, çalışma saatleri).
+model Country {
+  id            String          @id @default(cuid())
+  code          String          @unique
+  /// Çok dilli ülke adları: {"tr": "Türkiye", "en": "Turkey"}
+  names         Json
+  currency      String          @default("USD")
+  defaultLocale String          @default("en") @map("default_locale")
+  timezone      String          @default("UTC")
+  /// Gün bazlı çalışma saatleri: {"mon":{"start":"09:00","end":"18:00","closed":false},...}
+  workingHours  Json?           @map("working_hours")
+  isActive      Boolean         @default(true) @map("is_active")
+  sortOrder     Int             @default(0) @map("sort_order")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  cities        City[]
+  holidays      PublicHoliday[]
+  events        Event[]
+
+  @@index([isActive, sortOrder])
+  @@map("countries")
+}
+
+/// Global konum hiyerarşisi: Şehir (ülkeye bağlı; ileride bölge/ilçe eklenebilir).
+model City {
+  id           String   @id @default(cuid())
+  countryId    String   @map("country_id")
+  country      Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  slug         String
+  /// Çok dilli şehir adları: {"tr": "İstanbul", "en": "Istanbul"}
+  names        Json
+  /// İleride bölge/eyalet/ilçe hiyerarşisi için opsiyonel üst bölge adı
+  regionName   String?  @map("region_name")
+  timezone     String
+  latitude     Float?
+  longitude    Float?
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  events       Event[]
+
+  @@unique([countryId, slug])
+  @@index([countryId, isActive, sortOrder])
+  @@map("cities")
+}
+
+/// Ülke bazlı resmî tatil tanımları (planlama ekranında uyarı ve raporlama için).
+model PublicHoliday {
+  id          String   @id @default(cuid())
+  countryId   String   @map("country_id")
+  country     Country  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  /// YYYY-MM-DD biçiminde tatil tarihi
+  date        String
+  /// Çok dilli tatil adı: {"tr": "Cumhuriyet Bayramı", "en": "Republic Day"}
+  names       Json
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([countryId, date])
+  @@index([countryId, isActive])
+  @@map("public_holidays")
+}
+
+/// Admin panelinden yönetilen çeviri geçersiz kılmaları (JSON dil dosyalarının üzerine yazılır).
+model TranslationOverride {
+  id        String   @id @default(cuid())
+  locale    String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([locale, key])
+  @@index([locale])
+  @@map("translation_overrides")
 }

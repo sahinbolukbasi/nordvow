@@ -89,10 +89,8 @@ export default async function InfluencerHomePage() {
                     {feeInfo && feeInfo.feeMinor > 0 ? (
                       <span className="text-[13px] font-semibold tabular-nums text-fg">
                         {formatDualMinor(feeInfo.feeMinor, feeInfo.currency, {
-                          viewerCurrency: myCur !== feeInfo.currency ? myCur : "EUR",
-                          perspective: myCur !== feeInfo.currency ? "influencer" : "brand",
+                          viewerCurrency: myCur,
                           fx: pricing.fx,
-                          showGlobalEquivalents: true,
                         })}
                       </span>
                     ) : null}
@@ -135,10 +133,8 @@ export default async function InfluencerHomePage() {
                     {feeInfo && feeInfo.feeMinor > 0 ? (
                       <span className="text-[12px] font-semibold tabular-nums text-fg-muted">
                         {formatDualMinor(feeInfo.feeMinor, feeInfo.currency, {
-                          viewerCurrency: myCur !== feeInfo.currency ? myCur : "EUR",
-                          perspective: myCur !== feeInfo.currency ? "influencer" : "brand",
+                          viewerCurrency: myCur,
                           fx: pricing.fx,
-                          showGlobalEquivalents: true,
                         })}
                       </span>
                     ) : null}

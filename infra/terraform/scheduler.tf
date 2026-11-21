@@ -3,6 +3,7 @@
 locals {
   agent_jobs = var.enable_agent_schedules ? {
     "publish-check"             = "rate(15 minutes)"
+    "reminders"                 = "rate(6 hours)"
     "story-reminder"            = "rate(1 hour)"
     "brief-compliance"          = "rate(1 hour)"
     "metric-consistency"        = "rate(1 hour)"
@@ -19,10 +20,18 @@ locals {
     "campaign-auto-close"       = "rate(1 hour)"
     "ads-budget-batch"          = "cron(0 * * * ? *)"
     "webhook-dedupe-ttl"        = "cron(30 3 * * ? *)"
-    # Günde bir. Apply edilmedi; EventBridge ifadesi dosyada güncellendi.
-    "social-sync"               = "rate(1 day)"
+    "social-sync"               = "rate(6 hours)"
+    "daily-social-flow"         = "cron(0 8 * * ? *)"
+    "fx-refresh"                = "rate(6 hours)"
     "trackers"                  = "rate(1 hour)"
+    "campaign-content-tracker"  = "rate(1 hour)"
+    "deliverable-auto-approve"  = "rate(15 minutes)"
     "offer-expiry"              = "rate(1 hour)"
+    "cargo-tracking-sync"       = "rate(30 minutes)"
+    "tiktok-token-refresh"      = "rate(30 minutes)"
+    "tiktok-sync"               = "rate(6 hours)"
+    "tiktok-daily-snapshot"     = "cron(0 2 * * ? *)"
+    "tiktok-publish-poll"       = "rate(5 minutes)"
   } : {}
 }
 
@@ -80,8 +89,12 @@ resource "aws_scheduler_schedule" "agent" {
 
     ecs_parameters {
       task_definition_arn = aws_ecs_task_definition.app.arn
-      launch_type         = "FARGATE"
       task_count          = 1
+      # Zamanlanmış arka plan görevleri FARGATE_SPOT ile ~%70 daha düşük maliyetle çalışır.
+      capacity_provider_strategy {
+        capacity_provider = "FARGATE_SPOT"
+        weight            = 1
+      }
       network_configuration {
         subnets          = aws_subnet.public[*].id
         security_groups  = [aws_security_group.app.id]

@@ -1,9 +1,17 @@
 import { prisma } from "../db";
+import { envStr } from "../env";
 import { NOTIF_EVENT_MAP, renderTemplate, type NotifChannel } from "./catalog";
 import { sendEmail, sendInstagramNotify, sendWhatsAppNotify } from "./channels";
 import { renderBrandedEmail } from "./email-template";
 import { localizedTemplate } from "./catalog-i18n";
 import { isLocale, type Locale } from "../i18n/regions";
+
+function absoluteLink(link?: string): string | undefined {
+  if (!link) return link;
+  if (/^https?:\/\//i.test(link)) return link;
+  const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+  return link.startsWith("/") ? `${base}${link}` : `${base}/${link}`;
+}
 
 /**
  * Bir bildirim olayını alıcıya/alıcılara gönderir. Kural (NotificationRule) hangi kanalların
@@ -45,7 +53,8 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
   let skipped = 0;
 
   for (const r of recipients) {
-    const vars = { ...sharedVars, ...(r.vars ?? {}) };
+    const rawVars = { ...sharedVars, ...(r.vars ?? {}) };
+    const vars = rawVars.link ? { ...rawVars, link: absoluteLink(rawVars.link) ?? rawVars.link } : rawVars;
     const locale: Locale = isLocale(r.locale) ? r.locale : "tr";
     for (const channel of channels) {
       const tpl = await resolveTemplate(eventKey, channel, locale);
@@ -59,7 +68,7 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
       try {
         if (channel === "INAPP") {
           if (r.userId) {
-            await prisma.notification.create({ data: { userId: r.userId, title: subject ?? "Bildirim", body, href: vars.link ?? null } });
+            await prisma.notification.create({ data: { userId: r.userId, title: subject ?? "Bildirim", body, href: rawVars.link ?? null } });
             status = "SENT";
           } else {
             status = "SKIPPED";
@@ -71,8 +80,14 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
           if (r.phone) { toAddress = r.phone; const res = await sendWhatsAppNotify(r.phone, body); status = res.status; error = res.error ?? null; }
           else status = "SKIPPED";
         } else if (channel === "INSTAGRAM") {
-          if (r.instagram) { toAddress = r.instagram; const res = await sendInstagramNotify(r.instagram, body); status = res.status; error = res.error ?? null; }
-          else status = "SKIPPED";
+          if (r.instagram || r.userId) {
+            toAddress = r.instagram ?? r.userId ?? null;
+            const res = await sendInstagramNotify(r.instagram ?? "", body, { userId: r.userId });
+            status = res.status;
+            error = res.error ?? null;
+          } else {
+            status = "SKIPPED";
+          }
         }
       } catch (e) {
         status = "FAILED";
@@ -93,6 +108,38 @@ export async function dispatchNotification(eventKey: string, recipients: Recipie
 
 /** Kullanıcı id'lerinden alıcı listesi kurar (email/phone/instagram otomatik çeker). */
 export async function recipientsFromUserIds(userIds: string[], perUserVars?: (userId: string) => Record<string, string>): Promise<Recipient[]> {
-  const users = await prisma.user.findMany({ where: { id: { in: [...new Set(userIds)] } }, select: { id: true, email: true, phone: true, name: true, locale: true } });
-  return users.map((u) => ({ userId: u.id, email: u.email, phone: u.phone, locale: u.locale, vars: { ad: u.name ?? "", ...(perUserVars?.(u.id) ?? {}) } }));
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...new Set(userIds)] } },
+    select: {
+      id: true,
+      email: true,
+      phone: true,
+      name: true,
+      locale: true,
+      influencer: { select: { socialAccounts: { where: { platform: "INSTAGRAM" }, select: { handle: true }, take: 1 } } },
+    },
+  });
+  return users.map((u) => ({
+    userId: u.id,
+    email: u.email,
+    phone: u.phone,
+    instagram: u.influencer?.socialAccounts[0]?.handle ?? null,
+    locale: u.locale,
+    vars: { ad: u.name ?? "", ...(perUserVars?.(u.id) ?? {}) },
+  }));
+}
+
+/** Aktif admin/ajans kullanıcılarını e-posta + panel bildirimi için alıcı listesi olarak döndürür. */
+export async function adminRecipients(): Promise<Recipient[]> {
+  const admins = await prisma.user.findMany({
+    where: { role: { in: ["ADMIN", "AGENCY"] }, status: "ACTIVE" },
+    select: { id: true, email: true, phone: true, name: true, locale: true },
+  });
+  return admins.map((u) => ({
+    userId: u.id,
+    email: u.email,
+    phone: u.phone,
+    locale: u.locale,
+    vars: { ad: u.name ?? "" },
+  }));
 }

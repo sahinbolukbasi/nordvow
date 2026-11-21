@@ -181,7 +181,15 @@ export async function presignAvatarGet(key: string): Promise<string> {
 }
 /** Genel görsel (etkinlik/kupon logosu/kapak) için presign PUT: media/<uuid>.<ext>. */
 export async function presignMediaPut(mime: string): Promise<{ key: string; url: string }> {
-  const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  const extMap: Record<string, string> = {
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/jpeg": "jpg",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+  };
+  const ext = extMap[mime] ?? "jpg";
   const key = `media/${randomUUID()}.${ext}`;
   const url = await getSignedUrl(s3(), new PutObjectCommand({ Bucket: bucket(), Key: key, ContentType: mime, CacheControl: "public, max-age=31536000, immutable" }), { expiresIn: presignTtlSeconds() });
   return { key, url };

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { checkInvite } from "@infulancer/core/access/invites";
 import { categoryTree } from "@infulancer/core/domain/categories";
 import { SignupForm } from "@/components/signup/signup-form";
+import { InviteRequestForm } from "@/components/signup/invite-request-form";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { BRAND_NAME } from "@/lib/brand";
 import { getLandingContent, toVideos } from "@/lib/landing-store";
@@ -11,43 +12,72 @@ import { getLandingContent, toVideos } from "@/lib/landing-store";
 export const metadata: Metadata = { title: "Davetli kayıt" };
 export const dynamic = "force-dynamic";
 
-/** Davetli kayıt: yalnız geçerli bir davet koduyla (özel link /kayit?kod=…). Kayıt sonrası admin onayı beklenir. */
-export default async function SignupPage({ searchParams }: { searchParams: Promise<{ kod?: string }> }) {
+/** Davetli kayıt: yalnız geçerli bir davet koduyla (özel link /kayit?kod=…). Kodu olmayanlar başvuru bırakabilir. */
+export default async function SignupPage({ searchParams }: { searchParams: Promise<{ kod?: string; basvuru?: string }> }) {
   const tt = await getTT();
-  const { kod } = await searchParams;
+  const { kod, basvuru } = await searchParams;
   const check = kod ? await checkInvite(kod) : null;
   const videos = toVideos(await getLandingContent());
   const ok = !!check?.ok;
+  const isRequestMode = !ok && basvuru === "1";
   const steps = ["Davet kodu", "Bilgileriniz", "Admin onayı"];
   const current = ok ? 1 : 0;
   return (
     <AuthShell
       videos={videos}
-      wide={ok}
-      title={ok ? tt("Başvurunuzu tamamlayın") : tt("Davetli kayıt")}
-      subtitle={`${BRAND_NAME}’a yalnız davetle katılınır. Başvurunuz ajans tarafından incelenir; onaylanınca panelinize erişebilirsiniz.`}
+      wide={ok || isRequestMode}
+      title={ok ? tt("Başvurunuzu tamamlayın") : isRequestMode ? tt("Davet başvurusu") : tt("Davetli kayıt")}
+      subtitle={
+        isRequestMode
+          ? `${BRAND_NAME}’a katılmak için bilgilerinizi bırakın. Ekibimiz inceleyip size geri dönüş sağlayacaktır.`
+          : `${BRAND_NAME}’a yalnız davetle katılınır. Başvurunuz ajans tarafından incelenir; onaylanınca panelinize erişebilirsiniz.`
+      }
       footer={
         <>{tt("Hesabınız var mı?")}{" "}
           <Link href="/giris" className="text-fg underline-offset-4 hover:underline">{tt("Giriş yapın →")}</Link>
         </>
       }
     >
-      <ol aria-label={tt("Kayıt adımları")} className="mb-6 flex items-center gap-2 text-[12px]">
-        {steps.map((st, i) => (
-          <li key={st} className="flex flex-1 items-center gap-2" aria-current={i === current ? "step" : undefined}>
-            <span
-              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] tabular-nums ${
-                i < current ? "border-emerald-400 bg-emerald-400 text-black" : i === current ? "border-neon-pink text-fg" : "border-line-strong text-fg-passive"
-              }`}
-            >
-              {i < current ? "✓" : i + 1}
-            </span>
-            <span className={i === current ? "text-fg" : "text-fg-passive"}>{st}</span>
-            {i < steps.length - 1 ? <span aria-hidden className="h-px flex-1 bg-surface-hover" /> : null}
-          </li>
-        ))}
-      </ol>
-      {!check || !check.ok ? (
+      {!ok ? (
+        <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl border border-line bg-glass p-1 text-center text-sm">
+          <Link
+            href="/kayit"
+            className={`flex h-9 items-center justify-center rounded-lg font-medium transition ${
+              !isRequestMode ? "bg-glass-strong text-fg shadow-sm ring-1 ring-line-strong" : "text-fg-muted hover:text-fg"
+            }`}
+          >
+            {tt("Davet kodum var")}
+          </Link>
+          <Link
+            href="/kayit?basvuru=1"
+            className={`flex h-9 items-center justify-center rounded-lg font-medium transition ${
+              isRequestMode ? "bg-glass-strong text-fg shadow-sm ring-1 ring-line-strong" : "text-fg-muted hover:text-fg"
+            }`}
+          >
+            {tt("Davet kodum yok")}
+          </Link>
+        </div>
+      ) : null}
+      {!isRequestMode ? (
+        <ol aria-label={tt("Kayıt adımları")} className="mb-6 flex items-center gap-2 text-[12px]">
+          {steps.map((st, i) => (
+            <li key={st} className="flex flex-1 items-center gap-2" aria-current={i === current ? "step" : undefined}>
+              <span
+                className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] tabular-nums ${
+                  i < current ? "border-emerald-400 bg-emerald-400 text-black" : i === current ? "border-neon-pink text-fg" : "border-line-strong text-fg-passive"
+                }`}
+              >
+                {i < current ? "✓" : i + 1}
+              </span>
+              <span className={i === current ? "text-fg" : "text-fg-passive"}>{st}</span>
+              {i < steps.length - 1 ? <span aria-hidden className="h-px flex-1 bg-surface-hover" /> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {isRequestMode ? (
+        <InviteRequestForm />
+      ) : !check || !check.ok ? (
         <form method="get" className="flex flex-col gap-4" aria-label={tt("Davet kodu")}>
           <label className="flex flex-col gap-2 text-label text-fg-muted">{tt("Davet kodu")}<input
               name="kod"
@@ -73,6 +103,12 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
             <span aria-hidden className="absolute inset-0 bg-[linear-gradient(90deg,#ff2bd6,#9d4dff,#00e5ff,#a3ff12,#ff2bd6)] bg-[length:300%_100%] animate-gradient-x" />
             <span className="relative">{tt("Devam et →")}</span>
           </button>
+          <div className="pt-1 text-center text-[13px] text-fg-muted">
+            {tt("Davet kodun yok mu?")}{" "}
+            <Link href="/kayit?basvuru=1" className="font-medium text-fg underline underline-offset-4 hover:text-neon-pink">
+              {tt("Başvuru yap →")}
+            </Link>
+          </div>
         </form>
       ) : (
         <div className="flex flex-col gap-5">

@@ -9,20 +9,22 @@ export const LOCALES = ["tr", "en", "de", "fr"] as const;
 export type Locale = (typeof LOCALES)[number];
 export const LOCALE_LABEL: Record<Locale, string> = { tr: "Türkçe", en: "English", de: "Deutsch", fr: "Français" };
 
-export const CURRENCIES = ["TRY", "EUR", "CHF", "GBP", "USD"] as const;
+export const CURRENCIES = ["TRY", "EUR", "GBP", "USD", "JPY", "AED"] as const;
 export type Currency = (typeof CURRENCIES)[number];
 
 export type Region = { code: string; name: string; nativeName: string; locale: Locale; intl: string; currency: Currency; timezone: string };
 export const REGIONS: Region[] = [
   { code: "TR", name: "Türkiye", nativeName: "Türkiye", locale: "tr", intl: "tr-TR", currency: "TRY", timezone: "Europe/Istanbul" },
-  { code: "DE", name: "Almanya", nativeName: "Deutschland", locale: "de", intl: "de-DE", currency: "EUR", timezone: "Europe/Berlin" },
-  { code: "AT", name: "Avusturya", nativeName: "Österreich", locale: "de", intl: "de-AT", currency: "EUR", timezone: "Europe/Vienna" },
-  { code: "CH", name: "İsviçre", nativeName: "Schweiz", locale: "de", intl: "de-CH", currency: "CHF", timezone: "Europe/Zurich" },
-  { code: "FR", name: "Fransa", nativeName: "France", locale: "fr", intl: "fr-FR", currency: "EUR", timezone: "Europe/Paris" },
-  { code: "BE", name: "Belçika", nativeName: "Belgique", locale: "fr", intl: "fr-BE", currency: "EUR", timezone: "Europe/Brussels" },
-  { code: "NL", name: "Hollanda", nativeName: "Nederland", locale: "en", intl: "nl-NL", currency: "EUR", timezone: "Europe/Amsterdam" },
-  { code: "GB", name: "Birleşik Krallık", nativeName: "United Kingdom", locale: "en", intl: "en-GB", currency: "GBP", timezone: "Europe/London" },
   { code: "US", name: "ABD", nativeName: "United States", locale: "en", intl: "en-US", currency: "USD", timezone: "America/New_York" },
+  { code: "GB", name: "Birleşik Krallık", nativeName: "United Kingdom", locale: "en", intl: "en-GB", currency: "GBP", timezone: "Europe/London" },
+  { code: "DE", name: "Almanya", nativeName: "Deutschland", locale: "de", intl: "de-DE", currency: "EUR", timezone: "Europe/Berlin" },
+  { code: "FR", name: "Fransa", nativeName: "France", locale: "fr", intl: "fr-FR", currency: "EUR", timezone: "Europe/Paris" },
+  { code: "NL", name: "Hollanda", nativeName: "Nederland", locale: "en", intl: "nl-NL", currency: "EUR", timezone: "Europe/Amsterdam" },
+  { code: "AT", name: "Avusturya", nativeName: "Österreich", locale: "en", intl: "de-AT", currency: "EUR", timezone: "Europe/Vienna" },
+  { code: "CH", name: "İsviçre", nativeName: "Schweiz", locale: "en", intl: "de-CH", currency: "EUR", timezone: "Europe/Zurich" },
+  { code: "BE", name: "Belçika", nativeName: "Belgique", locale: "en", intl: "fr-BE", currency: "EUR", timezone: "Europe/Brussels" },
+  { code: "JP", name: "Japonya", nativeName: "Japan", locale: "en", intl: "ja-JP", currency: "JPY", timezone: "Asia/Tokyo" },
+  { code: "AE", name: "Birleşik Arap Emirlikleri", nativeName: "United Arab Emirates", locale: "en", intl: "en-AE", currency: "AED", timezone: "Asia/Dubai" },
 ];
 export const DEFAULT_REGION = REGIONS[0]!;
 
@@ -77,8 +79,9 @@ export const DEFAULT_FX_RATES: Record<Currency, number> = {
   USD: 1,
   TRY: 50.18,
   EUR: 0.86,
-  CHF: 0.80,
   GBP: 0.75,
+  JPY: 154.0,
+  AED: 3.67,
 };
 
 function normalizeCurrency(c: string | null | undefined): Currency {
@@ -108,10 +111,8 @@ export function convertMinor(
 }
 
 /**
- * Çift Taraflı Para Birimi Gösterimi (Two-Sided Display):
- * - Marka (Brand) perspektifinde: Yerel para birimi ana tutar, yanında dönüştürülmüş karşılığı (örn. `₺10.000 (≈ €172)`).
- * - Influencer perspektifinde: Influencer'ın kendi yerel/global para birimi ana tutar, parantez içinde orijinal tutar (örn. `€172 (₺10.000)`).
- * - `showGlobalEquivalents: true` ise aynı para biriminde bile global karşılığını gösterir (`₺10.000 (≈ €172 · $199)`).
+ * Seçili/izleyici para birimine göre otomatik kur çevrimi yapar ve TEK FİYAT olarak biçimlendirir.
+ * Parantez içinde ikinci bir kur/fiyat göstermez; para birimi değiştiğinde kuru otomatik çevirir.
  */
 export function formatDualMinor(
   minor: number | bigint,
@@ -124,48 +125,34 @@ export function formatDualMinor(
   },
 ): string {
   const orig = normalizeCurrency(originalCurrency);
-  const viewer = normalizeCurrency(options?.viewerCurrency ?? orig);
+  const target = normalizeCurrency(options?.viewerCurrency ?? orig);
   const fx = options?.fx ?? DEFAULT_FX_RATES;
-  const origFormatted = formatMinor(minor, orig);
 
-  if (orig !== viewer) {
-    const convertedMinor = convertMinor(minor, orig, viewer, fx);
-    const convertedFormatted = formatMinor(convertedMinor, viewer);
-    if (options?.perspective === "influencer") {
-      return `${convertedFormatted} (${origFormatted})`;
-    }
-    return `${origFormatted} (≈ ${convertedFormatted})`;
+  if (orig !== target) {
+    const convertedMinor = convertMinor(minor, orig, target, fx);
+    return formatMinor(convertedMinor, target);
   }
 
-  if (options?.showGlobalEquivalents) {
-    if (orig === "TRY") {
-      const eur = formatMinor(convertMinor(minor, "TRY", "EUR", fx), "EUR");
-      const usd = formatMinor(convertMinor(minor, "TRY", "USD", fx), "USD");
-      return `${origFormatted} (≈ ${eur} · ${usd})`;
-    }
-    const tryEq = formatMinor(convertMinor(minor, orig, "TRY", fx), "TRY");
-    return `${origFormatted} (≈ ${tryEq})`;
-  }
-
-  return origFormatted;
+  return formatMinor(minor, orig);
 }
 
 
 /**
- * Dil + ülke algılama (giriş öncesi): önce Cloudflare/CloudFront ülke başlığı, sonra tarayıcı dili.
- * Desteklenmeyen ülke → dil tarayıcıdan, ülke Türkiye.
+ * Dil + ülke algılama (giriş öncesi):
+ * Bilinen ülke kendi dilini önerir; tarayıcı desteklenen bir dildeyse (tr, en, de, fr) o dil kazanır.
+ * Tanınmayan ülke kodu (ör. JP) varsayılan bölgeye düşer. CDN sahte kodları (XX, T1) yok sayılır.
  */
 export function detectRegion(input: { ipCountry?: string | null; acceptLanguage?: string | null }): { country: string; locale: Locale } {
-  const ip = (input.ipCountry ?? "").toUpperCase();
+  const ip = (input.ipCountry ?? "").trim().toUpperCase();
   const langs = (input.acceptLanguage ?? "")
     .split(",")
     .map((p) => p.split(";")[0]!.trim())
     .filter(Boolean);
   const langLocale = langs.map((l) => l.slice(0, 2).toLowerCase()).find((l) => isLocale(l)) as Locale | undefined;
   const langCountry = langs.map((l) => l.split("-")[1]?.toUpperCase()).find((c) => c && isRegion(c));
-  if (isRegion(ip)) {
-    const r = regionOf(ip);
-    // Ülkenin dili; kullanıcı tarayıcısı desteklenen başka bir dildeyse onu tercih et (ör. Almanya'da Türkçe tarayıcı).
+  const usableIp = /^[A-Z]{2}$/.test(ip) && !["XX", "T1", "A1", "A2", "ZZ"].includes(ip) ? ip : "";
+  if (usableIp && isRegion(usableIp)) {
+    const r = regionOf(usableIp);
     return { country: r.code, locale: langLocale ?? r.locale };
   }
   if (langCountry) return { country: langCountry, locale: langLocale ?? regionOf(langCountry).locale };
@@ -173,5 +160,6 @@ export function detectRegion(input: { ipCountry?: string | null; acceptLanguage?
     const byLang = REGIONS.find((r) => r.locale === langLocale) ?? DEFAULT_REGION;
     return { country: byLang.code, locale: langLocale };
   }
+  if (usableIp) return { country: usableIp, locale: "en" };
   return { country: DEFAULT_REGION.code, locale: DEFAULT_REGION.locale };
 }

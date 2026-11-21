@@ -6,6 +6,8 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
 import { InfoNote } from "@/components/ui/unverified";
 import { requireActor } from "@/lib/auth-guard";
+import { CampaignCatalogForm } from "@/components/admin/campaign-catalog-form";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 
 export const metadata: Metadata = { title: "Kategoriler" };
 export const dynamic = "force-dynamic";
@@ -14,15 +16,27 @@ export const dynamic = "force-dynamic";
 export default async function CategoriesPage() {
   const tt = await getTT();
   await requireActor("ADMIN");
-  const all = await prisma.category.findMany({
+  const [all, catalogRow] = await Promise.all([
+    prisma.category.findMany({
     orderBy: [{ sort: "asc" }, { name: "asc" }],
     include: { _count: { select: { influencers: true, brands: true } } },
-  });
+    }),
+    prisma.configValue.findUnique({ where: { key: CAMPAIGN_CATALOG_KEY }, select: { value: true } }),
+  ]);
+  const catalog = Array.isArray(catalogRow?.value) ? (catalogRow.value as unknown as CampaignCatalogEntry[]).filter((x) => x.active) : [];
   const roots = all.filter((c) => !c.parentId);
   return (
     <div className="flex flex-col gap-8">
       <PageHeader title={tt("Kategoriler")} description={tt("Influencer ve marka kategorileri. Ana kategori seçimi alt kategorileri de kapsar (filtreleme ve öneride).")} />
       <InfoNote>{tt("Kullanılan bir kategori silinmez; “pasif” yapılırsa yeni seçimlerde görünmez ama mevcut kayıtlar korunur.")}</InfoNote>
+      <Card interactive={false} className="flex flex-col gap-4">
+        <CardTitle>{tt("Kampanya sektörleri ve hazır şablonlar")}</CardTitle>
+        <p className="text-sm text-fg-muted">{tt("Hızlı kampanya sihirbazı bu aktif kayıtları kullanır.")}</p>
+        <CampaignCatalogForm />
+        <div className="flex flex-col gap-2">
+          {catalog.map((entry) => <CampaignCatalogForm key={entry.id} entry={entry} />)}
+        </div>
+      </Card>
       <Card interactive={false} className="flex flex-col gap-4">
         <CardTitle>{tt("Yeni kategori")}</CardTitle>
         <CategoryEditForm roots={roots.map((r) => ({ id: r.id, name: r.name }))} />

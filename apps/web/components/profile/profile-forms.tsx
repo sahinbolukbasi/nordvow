@@ -43,7 +43,7 @@ export function ProfileForm({ name, phone, instagram }: { name: string; phone: s
       }
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" required defaultValue={name} autoComplete="name" />}</Field>
+        <Field label={tt("Ad soyad")}>{(p) => <Input {...p} name="name" defaultValue={name} autoComplete="name" />}</Field>
         <Field label={tt("Telefon")}>{(p) => <Input {...p} name="phone" type="tel" defaultValue={phone ?? ""} autoComplete="tel" placeholder="+90 5__ ___ __ __" />}</Field>
         <Field label={tt("Instagram kullanıcı adı")} hint={tt("Başındaki @ olmadan. Bot eşleştirmesi için kullanılır.")}>{(p) => <Input {...p} name="instagram" defaultValue={instagram ?? ""} autoComplete="off" placeholder="kullanici" />}</Field>
       </div>

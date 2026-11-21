@@ -1,10 +1,11 @@
 # ALB yalnız CloudFront'tan erişilebilir (güvenlik grubu prefix list ile).
 resource "aws_lb" "app" {
-  name               = local.name
-  load_balancer_type = "application"
-  subnets            = aws_subnet.public[*].id
-  security_groups    = [aws_security_group.alb.id]
-  idle_timeout       = 120
+  name                       = local.name
+  load_balancer_type         = "application"
+  subnets                    = aws_subnet.public[*].id
+  security_groups            = [aws_security_group.alb.id]
+  idle_timeout               = 120
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "app" {
@@ -16,8 +17,8 @@ resource "aws_lb_target_group" "app" {
   deregistration_delay = 30
 
   health_check {
-    path                = "/giris"
-    matcher             = "200-399"
+    path                = "/api/health"
+    matcher             = "200"
     interval            = 30
     timeout             = 10
     healthy_threshold   = 2

@@ -60,7 +60,7 @@ export async function runFakeEngagement(input: { influencerId: string }, now = n
 }
 
 export async function runFakeEngagementAll(now = new Date()): Promise<boolean[]> {
-  const list = await prisma.influencer.findMany({ select: { id: true } });
+  const list = await prisma.influencer.findMany({ where: { isActive: true }, select: { id: true } });
   const out: boolean[] = [];
   for (const i of list) out.push(await runFakeEngagement({ influencerId: i.id }, now));
   return out;

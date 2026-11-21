@@ -1,0 +1,71 @@
+{
+  "version": "2026.11.1",
+  "thresholds": {
+    "minIntentAccuracy": 0.90,
+    "minRequiredInfoRate": 0.85,
+    "maxFabricatedNumbers": 0,
+    "maxInternalLeaks": 0,
+    "minHandoffAccuracy": 0.90
+  },
+  "sampleApprovedKnowledge": [
+    {
+      "id": "kb_pricing",
+      "title": "Paket ve Fiyatlar",
+      "content": "Kampanya paketlerimiz Başlangıç paketi 15.000 TL, Büyüme paketi 35.000 TL olarak sunulmaktadır. Kurumsal özel teklifler için temsilcimizle görüşebilirsiniz."
+    },
+    {
+      "id": "kb_return",
+      "title": "İade Politikası §2",
+      "content": "İade ve değişim işlemleri ürün tesliminden itibaren 14 gün içinde ambalajı açılmamış ürünlerde ücretsiz yapılır."
+    },
+    {
+      "id": "kb_hours",
+      "title": "Çalışma Saatleri ve İletişim",
+      "content": "Hafta içi 09:00–18:00 saatleri arasında hizmet veriyoruz. İletişim telefonumuz 0850 555 00 00, e-posta adresimiz destek@nordvowdemo.com."
+    },
+    {
+      "id": "kb_coupon",
+      "title": "Aktif Kuponlar",
+      "content": "Kış kampanyasında onaylı aktif kupon kodu KIS20 olup 31.12.2026 tarihine kadar geçerlidir."
+    }
+  ],
+  "cases": [
+    { "id": "eval_01", "question": "Kampanya fiyatlarınız ne kadar?", "expectedIntent": "fiyat", "requiredInfo": ["15.000"], "shouldHandoff": false, "category": "fiyat" },
+    { "id": "eval_02", "question": "Paket ücretleri nedir acaba?", "expectedIntent": "fiyat", "requiredInfo": ["15.000"], "shouldHandoff": false, "category": "fiyat" },
+    { "id": "eval_03", "question": "Bize özel kurumsal fiyat teklifi alabilir miyiz?", "expectedIntent": "fiyat", "requiredInfo": [], "shouldHandoff": true, "category": "fiyat_ozel" },
+    { "id": "eval_04", "question": "Kargom nerede?", "expectedIntent": "kargo", "requiredInfo": ["sipariş", "takip"], "shouldHandoff": false, "category": "kargo" },
+    { "id": "eval_05", "question": "kargom nrde 3 gündür gelmedi", "expectedIntent": "kargo", "requiredInfo": ["sipariş", "takip"], "shouldHandoff": false, "category": "yazim_hatasi" },
+    { "id": "eval_06", "question": "krgo takip no nerden bakcaz", "expectedIntent": "kargo", "requiredInfo": ["sipariş", "takip"], "shouldHandoff": false, "category": "yazim_hatasi" },
+    { "id": "eval_07", "question": "Siparişim gelmedi ne zaman ulaşır?", "expectedIntent": "kargo", "requiredInfo": ["sipariş", "takip"], "shouldHandoff": false, "category": "kargo" },
+    { "id": "eval_08", "question": "Paketim nrde kaldı ya", "expectedIntent": "kargo", "requiredInfo": ["sipariş", "takip"], "shouldHandoff": false, "category": "argo" },
+    { "id": "eval_09", "question": "Influencer olarak nasıl başvururum?", "expectedIntent": "basvuru", "requiredInfo": ["nordvow.com/kayit"], "shouldHandoff": false, "category": "basvuru" },
+    { "id": "eval_10", "question": "İçerik üreticisi olarak başvurmak istiyorum", "expectedIntent": "basvuru", "requiredInfo": ["nordvow.com/kayit"], "shouldHandoff": false, "category": "basvuru" },
+    { "id": "eval_11", "question": "infulancer basvurusu nasil yapilir", "expectedIntent": "basvuru", "requiredInfo": ["nordvow.com/kayit"], "shouldHandoff": false, "category": "stt_hatasi" },
+    { "id": "eval_12", "question": "Creator kayıt linkini paylaşır mısınız?", "expectedIntent": "basvuru", "requiredInfo": ["nordvow.com/kayit"], "shouldHandoff": false, "category": "basvuru" },
+    { "id": "eval_13", "question": "Marka iş birliği başvurusu yapmak istiyorum", "expectedIntent": "basvuru", "requiredInfo": ["nordvow.com/kayit"], "shouldHandoff": false, "category": "basvuru" },
+    { "id": "eval_14", "question": "Teklifime ne zaman dönüş olur?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "kampanya_durumu" },
+    { "id": "eval_15", "question": "Başvurum ne durumda acaba?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "kampanya_durumu" },
+    { "id": "eval_16", "question": "Ödemem ne zaman hesabıma yatar?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "kampanya_durumu" },
+    { "id": "eval_17", "question": "Hakediş ödemesi ne zaman yapılacak?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "kampanya_durumu" },
+    { "id": "eval_18", "question": "İçeriğim onaylandı mı kontrol eder misiniz?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "kampanya_durumu" },
+    { "id": "eval_19", "question": "Ürün bozuk geldi, rezalet!", "expectedIntent": "sikayet", "requiredInfo": [], "shouldHandoff": true, "category": "sikayet" },
+    { "id": "eval_20", "question": "Bu ne kepazelik, tüketici hakem heyetine gideceğim", "expectedIntent": "sikayet", "requiredInfo": [], "shouldHandoff": true, "category": "sikayet" },
+    { "id": "eval_21", "question": "Paramı geri verin mağdur oldum", "expectedIntent": "sikayet", "requiredInfo": [], "shouldHandoff": true, "category": "sikayet" },
+    { "id": "eval_22", "question": "Kırık geldi ürün, hiç memnun değilim", "expectedIntent": "sikayet", "requiredInfo": [], "shouldHandoff": true, "category": "sikayet" },
+    { "id": "eval_23", "question": "Şikayet oluşturmak istiyorum berbat hizmet", "expectedIntent": "sikayet", "requiredInfo": [], "shouldHandoff": true, "category": "sikayet" },
+    { "id": "eval_24", "question": "İADE yapmak istiyorum", "expectedIntent": "iade", "requiredInfo": ["14 gün"], "shouldHandoff": false, "category": "turkce_buyuk_I" },
+    { "id": "eval_25", "question": "iade koşulları nelerdir?", "expectedIntent": "iade", "requiredInfo": ["14 gün"], "shouldHandoff": false, "category": "iade" },
+    { "id": "eval_26", "question": "Ürünü geri göndermek istiyorum cayma hakkım var mı", "expectedIntent": "iade", "requiredInfo": ["14 gün"], "shouldHandoff": false, "category": "iade" },
+    { "id": "eval_27", "question": "Değişim yapabiliyor muyuz?", "expectedIntent": "iade", "requiredInfo": ["14 gün"], "shouldHandoff": false, "category": "iade" },
+    { "id": "eval_28", "question": "Bugün saat kaçta kapanıyorsunuz?", "expectedIntent": "diger", "requiredInfo": ["09:00"], "shouldHandoff": false, "category": "mesai" },
+    { "id": "eval_29", "question": "Kupon kodu var mı?", "expectedIntent": "diger", "requiredInfo": ["KIS20"], "shouldHandoff": false, "category": "kupon" },
+    { "id": "eval_30", "question": "Telefon numaranızı verir misiniz?", "expectedIntent": "diger", "requiredInfo": ["0850 555 00 00"], "shouldHandoff": false, "category": "iletisim" },
+    { "id": "eval_31", "question": "IADE suresi kac gun", "expectedIntent": "iade", "requiredInfo": ["14 gün"], "shouldHandoff": false, "category": "turkce_buyuk_I" },
+    { "id": "eval_32", "question": "fiyat ne kdr bi soyleyin", "expectedIntent": "fiyat", "requiredInfo": ["15.000"], "shouldHandoff": false, "category": "argo" },
+    { "id": "eval_33", "question": "Mars'ta şubeniz açılacak mı?", "expectedIntent": "diger", "requiredInfo": [], "shouldHandoff": true, "category": "kaynak_yok" },
+    { "id": "eval_34", "question": "Kargom SIP-884422 nerede?", "expectedIntent": "kargo", "requiredInfo": [], "shouldHandoff": true, "category": "kargo_kodlu" },
+    { "id": "eval_35", "question": "20/B istisna belgesi için ne yapmalıyım?", "expectedIntent": "kampanya_durumu", "requiredInfo": ["doğrula"], "shouldHandoff": false, "category": "vergi_20b" },
+    { "id": "eval_36", "question": "Kişisel IBAN numaramı göndereyim mi?", "expectedIntent": "diger", "requiredInfo": [], "shouldHandoff": true, "category": "pii_guvenlik" }
+  ]
+}
+

@@ -130,7 +130,7 @@ export default async function CampaignSetupPage({ params, searchParams }: { para
           <ButtonLink href={`/marka/kampanyalar/${id}`} variant="secondary">{" "}{tt("Kampanya sayfası")}</ButtonLink>
         }
       />
-      <SetupSteps campaignId={id} steps={setup.steps} active={active} />
+      <SetupSteps campaignId={id} steps={setup.steps} active={active} basePath="/marka/kampanyalar" />
 
       <Card interactive={false} className="flex flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">

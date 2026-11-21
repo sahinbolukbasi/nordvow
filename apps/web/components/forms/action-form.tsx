@@ -37,7 +37,23 @@ export function ActionForm({
   "aria-label"?: string;
 }) {
   const tt = useTT();
-  const [state, formAction, pending] = useActionState(action, idleState);
+  const safeAction: FormAction = async (prev, fd) => {
+    try {
+      return await action(prev, fd);
+    } catch (err) {
+      // Next.js redirect() / notFound() iç hatalarını yutma — yönlendirmenin çalışması için yeniden fırlat.
+      const digest = typeof err === "object" && err && "digest" in err ? String((err as { digest?: unknown }).digest ?? "") : "";
+      if (digest.startsWith("NEXT_REDIRECT") || digest.startsWith("NEXT_NOT_FOUND")) {
+        throw err;
+      }
+      console.error("[ActionForm] Sunucu isteği başarısız oldu:", err);
+      return {
+        ok: false,
+        error: "Kaydedilemedi, tekrar dene. Formdaki bilgileriniz korundu.",
+      };
+    }
+  };
+  const [state, formAction, pending] = useActionState(safeAction, idleState);
   const ref = useRef<HTMLFormElement>(null);
   const onSuccessRef = useRef(onSuccess);
 

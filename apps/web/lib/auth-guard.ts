@@ -8,6 +8,7 @@ import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
 import { isPathHiddenFor, loadPagePermissions } from "@infulancer/core/access/page-permissions";
 import { isPathExplicitlyAllowed } from "@infulancer/core/access/page-visibility";
+import { getQrScannerRestriction } from "@infulancer/core/events/scanner-accounts";
 import { roleHome } from "./roles";
 
 /** Oturumdaki kullanıcıyı core Actor'a çevirir; oturum yoksa null. */
@@ -27,11 +28,24 @@ export const getActor = cache(async (): Promise<Actor | null> => {
 
 export const getSessionUser = cache(async () => (await auth())?.user ?? null);
 
-/** Üyelik durumu her istekte veritabanından okunur (JWT'deki durum onaydan sonra eskiyebilir). */
+/** Üyelik durumu, güncel rol ve dil/ülke tercihi istek başına TEK sorguda okunur (React.cache). */
 export const getUserStatus = cache(async (userId: string) => {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { status: true, brandId: true, influencerId: true } });
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true, role: true, brandId: true, influencerId: true, locale: true, country: true },
+  });
   return u;
 });
+
+function resolveActorFromDb(sessionActor: Actor, st: { role: Role; brandId: string | null; influencerId: string | null }): Actor {
+  return {
+    ...sessionActor,
+    role: st.role === "AGENCY" ? "ADMIN" : st.role,
+    staffRole: st.role === "AGENCY" ? "AGENCY" : undefined,
+    brandId: st.brandId,
+    influencerId: st.influencerId,
+  };
+}
 
 /**
  * Server Component ve Server Action'lar için: oturum yoksa /giris'e,
@@ -41,19 +55,22 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
   const sessionActor = await getActor();
   if (!sessionActor) redirect("/giris");
   const st = await getUserStatus(sessionActor.userId);
-  if (!st) redirect("/giris");
+  if (!st) redirect("/api/auth/clear-session?hata=oturum");
   if (st.status !== "ACTIVE") redirect("/onay-bekliyor");
-  // Onay sonrası profil bağları JWT'de olmayabilir; veritabanındaki değerler esas alınır.
-  const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
+  // Onay sonrası profil bağları veya rol değişikliği JWT'de eskiyebilir; veritabanındaki değerler esas alınır.
+  const actor: Actor = resolveActorFromDb(sessionActor, st);
   if (roles.length > 0 && !roles.includes(actor.role)) {
-    const pathname = (await headers()).get("x-pathname");
-    const perms = pathname ? await loadPagePermissions(actor.staffRole ?? actor.role, actor.userId) : [];
-    if (!pathname || !isPathExplicitlyAllowed(perms, actor.staffRole ?? actor.role, actor.userId, pathname)) {
-      redirect(roleHome[actor.role]);
+    if (actor.staffRole === "AGENCY") {
+      const pathname = (await headers()).get("x-pathname");
+      const perms = pathname ? await loadPagePermissions(actor.staffRole, actor.userId) : [];
+      if (pathname && isPathExplicitlyAllowed(perms, actor.staffRole, actor.userId, pathname)) {
+        return actor;
+      }
     }
+    redirect(roleHome[actor.role]);
   }
-  if (actor.role === "BRAND" && !actor.brandId) redirect("/giris");
-  if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/giris");
+  if (actor.role === "BRAND" && !actor.brandId) redirect("/api/auth/clear-session?hata=hesap");
+  if (actor.role === "INFLUENCER" && !actor.influencerId) redirect("/api/auth/clear-session?hata=hesap");
   await assertPageVisible(actor);
   return actor;
 }
@@ -64,15 +81,31 @@ export async function requireActor(...roles: Role[]): Promise<Actor> {
  */
 async function assertPageVisible(actor: Actor): Promise<void> {
   const pathname = (await headers()).get("x-pathname");
-  if (!pathname) return;
+  const scannerRestriction = await getQrScannerRestriction(actor.userId);
+  if (scannerRestriction) {
+    const qrHome = actor.brandId ? "/marka/qr-giris" : "/admin/qr-giris";
+    if (!scannerRestriction.active) redirect("/api/auth/clear-session?hata=hesap");
+    if (pathname && pathname !== qrHome && !pathname.startsWith(`${qrHome}/`) && pathname !== "/profil" && !pathname.startsWith("/profil/")) {
+      redirect(qrHome);
+    }
+    return;
+  }
+  const home = roleHome[actor.role];
+  if (!pathname || pathname === home) return;
   // Ajans çalışanının kuralları AGENCY rolüne göre (oturumda ADMIN olarak çalışsa da).
-  if (await isPathHiddenFor(actor.staffRole ?? actor.role, actor.userId, pathname)) redirect(`${roleHome[actor.role]}?erisim=kapali`);
+  if (await isPathHiddenFor(actor.staffRole ?? actor.role, actor.userId, pathname)) redirect(`${home}?erisim=kapali`);
 }
 
-/** Yalnız platform yöneticisi (ADMIN): kullanıcılar, yetkiler, finans, tanıtım içeriği. Ajans çalışanı panel ana sayfasına döner. */
+/** Yalnız platform yöneticisi (ADMIN): kullanıcılar, yetkiler, finans, tanıtım içeriği. Ajans çalışanı (özel izin yoksa) panel ana sayfasına döner. */
 export async function requireAdmin(): Promise<Actor> {
   const actor = await requireActor("ADMIN");
-  if (actor.staffRole) redirect("/admin?yetki=yok");
+  if (actor.staffRole) {
+    const pathname = (await headers()).get("x-pathname");
+    const perms = pathname ? await loadPagePermissions(actor.staffRole, actor.userId) : [];
+    if (!pathname || !isPathExplicitlyAllowed(perms, actor.staffRole, actor.userId, pathname)) {
+      redirect("/admin?yetki=yok");
+    }
+  }
   return actor;
 }
 /** Server Action'larda: ajans çalışanını reddeder. */
@@ -91,7 +124,7 @@ export async function requireApiActor(
   if (!st || st.status !== "ACTIVE") {
     return { response: Response.json({ error: "Üyeliğiniz onay bekliyor." }, { status: 403 }) };
   }
-  const actor: Actor = { ...sessionActor, brandId: st.brandId, influencerId: st.influencerId };
+  const actor: Actor = resolveActorFromDb(sessionActor, st);
   if (roles.length > 0 && !roles.includes(actor.role)) {
     return { response: Response.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 }) };
   }

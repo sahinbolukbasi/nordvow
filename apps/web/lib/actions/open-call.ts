@@ -6,6 +6,8 @@ import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { applyToOpenCall, createOpenCall, reviewApplication, setOpenCallStatus } from "@infulancer/core/campaigns/open-call";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { envStr } from "@infulancer/core/env";
+import { dispatchNotification, recipientsFromUserIds } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str, tlToKurus } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -71,6 +73,25 @@ export async function setOpenCallStatusAction(_p: ActionState, fd: FormData): Pr
     if (!tenantId) throw new DomainError("BULUNAMADI", "Çağrı bulunamadı.");
     await setOpenCallStatus(tenantId, id, to);
     await audit.append({ actor: toAuditActor(actor), action: "OPEN_CALL_STATUS", entityType: "CampaignOpenCall", entityId: id, data: { to } });
+    if (to === "ACIK") {
+      try {
+        const [call, brand, infUsers] = await Promise.all([
+          prisma.campaignOpenCall.findUnique({ where: { id }, select: { title: true } }),
+          prisma.brand.findUnique({ where: { id: tenantId }, select: { name: true } }),
+          prisma.user.findMany({ where: { role: "INFLUENCER", status: "ACTIVE" }, select: { id: true }, take: 200 }),
+        ]);
+        if (call && infUsers.length) {
+          const recipients = await recipientsFromUserIds(infUsers.map((u) => u.id));
+          if (recipients.length) {
+            await dispatchNotification("OPEN_CALL_PUBLISHED", recipients, {
+              marka: brand?.name ?? "Marka",
+              baslik: call.title,
+              link: "/influencer/firsatlar",
+            });
+          }
+        }
+      } catch { /* bildirim hatası çağrı yayınını bozmasın */ }
+    }
     revalidateAll();
     return { ok: true, message: "Durum güncellendi." };
   });
@@ -99,6 +120,37 @@ export async function reviewApplicationAction(_p: ActionState, fd: FormData): Pr
     const tenantId = actor.role === "BRAND" ? actor.brandId! : (await prisma.campaignApplication.findUnique({ where: { id }, select: { openCall: { select: { tenantId: true } } } }))?.openCall.tenantId;
     if (!tenantId) throw new DomainError("BULUNAMADI", "Başvuru bulunamadı.");
     await reviewApplication(tenantId, id, to, note, actor.userId);
+    if (to === "KABUL" || to === "RED") {
+      try {
+        const appRow = await prisma.campaignApplication.findUnique({
+          where: { id },
+          select: {
+            influencerId: true,
+            openCall: { select: { title: true } },
+          },
+        });
+        const inf = appRow
+          ? await prisma.influencer.findUnique({
+              where: { id: appRow.influencerId },
+              select: { name: true, user: { select: { id: true } } },
+            })
+          : null;
+        if (appRow && inf?.user?.id) {
+          const recipients = await recipientsFromUserIds([inf.user.id]);
+          const base = (envStr("APP_URL", "") || envStr("AUTH_URL", "") || "https://nordvow.com").replace(/\/+$/, "");
+          if (recipients.length) {
+            await dispatchNotification("APPLICATION_REVIEWED", recipients, {
+              ad: inf.name,
+              baslik: appRow.openCall.title,
+              durum: to === "KABUL" ? "Kabul edildi" : "Reddedildi",
+              link: `${base}/influencer/firsatlar`,
+            });
+          }
+        }
+      } catch {
+        /* e-posta/bildirim hatası başvuru değerlendirmesini bozmasın */
+      }
+    }
     await audit.append({ actor: toAuditActor(actor), action: "OPEN_CALL_REVIEWED", entityType: "CampaignApplication", entityId: id, data: { to } });
     revalidateAll();
     return { ok: true, message: to === "KABUL" ? "Başvuru kabul edildi; Teklifler listesine kabul edilmiş teklif olarak eklendi." : to === "RED" ? "Başvuru reddedildi." : "İncelemeye alındı." };

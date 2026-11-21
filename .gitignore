@@ -9,6 +9,8 @@ coverage/
 !.env.example
 .terraform/
 *.tfstate*
+terraform.tfvars
+*.auto.tfvars
 .DS_Store
 *.log
 .agents/

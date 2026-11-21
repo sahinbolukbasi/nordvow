@@ -19,12 +19,12 @@ describe("K41 bölgeler: dil, para birimi, ülke ayrımı, ülkeye göre uyum", 
     expect(detectRegion({ ipCountry: "DE", acceptLanguage: "tr-TR,tr;q=0.9" })).toEqual({ country: "DE", locale: "tr" });
     expect(detectRegion({ ipCountry: "FR", acceptLanguage: "ja" })).toEqual({ country: "FR", locale: "fr" });
     expect(detectRegion({ ipCountry: null, acceptLanguage: "en-GB,en;q=0.8" })).toEqual({ country: "GB", locale: "en" });
-    expect(detectRegion({ ipCountry: "JP", acceptLanguage: "ja-JP" })).toEqual({ country: "TR", locale: "tr" });
+    expect(detectRegion({ ipCountry: "JP", acceptLanguage: "ja-JP" })).toEqual({ country: "JP", locale: "en" });
   });
 
   it("para birimi çevrilmez; kampanyada ülkeler aynı para birimini kullanmalı", () => {
     expect(currencyOf("AT")).toBe("EUR");
-    expect(currencyOf("CH")).toBe("CHF");
+    expect(currencyOf("CH")).toBe("EUR");
     expect(campaignCurrency(["DE", "FR", "BE"], "TR")).toEqual({ currency: "EUR", mixed: false });
     expect(campaignCurrency(["TR", "DE"], "TR").mixed).toBe(true);
     expect(campaignCurrency([], "GB").currency).toBe("GBP");

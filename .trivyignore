@@ -1,0 +1,12 @@
+# Canlı mimari. Bu kapı bunları bilerek açık bırakır.
+# ALB yalnız CloudFront prefix listesinden 80 dinler; origin TLS ayrı iş.
+AWS-0053
+AWS-0054
+# Fargate NAT'siz çıkış yapar. Güvenlik grubu çıkışı bu yüzden açıktır.
+AWS-0104
+# İmaj etiketi deploy'da üzerine yazılır. ECR taraması ayrıca açıktır.
+AWS-0031
+# SSE-S3 açık, kova herkese kapalı. Müşteri anahtarı ayrı değişiklik.
+AWS-0132
+# Operasyon alarm konusu. KMS ayrı değişiklik.
+AWS-0095

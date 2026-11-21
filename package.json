@@ -9,12 +9,24 @@
   "engines": {
     "node": ">=24"
   },
+  "overrides": {
+    "effect": "3.22.1",
+    "@prisma/config": {
+      "effect": "3.22.1"
+    }
+  },
+  "pnpm": {
+    "overrides": {
+      "effect": "3.22.1"
+    }
+  },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @infulancer/core",
     "db:seed": "npm run db:seed -w @infulancer/core",
+    "db:clean-prod": "npm run db:clean-prod -w @infulancer/core",
     "audit:migrate": "npm run audit:migrate -w @infulancer/core",
     "storage:init": "npm run storage:init -w @infulancer/core",
     "agents:run": "npm run agents:run -w @infulancer/core --",

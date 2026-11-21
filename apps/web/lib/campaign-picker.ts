@@ -26,7 +26,7 @@ export async function pickerPool(campaignId: string) {
   const c = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { targetCountries: true, currency: true } });
   const countries = c?.targetCountries.length ? c.targetCountries : REGIONS.filter((r) => r.currency === (c?.currency ?? "TRY")).map((r) => r.code);
   return prisma.influencer.findMany({
-    where: { country: { in: countries }, assignments: { none: { campaignId, contractStatus: { not: "RED" } } } },
+    where: { isActive: true, country: { in: countries }, assignments: { none: { campaignId, contractStatus: { not: "RED" } } } },
     orderBy: { name: "asc" },
     select: pickerInfluencerSelect,
   });

@@ -108,7 +108,7 @@ export async function copilotWelcome(actor: Actor): Promise<CopilotWelcome> {
   const [user, steps, brands, brandCfg] = await Promise.all([
     prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } }),
     nextSteps(actor),
-    actor.role === "ADMIN" ? prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }) : Promise.resolve([]),
+    actor.role === "ADMIN" ? prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 300 }) : Promise.resolve([]),
     actor.role === "BRAND" && actor.brandId ? prisma.brand.findUnique({ where: { id: actor.brandId }, select: { defaultExecutionMode: true } }) : Promise.resolve(null),
   ]);
   const first = (user?.name ?? "").split(" ")[0] ?? "";
@@ -354,7 +354,7 @@ async function executeCopilotTool(
     case "list_influencers": {
       if (role === "INFLUENCER") return null;
       const rows = await prisma.influencer.findMany({
-        where: { user: { status: "ACTIVE" } },
+        where: { isActive: true, user: { status: "ACTIVE" } },
         orderBy: { name: "asc" },
         take: 6,
         select: { name: true, category: true, city: true, socialAccounts: { select: { platform: true, followers: true } } },
@@ -405,8 +405,128 @@ async function executeCopilotTool(
   }
 }
 
-async function detectAndExecuteCommand(actor: Actor, message: string): Promise<{ reply: string; actionIds: string[] } | null> {
+async function buildCampaignStatusAnswer(
+  actor: Actor,
+  message: string,
+  history: { role: "user" | "assistant"; text: string }[],
+): Promise<{ reply: string; actionIds: string[] }> {
+  const role = actor.role as CopilotRole;
+  const where =
+    role === "BRAND" && actor.brandId
+      ? { brandId: actor.brandId, status: { not: "IPTAL" as const } }
+      : role === "INFLUENCER" && actor.influencerId
+        ? { assignments: { some: { influencerId: actor.influencerId, contractStatus: { not: "RED" as const } } }, status: { not: "IPTAL" as const } }
+        : { status: { not: "IPTAL" as const } };
+
+  const camps = await prisma.campaign.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+    include: {
+      brand: { select: { name: true } },
+      assignments: {
+        where: { contractStatus: { not: "RED" } },
+        include: {
+          influencer: { select: { name: true } },
+          deliverables: { select: { id: true, platform: true, contentType: true, status: true, publishedAt: true } },
+        },
+      },
+    },
+  });
+
+  if (!camps.length) {
+    return {
+      reply: "Sistemde henüz takip edilen bir kampanya bulunmuyor.",
+      actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns"],
+    };
+  }
+
   const n = normText(message);
+  const matchedCamp = camps.find((c) => n.includes(normText(c.name)));
+  const wantsGeneral = /\b(genel|ozet|tumu|hepsi)\b/.test(n);
+  const prevAskedCampaignChoice = history
+    .slice(-2)
+    .some((h) => h.role === "assistant" && h.text.includes("Genel özet mi"));
+
+  // Eğer kullanıcı belirli bir kampanya adı yazdıysa doğrudan o kampanyanın detaylı analizini ver
+  if (matchedCamp) {
+    const allDeliv = matchedCamp.assignments.flatMap((a) => a.deliverables);
+    const doneCount = allDeliv.filter((d) => ["YAYINLANDI", "TAMAMLANDI"].includes(d.status)).length;
+    const trackers = await prisma.trackerAgent.findMany({
+      where: { scope: "CAMPAIGN", targetId: matchedCamp.id },
+      select: { name: true, lastFindings: true, lastRunAt: true },
+    });
+    const offersCount = await prisma.offer.groupBy({
+      by: ["status"],
+      where: { campaignId: matchedCamp.id },
+      _count: true,
+    });
+    const offerSummary = offersCount.map((o) => `${o.status}: ${o._count}`).join(" · ") || "Henüz teklif yok";
+    const trackerSummary = trackers.length
+      ? trackers
+          .map((t) => {
+            const fCount = Array.isArray(t.lastFindings) ? t.lastFindings.length : 0;
+            return `• ${t.name}: ${fCount} bulgu`;
+          })
+          .join("\n")
+      : "• Takip botu kuruluyor";
+
+    return {
+      reply:
+        `📊 **${matchedCamp.name}** (${matchedCamp.status}) Detaylı Durumu:\n` +
+        `• Marka: ${matchedCamp.brand.name}\n` +
+        `• Tarih: ${matchedCamp.startsAt.toLocaleDateString("tr-TR")} – ${matchedCamp.endsAt.toLocaleDateString("tr-TR")}\n` +
+        `• Atanan Influencer: ${matchedCamp.assignments.length} (${matchedCamp.assignments.map((a) => a.influencer.name).join(", ") || "Henüz yok"})\n` +
+        `• Görev Tamamlama: ${doneCount} / ${allDeliv.length} içerik yayınlandı\n` +
+        `• Teklif Durumları: ${offerSummary}\n` +
+        `• Otomatik Takip Botları:\n${trackerSummary}`,
+      actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns"],
+    };
+  }
+
+  // Kullanıcı "genel" veya "özet" seçtiyse tüm kampanyaların özetini ver
+  if (wantsGeneral || (prevAskedCampaignChoice && n.length <= 20)) {
+    const lines = camps.map((c, i) => {
+      const allDeliv = c.assignments.flatMap((a) => a.deliverables);
+      const done = allDeliv.filter((d) => ["YAYINLANDI", "TAMAMLANDI"].includes(d.status)).length;
+      return `${i + 1}. **${c.name}** — ${c.status} · ${c.assignments.length} influencer · ${done}/${allDeliv.length} içerik tamam`;
+    });
+    return {
+      reply: `📋 **Tüm Kampanyaların Genel Özeti:**\n${lines.join("\n")}\n\nBelirli bir kampanyanın detayını öğrenmek için kampanya adını yazabilirsiniz.`,
+      actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns"],
+    };
+  }
+
+  // İlk soruda "Nasıl bir bilgi istiyorsunuz? Genel özet mi, yoksa belirli bir kampanya detayı mı?" diye sor
+  const names = camps.slice(0, 6).map((c, i) => `${i + 1}. ${c.name} (${c.status})`).join("\n");
+  return {
+    reply:
+      `Kampanyalarınız hakkında nasıl bir bilgi istersiniz? **Genel özet mi** göstereyim, yoksa belirli bir kampanya hakkında **detaylı bilgi** mi vereyim?\n\n` +
+      `Mevcut kampanyalarınız:\n${names}\n\n` +
+      `_"Genel özet"_ yazabilir veya detayını istediğiniz kampanyanın adını paylaşabilirsiniz.`,
+    actionIds: [role === "INFLUENCER" ? "jobs" : "campaigns"],
+  };
+}
+
+async function detectAndExecuteCommand(
+  actor: Actor,
+  message: string,
+  history: { role: "user" | "assistant"; text: string }[] = [],
+): Promise<{ reply: string; actionIds: string[] } | null> {
+  const n = normText(message);
+  const prevAskedCampaignChoice = history
+    .slice(-2)
+    .some((h) => h.role === "assistant" && h.text.includes("Genel özet mi"));
+  if (
+    /(kampanyalarin durumu|kampanya durumu|kampanyalar nasil|kampanyalar hakkinda|kampanyalari ozetle)/.test(n) ||
+    (prevAskedCampaignChoice && (/\b(genel|ozet|detay)\b/.test(n) || n.length > 2))
+  ) {
+    // Eğer prevAskedCampaignChoice true ama mesaj bambaşka bir komutsa (bakiye, görsel üret vb.) aşağıdaki komutlara düşsün
+    const isOtherCmd = /^(?:bakiye|kredi|teklif|resim|gorsel|video|davet)/.test(n);
+    if (!isOtherCmd) {
+      return buildCampaignStatusAnswer(actor, message, history);
+    }
+  }
   const url = message.match(/https?:\/\/\S+/i)?.[0];
   if (url && (n.includes("kisalt") || n.startsWith("link "))) {
     return executeCopilotTool(actor, "shorten_link", { url });
@@ -463,7 +583,7 @@ export async function copilotAnswer(actor: Actor, message: string, history: { ro
   const role = actor.role as CopilotRole;
 
   // 1. Doğrudan komut eşleşmesi varsa anında çalıştır
-  const direct = await detectAndExecuteCommand(actor, message);
+  const direct = await detectAndExecuteCommand(actor, message, history);
   if (direct) {
     return {
       reply: direct.reply,

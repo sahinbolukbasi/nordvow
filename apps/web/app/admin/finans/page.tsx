@@ -25,7 +25,7 @@ export default async function FinancePage() {
   const now = new Date();
   const monthStart = zonedToUtc(`${localDay(now, AGENCY_TZ).slice(0, 7)}-01`, "00:00", AGENCY_TZ);
 
-  const [payouts, influencers, paidThisMonth] = await Promise.all([
+  const [payouts, influencers, paidThisMonth, campaigns] = await Promise.all([
     prisma.payoutRequest.findMany({
       orderBy: { createdAt: "asc" },
       include: {
@@ -37,6 +37,12 @@ export default async function FinancePage() {
     prisma.ledgerEntry.aggregate({
       where: { account: "INFLUENCER_PAYABLE", reason: "ODEME", direction: "DEBIT", createdAt: { gte: monthStart } },
       _sum: { amountKurus: true },
+    }),
+    prisma.campaign.findMany({
+      where: { status: { not: "IPTAL" } },
+      orderBy: { createdAt: "desc" },
+      take: 25,
+      include: { brand: { select: { id: true, name: true, taxNumber: true, taxOffice: true } } },
     }),
   ]);
 
@@ -184,6 +190,87 @@ export default async function FinancePage() {
     />
   );
 
+  const invoicesTab = (
+    <DataTable
+      caption={tt("e-Arşiv ve Kampanya Faturaları")}
+      emptyText={tt("Henüz kayıtlı kampanya bulunmuyor.")}
+      columns={[
+        { key: "campaign", header: "Kampanya", sortable: true },
+        { key: "brand", header: "Marka", sortable: true },
+        { key: "amount", header: "Tutar", align: "right", sortable: true },
+        { key: "status", header: "Ödeme Durumu", sortable: true },
+        { key: "date", header: "Tarih", sortable: true },
+        { key: "earsiv", header: "e-Arşiv Taslak" },
+      ]}
+      rows={campaigns.map((c) => {
+        const fee = Number(c.brandTotalFeeKurus || c.budgetKurus);
+        return {
+          id: c.id,
+          cells: {
+            campaign: {
+              display: (
+                <Link href={`/admin/kampanyalar/${c.id}`} className="flex flex-col hover:underline">
+                  <span className="font-medium text-fg">{c.name}</span>
+                  <span className="font-mono text-[11px] text-fg-passive">
+                    INV-{c.id.slice(-8).toUpperCase()}
+                  </span>
+                </Link>
+              ),
+              sort: c.name,
+            },
+            brand: {
+              display: (
+                <Link href={`/admin/markalar/${c.brand.id}`} className="flex flex-col hover:underline">
+                  <span>{c.brand.name}</span>
+                  <span className="text-[11px] text-fg-passive">
+                    VKN: {c.brand.taxNumber} · {c.brand.taxOffice}
+                  </span>
+                </Link>
+              ),
+              sort: c.brand.name,
+            },
+            amount: {
+              display: formatKurus(fee),
+              sort: fee,
+            },
+            status: {
+              display: (
+                <StatusDot tone={c.brandPaymentReceivedAt ? "active" : "muted"}>
+                  {c.brandPaymentReceivedAt ? tt("Ödendi") : tt("Ödeme Bekleniyor")}
+                </StatusDot>
+              ),
+              sort: c.brandPaymentReceivedAt ? 1 : 0,
+            },
+            date: {
+              display: fmtDate(c.createdAt),
+              sort: c.createdAt.getTime(),
+            },
+            earsiv: (
+              <span className="flex items-center gap-2 text-[12px]">
+                <a
+                  href={`/api/fatura/${c.id}?format=html`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-line px-2 py-0.5 font-medium text-brand hover:bg-surface-raised"
+                >
+                  {tt("GİB HTML")}
+                </a>
+                <a
+                  href={`/api/fatura/${c.id}?format=json`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded border border-line px-2 py-0.5 text-fg-muted hover:text-fg"
+                >
+                  {tt("JSON")}
+                </a>
+              </span>
+            ),
+          },
+        };
+      })}
+    />
+  );
+
   return (
     <Stagger className="flex flex-col gap-8">
       <PageHeader
@@ -203,6 +290,7 @@ export default async function FinancePage() {
           { id: "talepler", label: `Çekim talepleri (${requested.length})`, content: requestsTab },
           { id: "liste", label: `Ödeme listesi (${approved.length + listed.length})`, content: listTab },
           { id: "gecmis", label: "Geçmiş", content: historyTab },
+          { id: "faturalar", label: `e-Arşiv Faturaları (${campaigns.length})`, content: invoicesTab },
         ]}
       />
     </Stagger>

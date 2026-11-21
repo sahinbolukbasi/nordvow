@@ -1,38 +1,33 @@
-import { prisma } from "@infulancer/core/db";
 import { buildGoogleWalletLink } from "@infulancer/core/wallet/google-pass";
-import { googleWalletConfigured, type PassData } from "@infulancer/core/wallet/passes";
-import { couponValueLabel } from "@infulancer/core/coupons/service";
+import { googleWalletConfigured } from "@infulancer/core/wallet/passes";
 import { couponPassError, loadCouponPass } from "@/lib/coupon-pass";
-import { fmtDateTime } from "@/lib/time";
+import { loadWalletPassData } from "@/lib/wallet-pass-data";
 
 export const runtime = "nodejs";
 
 /**
- * Google Wallet "Save to Wallet" yönlendiricisi. Anahtar tanımlıysa imzalı JWT linkine
- * 303 yönlendirir (telefonda doğrudan cüzdana ekleme). Tanımlı değilse web görünümüne.
+ * Google Wallet yönlendiricisi. Anahtar tanımlıysa imzalı JWT linkine 303 gider.
+ * Anahtar yoksa web bilet/kupon görünümüne 307 ile döner.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ kind: string; id: string }> }) {
   const { kind, id } = await params;
   const path = kind === "ticket" ? "bilet" : "kupon";
   const base = process.env.APP_URL ?? "http://localhost:3000";
-  if (!googleWalletConfigured()) return Response.redirect(new URL(`/${path}/${id}`, base), 307);
+  const web = new URL(`/${path}/${id}`, base);
+  if (!googleWalletConfigured()) return Response.redirect(web, 307);
 
-  let data: PassData | null = null;
-  if (kind === "ticket") {
-    const t = await prisma.eventTicket.findUnique({ where: { id }, include: { event: true } });
-    if (t) data = { kind: "ticket", title: t.event.title, subtitle: t.holderName, code: t.code, accentColor: "#ff2bd6", relevantDate: t.event.startsAt, fields: [{ label: "Tarih", value: fmtDateTime(t.event.startsAt) }, { label: "Mekan", value: t.event.venueName ?? "-" }] };
-  } else if (kind === "coupon") {
+  if (kind === "coupon") {
     const pass = await loadCouponPass(id);
     if (!pass.coupon || !pass.decision.allow) {
       const err = couponPassError(pass.decision);
       return new Response(err.message, { status: err.status, headers: { "Cache-Control": "no-store" } });
     }
-    const c = pass.coupon;
-    data = { kind: "coupon", title: c.title, subtitle: couponValueLabel(c.valueType, c.value), code: pass.grant?.code ?? pass.sharedCode ?? id, accentColor: c.brandColor ?? "#ff2bd6", expirationDate: c.validUntil, fields: c.validUntil ? [{ label: "Son kullanım", value: c.validUntil.toLocaleDateString("tr-TR") }] : [] };
   }
+
+  const data = await loadWalletPassData(kind, id);
   if (!data) return new Response("Bulunamadı", { status: 404 });
 
   const link = await buildGoogleWalletLink(data, id);
-  if (!link) return Response.redirect(new URL(`/${path}/${id}`, base), 307);
+  if (!link) return Response.redirect(web, 307);
   return Response.redirect(link, 303);
 }

@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import type { Role } from "@infulancer/core/enums";
 import { roleLabels } from "@infulancer/core/domain/labels";
 import { SearchIcon } from "@/components/icons";
 import { getSessionUser, requireActor } from "@/lib/auth-guard";
 import { AccountMenu } from "./account-menu";
-import { MobileTabBar } from "./mobile-tab-bar";
+import { MobileDrawer } from "./mobile-drawer";
 import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { CopilotLauncher } from "@/components/copilot/copilot-launcher";
@@ -17,6 +19,15 @@ import { NordvowMark } from "@/components/brand/logo";
 import { AnnouncementPopup, type SystemPopup } from "@/components/notify/announcement-popup";
 import { prisma } from "@infulancer/core/db";
 
+const getCachedSystemPopups = unstable_cache(
+  async (): Promise<SystemPopup[]> => {
+    const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
+    return Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  },
+  ["system-popups"],
+  { revalidate: 30, tags: ["system-popups"] },
+);
+
 /**
  * Uygulama iskeleti: kenar çubuğu (md+) / alt sekme çubuğu (mobil), 64px başlık
  * (admin için arama, bildirim, hesap) ve max 1440px ortalanmış içerik.
@@ -24,15 +35,14 @@ import { prisma } from "@infulancer/core/db";
 export async function AppShell({ role, children, fullBleed = false }: { role: Role; children: ReactNode; fullBleed?: boolean }) {
   const actor = await requireActor(role);
   const user = await getSessionUser();
-  const navRole: Role = actor.staffRole ?? role;
+  const navRole: Role = actor.staffRole ?? actor.role;
   // Yöneticinin gizlediği menü öğelerini client tarafta sakla (daraltıcı katman; kod kuralları değişmez).
   // Ajans çalışanı ADMIN yetkisiyle çalışır ama görünürlük kuralları kendi rolüne (AGENCY) göre uygulanır.
   const permRole: Role = actor.staffRole ?? actor.role;
   const perms: PagePermissionRow[] = await loadPagePermissions(permRole, actor.userId);
   const permCtx = { perms, role: permRole, userId: actor.userId };
   const t = await getT();
-  const popupRow = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } }).catch(() => null);
-  const allPopups = Array.isArray(popupRow?.value) ? (popupRow.value as SystemPopup[]) : [];
+  const allPopups = await getCachedSystemPopups();
   const userEmail = (user?.email ?? "").toLowerCase();
   const popups = allPopups.filter(
     (p) =>
@@ -58,8 +68,20 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
       </a>
       <Sidebar role={navRole} perm={permCtx} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-line bg-bg/70 px-4 backdrop-blur-xl md:px-8">
-          <span className="inline-flex items-center gap-2 text-[15px] font-semibold tracking-tight md:hidden"><NordvowMark size={22} />{BRAND_NAME}</span>
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-line bg-bg/70 px-3 backdrop-blur-xl sm:gap-4 sm:px-4 md:px-8">
+          <div className="flex min-w-0 items-center gap-2 md:hidden">
+            <MobileDrawer
+              role={navRole}
+              perm={permCtx}
+              userName={user?.name ?? ""}
+              userEmail={user?.email ?? ""}
+              roleLabel={t(`role.${navRole}`, roleLabels[navRole])}
+            />
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-[15px] font-semibold tracking-tight">
+              <NordvowMark size={22} />
+              <span className="truncate">{BRAND_NAME}</span>
+            </span>
+          </div>
           {role === "ADMIN" ? (
             <form action="/admin/ara" method="get" role="search" className="hidden max-w-md flex-1 sm:block">
               <label htmlFor="global-search" className="sr-only">
@@ -78,25 +100,42 @@ export async function AppShell({ role, children, fullBleed = false }: { role: Ro
               </div>
             </form>
           ) : null}
-          <div className="ml-auto flex items-center gap-2">
-            <RegionSwitcher />
-            <ThemeToggle />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div className="hidden md:flex md:items-center md:gap-2">
+              <RegionSwitcher />
+              <ThemeToggle />
+            </div>
             <NotificationBell userId={actor.userId} />
-            <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
+            <div className="hidden md:flex">
+              <AccountMenu name={user?.name ?? ""} email={user?.email ?? ""} roleLabel={t(`role.${navRole}`, roleLabels[navRole])} />
+            </div>
           </div>
         </header>
         <main
           id="icerik"
           className={
             fullBleed
-              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-16 md:px-4 md:pb-4"
-              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-8 pb-24 md:px-8 md:pb-12"
+              ? "flex w-full flex-1 flex-col px-2 pt-2 pb-4 md:px-4"
+              : "mx-auto w-full max-w-[1440px] flex-1 px-4 pt-6 pb-10 md:px-8 md:pt-8 md:pb-12"
           }
         >
           {children}
         </main>
+        {!fullBleed ? (
+          <footer className="border-t border-line bg-bg/50 px-4 py-4 text-xs text-fg-passive md:px-8">
+            <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3">
+              <span>© {new Date().getFullYear()} {BRAND_NAME}</span>
+              <nav aria-label={t("footer.nav", "Alt bağlantılar")} className="flex flex-wrap items-center gap-4">
+                <Link href="/blog" className="font-medium text-fg-muted hover:text-fg">Blog</Link>
+                <Link href="/docs" className="hover:text-fg">{t("footer.docs", "Rehber")}</Link>
+                <Link href="/destek" className="hover:text-fg">{t("footer.support", "Destek")}</Link>
+                <Link href="/gizlilik" className="hover:text-fg">{t("footer.privacy", "Gizlilik")}</Link>
+                <Link href="/kullanim-kosullari" className="hover:text-fg">{t("footer.terms", "Kullanım koşulları")}</Link>
+              </nav>
+            </div>
+          </footer>
+        ) : null}
       </div>
-      <MobileTabBar role={navRole} perm={permCtx} />
       {!fullBleed ? <CopilotLauncher /> : null}
       <AnnouncementPopup items={popups} userId={actor.userId} />
     </div>

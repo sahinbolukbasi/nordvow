@@ -5,7 +5,7 @@ const NO_STORE = { "cache-control": "no-store" };
 
 /**
  * ALB liveness. Varsayılan yanıt veritabanına ve dış servislere bakmaz, her zaman 200 döner.
- * `?deep=1` mevcut sağlık kontrolünü çalıştırır ve gerçek durum kodunu verir. Sır veya config yok.
+ * `?deep=1` veritabanını kontrol eder ve gerçek durum kodunu verir. Sır veya config yok.
  */
 export async function GET(req: Request) {
   const deep = new URL(req.url).searchParams.get("deep") === "1";

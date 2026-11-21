@@ -15,32 +15,59 @@ function flatten(rows: CalendarRow[]): Card[] {
 const tone = (c: CalendarCard) =>
   c.overdue || c.violation ? "border-critical/60 bg-critical/10" : c.locked ? "border-line bg-glass opacity-70" : "border-neon-pink/40 bg-neon-pink/10";
 
-/** Gün görünümü: saat sırasıyla liste. */
+/** Gün görünümü: saatlik (00:00–23:00) zaman çizelgesi. */
 export async function DayView({ rows, emptyText }: { rows: CalendarRow[]; emptyText: string }) {
   const tt = await getTT();
   const cards = flatten(rows);
-  if (cards.length === 0) return <p className="rounded-2xl border border-dashed border-line p-10 text-center text-sm text-fg-passive">{emptyText}</p>;
+  const byHour = new Map<number, Card[]>();
+  for (const c of cards) {
+    const h = Number.parseInt(c.time.slice(0, 2), 10);
+    const hour = Number.isFinite(h) && h >= 0 && h <= 23 ? h : 12;
+    byHour.set(hour, [...(byHour.get(hour) ?? []), c]);
+  }
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+
   return (
-    <ol className="flex flex-col gap-2">
-      {cards.map((c) => (
-        <li key={c.id}>
-          <Link href={c.href} className={cn("flex flex-wrap items-center gap-4 rounded-2xl border px-4 py-3 transition-standard hover:border-line-strong", tone(c))}>
-            <span className="w-14 text-lg font-semibold tabular-nums">{c.time}</span>
-            <PlatformIcon platform={c.platform} size={18} title={c.platformLabel} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-sm text-fg">
-                {c.influencerName} · {c.contentLabel}
-              </span>
-              <span className="truncate text-[12px] text-fg-muted">{c.campaignName}</span>
-            </span>
-            <span className="text-[12px] text-fg-muted">
-              {c.statusLabel}
-              {c.overdue ? tt(" · gecikti") : ""}
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ol>
+    <div className="flex flex-col gap-3">
+      {cards.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-line px-6 py-4 text-center text-sm text-fg-passive">{emptyText}</p>
+      ) : null}
+      <div className="overflow-hidden rounded-2xl border border-line bg-glass">
+        {hours.map((hour) => {
+          const slotLabel = `${String(hour).padStart(2, "0")}:00`;
+          const items = byHour.get(hour) ?? [];
+          return (
+            <div key={hour} className="grid grid-cols-[72px_1fr] border-b border-line last:border-b-0">
+              <div className="flex items-start justify-end border-r border-line bg-surface/50 px-3 py-2.5 text-[12px] font-medium tabular-nums text-fg-muted">
+                {slotLabel}
+              </div>
+              <div className={cn("flex flex-col gap-2 px-3 py-2", items.length === 0 ? "min-h-10" : "min-h-14")}>
+                {items.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={c.href}
+                    className={cn("flex flex-wrap items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-standard hover:border-line-strong", tone(c))}
+                  >
+                    <span className="text-[13px] font-semibold tabular-nums">{c.time}</span>
+                    <PlatformIcon platform={c.platform} size={16} title={c.platformLabel} />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-sm text-fg">
+                        {c.influencerName} · {c.contentLabel}
+                      </span>
+                      <span className="truncate text-[12px] text-fg-muted">{c.campaignName}</span>
+                    </span>
+                    <span className="text-[12px] text-fg-muted">
+                      {c.statusLabel}
+                      {c.overdue ? tt(" · gecikti") : ""}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

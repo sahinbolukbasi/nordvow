@@ -84,15 +84,15 @@ export async function sendAnnouncementAction(_p: ActionState, fd: FormData): Pro
               ? { role: { in: ["ADMIN" as const, "AGENCY" as const] }, status: "ACTIVE" as const }
               : { status: "ACTIVE" as const };
 
-    const users = await prisma.user.findMany({ where, select: { id: true, email: true, name: true } });
-    if (!users.length) throw new DomainError("BULUNAMADI", "Hedef kitlede aktif kullanıcı bulunamadı.");
+    const users = audience === "visitors" ? [] : await prisma.user.findMany({ where, select: { id: true, email: true, name: true } });
+    if (audience !== "visitors" && !users.length) throw new DomainError("BULUNAMADI", "Hedef kitlede aktif kullanıcı bulunamadı.");
 
     let inAppCount = 0;
     let emailSent = 0;
     let emailMocked = 0;
     let emailFailed = 0;
 
-    if (sendInApp) {
+    if (sendInApp && users.length > 0) {
       await prisma.notification.createMany({
         data: users.map((u) => ({
           userId: u.id,
@@ -104,7 +104,7 @@ export async function sendAnnouncementAction(_p: ActionState, fd: FormData): Pro
       inAppCount = users.length;
     }
 
-    if (sendPopup) {
+    if (sendPopup || audience === "visitors") {
       const row = await prisma.configValue.findUnique({ where: { key: "system.popups" }, select: { value: true } });
       const prev = Array.isArray(row?.value) ? (row.value as SystemPopup[]) : [];
       const item: SystemPopup = {

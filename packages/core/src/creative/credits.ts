@@ -1,7 +1,7 @@
 import { Prisma } from "../generated/prisma/client";
 import { prisma, type Tx } from "../db";
 import { notifyAdmins } from "../agents/common";
-import { envInt } from "../env";
+import { getConfig } from "../config/store";
 import { tenantCurrency } from "./tenant";
 import { creativePricing, starterIn } from "./pricing";
 
@@ -25,7 +25,7 @@ export async function placeHold(tenantId: string, credits: number, db: Tx = pris
 }
 
 /** Bakiye hareketi kaydı (değiştirilmez). balanceAfter, işlem sonrası hesaptan okunur. */
-async function ledger(db: Tx, tenantId: string, kind: "STARTER" | "TOPUP" | "CHARGE" | "REFUND", amount: number | Prisma.Decimal, note?: string | null, jobId?: string | null) {
+async function ledger(db: Tx, tenantId: string, kind: "STARTER" | "TOPUP" | "CHARGE" | "REFUND" | "ADJUST", amount: number | Prisma.Decimal, note?: string | null, jobId?: string | null) {
   const acc = await db.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true } });
   await db.creditLedger.create({ data: { tenantId, kind, amount: D(amount), balanceAfter: acc?.balanceCredits ?? D(0), note: note ?? null, jobId: jobId ?? null } });
 }
@@ -55,6 +55,46 @@ export async function releaseHold(holdId: string, db: Tx = prisma): Promise<bool
   return true;
 }
 
+/**
+ * Başarısız veya tamamlanamayan üretim işlerinde kullanıcı mağduriyetini önler:
+ *  - Hold henüz tahsil edilmediyse (`held`) blokesini kaldırır (`released`).
+ *  - Tahsil edildiyse (`charged`) bakiyeye iade eder ve `REFUND` hareketi yazar.
+ * Idempotent: aynı iş ikinci kez iade edilmez.
+ */
+export async function refundJobCredits(
+  jobId: string,
+  reason = "Başarısız üretim otomatik bakiye iadesi",
+  db: Tx = prisma,
+): Promise<{ refunded: boolean; amount: number; mode: "released" | "refunded" | "none" }> {
+  const job = await db.creativeJob.findUnique({ where: { id: jobId }, select: { id: true, tenantId: true, creditHoldId: true } });
+  if (!job?.creditHoldId) return { refunded: false, amount: 0, mode: "none" };
+  const hold = await db.creditHold.findUnique({ where: { id: job.creditHoldId } });
+  if (!hold) return { refunded: false, amount: 0, mode: "none" };
+  if (hold.status === "held") {
+    const ok = await releaseHold(hold.id, db);
+    return { refunded: ok, amount: ok ? Number(hold.credits) : 0, mode: ok ? "released" : "none" };
+  }
+  if (hold.status === "charged") {
+    const n = await db.creditHold.updateMany({
+      where: { id: hold.id, status: "charged" },
+      data: { status: "refunded", settledAt: new Date() },
+    });
+    if (n.count !== 1) return { refunded: false, amount: 0, mode: "none" };
+    await db.$executeRaw`
+      UPDATE credit_accounts SET "balanceCredits" = "balanceCredits" + ${hold.credits}, "updatedAt" = now()
+      WHERE "tenantId" = ${hold.tenantId}`;
+    await ledger(db, hold.tenantId, "REFUND", hold.credits, reason, job.id);
+    return { refunded: true, amount: Number(hold.credits), mode: "refunded" };
+  }
+  return { refunded: false, amount: 0, mode: "none" };
+}
+
+/** Kullanılabilir bakiyeyi (bakiye - bloke) döndürür. */
+export async function getAvailableCredits(tenantId: string, db: Tx = prisma): Promise<number> {
+  const acc = await db.creditAccount.findUnique({ where: { tenantId }, select: { balanceCredits: true, heldCredits: true } });
+  return acc ? Math.max(0, Number(acc.balanceCredits) - Number(acc.heldCredits)) : 0;
+}
+
 export async function topUp(tenantId: string, credits: number, note?: string | null) {
   return prisma.$transaction(async (tx) => {
     const acc = await tx.creditAccount.upsert({
@@ -67,22 +107,71 @@ export async function topUp(tenantId: string, credits: number, note?: string | n
   });
 }
 
+/** Yönetici tarafından bakiye artırma veya azaltma (blokeli bakiyenin altına düşmez). */
+export async function adjustCredits(tenantId: string, delta: number, note?: string | null) {
+  if (delta === 0) return prisma.creditAccount.findUnique({ where: { tenantId } });
+  const currency = await tenantCurrency(tenantId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.creditAccount.upsert({
+      where: { tenantId },
+      create: { tenantId, balanceCredits: D(0), currency },
+      update: {},
+    });
+    const nextBalance = Number(existing.balanceCredits) + delta;
+    const held = Number(existing.heldCredits);
+    if (nextBalance < held) {
+      throw new InsufficientCreditsError(`Bakiye blokeli tutarın (${held.toLocaleString("tr-TR")}) altına düşürülemez.`);
+    }
+    const acc = await tx.creditAccount.update({
+      where: { tenantId },
+      data: { balanceCredits: { increment: D(delta) } },
+    });
+    await ledger(tx, tenantId, delta > 0 ? "TOPUP" : "ADJUST", delta, note?.trim() || (delta > 0 ? "Yönetici yüklemesi" : "Yönetici kesintisi"));
+    return acc;
+  });
+}
+
+/** Yönetici tarafından bakiyeyi doğrudan belirli bir tutara ayarlar (blokeli bakiyenin altına düşmez). */
+export async function setCreditBalance(tenantId: string, targetBalance: number, note?: string | null) {
+  if (targetBalance < 0) throw new InsufficientCreditsError("Bakiye negatif olamaz.");
+  const currency = await tenantCurrency(tenantId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.creditAccount.upsert({
+      where: { tenantId },
+      create: { tenantId, balanceCredits: D(0), currency },
+      update: {},
+    });
+    const held = Number(existing.heldCredits);
+    if (targetBalance < held) {
+      throw new InsufficientCreditsError(`Bakiye blokeli tutarın (${held.toLocaleString("tr-TR")}) altına ayarlanamaz.`);
+    }
+    const delta = Math.round((targetBalance - Number(existing.balanceCredits)) * 1000) / 1000;
+    if (delta === 0) return existing;
+    const acc = await tx.creditAccount.update({
+      where: { tenantId },
+      data: { balanceCredits: D(targetBalance) },
+    });
+    await ledger(tx, tenantId, "ADJUST", delta, note?.trim() || "Yönetici bakiye güncellemesi");
+    return acc;
+  });
+}
+
 /**
  * Hoş geldin bakiyesi (TL): hesabı hiç olmayan (ilk kez Creative açan) marka/influencer için
  * tek seferlik başlangıç bakiyesi açar. Hesap zaten varsa hiçbir şey yapmaz.
- * Varsayılan 250 TL (gerçek fal maliyetimiz ≈ 250 / (kur × markup) ≈ 1,7 $): denemeye yeter,
- * hesap açıp bedava üretim toplamayı ekonomik kılmaz. CREATIVE_STARTER_CREDITS ile değişir.
+ * Varsayılan değer admin panelinden (`creative.starterCreditsTry`) yönetilir.
  */
-export async function ensureStarterCredits(tenantId: string, creditsTry = envInt("CREATIVE_STARTER_CREDITS", 250)) {
+export async function ensureStarterCredits(tenantId: string, creditsTry?: number) {
   const existing = await prisma.creditAccount.findUnique({ where: { tenantId }, select: { tenantId: true } });
   if (existing) return existing;
+  const amountTry = creditsTry ?? (await getConfig("creative.starterCreditsTry"));
   // Hesap kendi para biriminde açılır (TRY tutarının karşılığı; gösterimde çevrim yok).
   const currency = await tenantCurrency(tenantId);
-  const credits = starterIn(creditsTry, await creativePricing(), currency);
+  const credits = amountTry <= 0 ? 0 : starterIn(amountTry, await creativePricing(), currency);
   try {
     return await prisma.$transaction(async (tx) => {
       const acc = await tx.creditAccount.create({ data: { tenantId, balanceCredits: D(credits), currency } });
-      await ledger(tx, tenantId, "STARTER", credits, "Hoş geldin bakiyesi");
+      if (credits > 0) await ledger(tx, tenantId, "STARTER", credits, "Hoş geldin bakiyesi");
       return acc;
     });
   } catch {

@@ -1,0 +1,12 @@
+title = "Nordvow"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test parolaları, sentetik AES anahtarı, TTS model kimliği ve örnek ses kimliği. Gerçek sır yok."
+paths = [
+  '''(^|/)packages/core/test/.*\.test\.ts$''',
+  '''(^|/)packages/core/src/voice/types\.ts$''',
+  '''(^|/)services/voice-assistant/\.env\.example$''',
+]

@@ -12,8 +12,10 @@ const inputCls = "h-9 w-full rounded-[8px] border border-border bg-transparent p
 
 /** Influencer arama filtreleri — GET formu; filtreler URL'de tutulur (paylaşılabilir, geri tuşuyla çalışır). */
 export function InfluencerFilterBar({ categories, sp, count, total, active }: { categories: CategoryNode[]; sp: Sp; count: number; total: number; active: number }) {
+  const durum = v(sp, "durum");
   return (
     <form method="get" role="search" aria-label="Influencer filtreleri" className="flex flex-col gap-4 rounded-[12px] border border-border p-4">
+      {durum ? <input type="hidden" name="durum" value={durum} /> : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <label className="flex flex-col gap-1 text-[12px] text-fg-muted md:col-span-2">
           Ara (ad, @kullanıcı adı, şehir)
@@ -118,7 +120,7 @@ export function InfluencerFilterBar({ categories, sp, count, total, active }: { 
         </p>
         <div className="flex gap-2">
           {active ? (
-            <Link href="/admin/influencerlar" className="inline-flex h-9 items-center rounded-[8px] border border-border px-4 text-sm text-fg-muted hover:text-fg">
+            <Link href={durum ? `/admin/influencerlar?durum=${encodeURIComponent(durum)}` : "/admin/influencerlar"} className="inline-flex h-9 items-center rounded-[8px] border border-border px-4 text-sm text-fg-muted hover:text-fg">
               Temizle
             </Link>
           ) : null}

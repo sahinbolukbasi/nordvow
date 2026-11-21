@@ -31,14 +31,47 @@ resource "aws_cloudfront_origin_request_policy" "all_viewer_country" {
   }
 }
 
+resource "aws_cloudfront_origin_access_control" "assets" {
+  name                              = "${local.name}-assets-oac"
+  description                       = "S3 media/* içerikleri için CloudFront OAC"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+resource "aws_cloudfront_response_headers_policy" "security" {
+  name    = "${local.name}-security-headers"
+  comment = "HSTS, nosniff, DENY frame ve Referrer-Policy kenar güvenlik başlıkları"
+
+  security_headers_config {
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      override                   = false
+    }
+    content_type_options {
+      override = false
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = false
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = false
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "app" {
   enabled         = true
   comment         = local.name
   price_class     = "PriceClass_100"
   http_version    = "http2and3"
   is_ipv6_enabled = true
+  web_acl_id      = aws_wafv2_web_acl.edge.arn
   # Özel alan adları yalnız sertifika doğrulandıktan sonra bağlanır (aksi halde dağıtım hata verir).
-  aliases         = var.domain_validated ? local.domain_aliases : []
+  aliases = var.domain_validated ? local.domain_aliases : []
 
   origin {
     origin_id   = "alb"
@@ -52,20 +85,38 @@ resource "aws_cloudfront_distribution" "app" {
     }
   }
 
+  origin {
+    origin_id                = "s3-assets"
+    domain_name              = aws_s3_bucket.assets.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.assets.id
+  }
+
   default_cache_behavior {
     target_origin_id         = "alb"
     viewer_protocol_policy   = "redirect-to-https"
     allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
     compress                 = true
-    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.all_viewer_country.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.all_viewer_country.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
   }
 
   # Next.js derleme çıktısı (içerik hash'li, değişmez).
   ordered_cache_behavior {
     path_pattern           = "/_next/static/*"
     target_origin_id       = "alb"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+    cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
+  }
+
+  # Tanıtım, etkinlik ve kupon medyaları (S3 doğrudan CloudFront kenar önbelleğinden sunulur).
+  ordered_cache_behavior {
+    path_pattern           = "/media/*"
+    target_origin_id       = "s3-assets"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]

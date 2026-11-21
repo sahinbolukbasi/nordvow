@@ -37,13 +37,13 @@ export default async function AdminSearchPage({ searchParams }: { searchParams: 
       take: LIMIT,
     }),
     prisma.influencer.findMany({
-      where: { OR: [{ name: contains }, { category: contains }, { socialAccounts: { some: { handle: contains } } }] },
+      where: { isActive: true, OR: [{ name: contains }, { category: contains }, { socialAccounts: { some: { handle: contains } } }] },
       select: { id: true, name: true, category: true },
       orderBy: { name: "asc" },
       take: LIMIT,
     }),
     prisma.brand.findMany({
-      where: { OR: [{ name: contains }, { category: contains }] },
+      where: { isActive: true, OR: [{ name: contains }, { category: contains }] },
       select: { id: true, name: true, category: true },
       orderBy: { name: "asc" },
       take: LIMIT,

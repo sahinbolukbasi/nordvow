@@ -5,6 +5,7 @@ import type { Platform } from "../generated/prisma/enums";
 import { vault } from "../channels/vault";
 import { GraphCallError, graphGetJson, PERMANENT_GRAPH_CLASSES, type GraphErrorClass } from "./graph-error";
 import { isValidInstagramHandle, normalizeInstagramHandle, normalizeSocialHandle } from "./handles";
+import { fetchPublicInstagramProfile, type PublicInstagramProfile } from "./instagram-public";
 import { publicProfileFallback, type PublicApiReason, type StoredPublicProfile } from "./public-fallback";
 
 /**
@@ -50,7 +51,7 @@ export type ProfileStats = {
   verified: boolean;
   displayName?: string | null;
   bioSnippet?: string | null;
-  source: SocialDataSource | "youtube_data" | "tiktok_oauth" | "mock" | "instagram_business_discovery";
+  source: SocialDataSource | "youtube_data" | "tiktok_oauth" | "tiktok_public" | "mock" | "instagram_business_discovery" | "instagram_public" | "instagram_oauth";
   /** API sınıfı public yola düşürdüyse (ör. TOKEN_INVALID). Başarılı Meta/OAuth'ta boş. */
   syncReason?: string | null;
   media?: IgMediaItem[];
@@ -191,8 +192,43 @@ function emptyStored(handle: string): StoredPublicProfile {
   return { handle, followers: 0, postsCount: null, avgLikes: null, avgComments: null, engagementRate: null, avatarUrl: null, displayName: null, bioSnippet: null, profileUrl: null };
 }
 
-/** API sınıfından sonra public yol. Kazıma yok. Gizli/kişisel hesap OAuth ile durur. */
-function continueWithPublic(handle: string, stored: StoredPublicProfile | undefined, apiClass: PublicApiReason, attempts = 1): ProfileStats {
+function statsFromLivePublic(handle: string, pub: PublicInstagramProfile, reason: PublicApiReason): ProfileStats {
+  const media = pub.media ?? [];
+  const likes = media.map((m) => m.likes).filter((n) => n > 0);
+  const comments = media.map((m) => m.commentsCount).filter((n) => n > 0);
+  const avgLikes = likes.length ? Math.round(likes.reduce((s, n) => s + n, 0) / likes.length) : null;
+  const avgComments = comments.length ? Math.round(comments.reduce((s, n) => s + n, 0) / comments.length) : null;
+  const name = pub.username || handle;
+  return {
+    externalId: null,
+    followers: pub.followers,
+    postsCount: pub.postsCount,
+    avgLikes,
+    avgComments,
+    avgViews: null,
+    engagementRate: pub.followers && avgLikes != null ? (avgLikes + (avgComments ?? 0)) / pub.followers : null,
+    profileUrl: `https://instagram.com/${name}`,
+    avatarUrl: pub.avatarUrl,
+    verified: false,
+    displayName: pub.fullName,
+    bioSnippet: pub.biography?.slice(0, 300) ?? null,
+    source: "INSTAGRAM_PUBLIC",
+    syncReason: reason,
+  };
+}
+
+/**
+ * Sınıflandırılmış API hatasından sonra public yol.
+ * 110/2207013 (kişisel, gizli, kısıtlı) kazınmaz ve OAuth ister.
+ * Diğer sınıflarda önce açık profil önizlemesi, yoksa kayıtlı herkese açık alanlar kullanılır.
+ */
+async function continueWithPublic(handle: string, stored: StoredPublicProfile | undefined, apiClass: PublicApiReason, attempts = 1): Promise<ProfileStats> {
+  if (apiClass !== "TARGET_NOT_DISCOVERABLE") {
+    const live = await fetchPublicInstagramProfile(handle).catch(() => null);
+    if (live && (live.followers > 0 || live.postsCount > 0 || Boolean(live.fullName) || Boolean(live.biography))) {
+      return statsFromLivePublic(handle, live, apiClass);
+    }
+  }
   const result = publicProfileFallback({ ...(stored ?? emptyStored(handle)), handle, apiClass });
   if (result.ok) {
     return {
@@ -223,18 +259,18 @@ async function fetchInstagramDiscovery(handle: string, stored?: StoredPublicProf
     throw new SyncError("Geçerli bir Instagram kullanıcı adı girin (harf, rakam, nokta ve alt çizgi; en fazla 30 karakter).", "NOT_FOUND");
   }
   const { igUserId, token } = instagramBusinessCredentials();
-  if (!igUserId || !token) return continueWithPublic(handle, stored, "NOT_CONFIGURED");
+  if (!igUserId || !token) return await continueWithPublic(handle, stored, "NOT_CONFIGURED");
   const fields = `business_discovery.username(${handle}){${BD_FIELDS}}`;
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(igUserId)}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`;
   try {
     const { json } = await graphGetJson(url, { agencyIgUserId: igUserId, targetHandle: handle });
     const bd = (json.business_discovery ?? null) as BdUser | null;
-    if (!bd) return continueWithPublic(handle, stored, "TARGET_NOT_DISCOVERABLE");
+    if (!bd) return await continueWithPublic(handle, stored, "TARGET_NOT_DISCOVERABLE");
     return { ...statsFromBd(handle, bd, "META_API"), syncReason: null };
   } catch (e) {
     const graphClass = e instanceof GraphCallError ? e.classified.errorClass : e instanceof SyncError ? e.graphClass : undefined;
     const attempts = e instanceof GraphCallError ? e.attempts : e instanceof SyncError ? e.attempts : 1;
-    if (graphClass && HYBRID_PUBLIC.has(graphClass)) return continueWithPublic(handle, stored, graphClass as PublicApiReason, attempts);
+    if (graphClass && HYBRID_PUBLIC.has(graphClass)) return await continueWithPublic(handle, stored, graphClass as PublicApiReason, attempts);
     if (e instanceof GraphCallError) throw new SyncError(e.message, "API", e.classified.errorClass, attempts);
     if (e instanceof SyncError) throw e;
     throw new SyncError("Instagram verisi alınamadı. Ayrıntı gösterilmez.", "API", "UNKNOWN");
@@ -305,7 +341,12 @@ export const httpSocial: SocialProvider = {
         source: "youtube_data",
       };
     }
-    if (!ctx.tokenRef) throw new SyncError("TikTok verisi için influencer'ın hesabını bağlaması gerekiyor (bağlantı linki gönderin).", "NEEDS_OAUTH");
+    if (!ctx.tokenRef) {
+      if (!handle) throw new SyncError("Geçerli bir TikTok kullanıcı adı girin.", "NOT_FOUND");
+      const pub = await fetchPublicTikTokProfile(handle);
+      if (pub) return pub;
+      throw new SyncError("TikTok verisi için influencer'ın hesabını bağlaması gerekiyor (bağlantı linki gönderin).", "NEEDS_OAUTH");
+    }
     const token = await vault().get(ctx.tokenRef);
     const body = (await readJson("https://open.tiktokapis.com/v2/user/info/?fields=open_id,follower_count,video_count,likes_count,avatar_url,is_verified,profile_deep_link", {
       headers: { authorization: `Bearer ${token}` },
@@ -407,6 +448,32 @@ async function writeTelemetry(socialAccountId: string, row: { durationMs: number
 export async function syncSocialAccount(accountId: string, now = new Date(), opts: { force?: boolean } = {}): Promise<SyncResult> {
   const acc = await prisma.socialAccount.findUnique({ where: { id: accountId } });
   if (!acc) return { accountId, ok: false, message: "Hesap bulunamadı." };
+  if (acc.platform === "TIKTOK" && !override && syncMode() === "http") {
+    const ttAcc = await prisma.tikTokAccount.findFirst({
+      where: { influencerId: acc.influencerId, status: "active" },
+      select: { id: true },
+    });
+    if (ttAcc) {
+      const { syncTikTokAccount } = await import("../tiktok/service");
+      const res = await syncTikTokAccount(ttAcc.id, now);
+      if (res.ok) {
+        return {
+          accountId,
+          ok: true,
+          message: `TikTok güncellendi: ${res.followerCount.toLocaleString("tr-TR")} takipçi, ${res.videoCount} video.`,
+          followersBefore: acc.followers,
+          followersAfter: res.followerCount,
+          source: "tiktok_oauth",
+          errorClass: null,
+        };
+      }
+      await prisma.socialAccount.update({
+        where: { id: acc.id },
+        data: { syncError: res.error.slice(0, 300), lastSyncedAt: now, lastErrorClass: "UNKNOWN", syncReason: "UNKNOWN" },
+      });
+      return { accountId, ok: false, message: res.error, errorClass: "UNKNOWN" };
+    }
+  }
   const started = Date.now();
   if (!opts.force && acc.lastErrorClass && NO_AUTO_RETRY.has(acc.lastErrorClass)) {
     return { accountId, ok: false, message: acc.syncError ?? "Kalıcı hata nedeniyle otomatik senkron atlandı.", errorClass: acc.lastErrorClass as GraphErrorClass };
@@ -563,6 +630,9 @@ export const syncSourceLabels: Record<string, string> = {
   manual: "Elle girildi",
   youtube_data: "YouTube API",
   tiktok_oauth: "TikTok (influencer bağlantısı)",
+  tiktok_public: "TikTok (açık profil)",
+  instagram_public: "Public profil verisi",
+  instagram_oauth: "Instagram OAuth",
   mock: "Demo veri (API anahtarı yok)",
 };
 
@@ -592,4 +662,50 @@ export function syncStatusView(account: { syncSource: string | null; syncError: 
   const mapped = CLASS_MESSAGES[account.lastErrorClass];
   if (mapped) return { label, error: mapped, note };
   return { label, error: null, note };
+}
+
+async function fetchPublicTikTokProfile(handle: string): Promise<ProfileStats | null> {
+  try {
+    const res = await fetch(`https://www.tiktok.com/@${encodeURIComponent(handle)}`, {
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; NordvowLinkPreview/1.0)",
+        "accept-language": "tr-TR,tr;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const m = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m?.[1]) return null;
+    const parsed = JSON.parse(m[1]) as {
+      __DEFAULT_SCOPE__?: {
+        "webapp.user-detail"?: {
+          userInfo?: {
+            user?: { id?: string; uniqueId?: string; avatarLarger?: string; avatarMedium?: string; verified?: boolean };
+            stats?: { followerCount?: number; videoCount?: number; heartCount?: number; heart?: number };
+          };
+        };
+      };
+    };
+    const info = parsed.__DEFAULT_SCOPE__?.["webapp.user-detail"]?.userInfo;
+    if (!info?.user || !info?.stats) return null;
+    const followers = Number(info.stats.followerCount ?? 0);
+    const videos = Number(info.stats.videoCount ?? 0);
+    const hearts = Number(info.stats.heartCount ?? info.stats.heart ?? 0);
+    return {
+      externalId: info.user.id ?? null,
+      followers,
+      postsCount: videos,
+      avgLikes: videos > 0 ? Math.round(hearts / videos) : null,
+      avgComments: null,
+      avgViews: null,
+      engagementRate: followers > 0 && videos > 0 ? hearts / videos / followers : null,
+      profileUrl: `https://www.tiktok.com/@${info.user.uniqueId ?? handle}`,
+      avatarUrl: info.user.avatarLarger ?? info.user.avatarMedium ?? null,
+      verified: !!info.user.verified,
+      source: "tiktok_public",
+    };
+  } catch {
+    return null;
+  }
 }

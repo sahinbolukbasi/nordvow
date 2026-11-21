@@ -85,7 +85,7 @@ describe("Google Wallet JWT", () => {
       genericObjects: Array<{ id: string; classId: string; genericType: string; state: string; validTimeInterval?: unknown }>;
     };
     expect(body.genericClasses).toHaveLength(1);
-    expect(body.genericClasses[0]!.id).toBe(`${issuer}.nordvow_ticket`);
+    expect(body.genericClasses[0]!.id).toBe(`${issuer}.nordvow_ticket_v2`);
     expect(body.genericClasses[0]!.id).toMatch(ID_RE);
     expect(body.genericClasses[0]!.multipleDevicesAndHoldersAllowedStatus).toBe("ONE_USER_ALL_DEVICES");
     expect(body.genericClasses[0]!.textModulesData[0]!.id).toBe("kind");
@@ -95,8 +95,9 @@ describe("Google Wallet JWT", () => {
     expect(body.genericObjects[0]!.genericType).toBe("GENERIC_ENTRY_TICKET");
     expect(body.genericObjects[0]!.state).toBe("ACTIVE");
     expect(body.genericObjects[0]!.validTimeInterval).toBeUndefined();
-    const modules = (body.genericObjects[0] as { textModulesData?: Array<{ header: string }> }).textModulesData ?? [];
-    expect(modules.map((m) => m.header)).toEqual(["Mekan"]);
+    const modules = (body.genericObjects[0] as { textModulesData?: Array<{ header: string; body: string }> }).textModulesData ?? [];
+    expect(modules.map((m) => m.header)).not.toContain("Boş");
+    expect(modules.some((m) => m.body.trim().length === 0)).toBe(false);
   });
 
   it("kupon sınıfı voucher ve bitiş aralığı taşır", async () => {
@@ -118,7 +119,7 @@ describe("Google Wallet JWT", () => {
       genericClasses: Array<{ id: string; multipleDevicesAndHoldersAllowedStatus: string }>;
       genericObjects: Array<{ id: string; genericType: string; validTimeInterval?: { end?: { date: string } } }>;
     };
-    expect(body.genericClasses[0]!.id).toBe("3388000000000000002.nordvow_coupon");
+    expect(body.genericClasses[0]!.id).toBe("3388000000000000002.nordvow_coupon_v2");
     expect(body.genericClasses[0]!.id).toMatch(ID_RE);
     expect(body.genericObjects[0]!.id).toBe("3388000000000000002.grant_1");
     expect(body.genericClasses[0]!.multipleDevicesAndHoldersAllowedStatus).toBe("MULTIPLE_HOLDERS");
@@ -156,7 +157,7 @@ describe("Google Wallet JWT", () => {
 describe("Apple pass.json tarihleri", () => {
   it("etkinlik tarihi relevantDate, kupon bitişi expirationDate olur", () => {
     const event = applePassJson(ticket({ relevantDate: new Date("2026-06-01T18:00:00.000Z"), expirationDate: "2099-01-01T00:00:00.000Z" }), "ser-1");
-    expect(event.relevantDate).toBe("2026-06-01T18:00:00.000Z");
+    expect(event.relevantDate).toBe("2026-06-01T18:00:00Z");
     expect(event.expirationDate).toBeUndefined();
     expect(event).toHaveProperty("eventTicket");
 
@@ -164,7 +165,7 @@ describe("Apple pass.json tarihleri", () => {
       { kind: "coupon", title: "İndirim", subtitle: "Marka", code: "KPN", fields: [], expirationDate: "2026-12-31T21:00:00.000Z", relevantDate: "2026-01-01T00:00:00.000Z" },
       "ser-2",
     );
-    expect(coupon.expirationDate).toBe("2026-12-31T21:00:00.000Z");
+    expect(coupon.expirationDate).toBe("2026-12-31T21:00:00Z");
     expect(coupon.relevantDate).toBeUndefined();
     expect(coupon).toHaveProperty("coupon");
 
@@ -251,7 +252,7 @@ describe("buildPkpass", () => {
       expect(verify.status).toBe(0);
 
       const pass = JSON.parse(readFileSync(path.join(out, "pass.json"), "utf8")) as { relevantDate?: string; passTypeIdentifier?: string; teamIdentifier?: string };
-      expect(pass.relevantDate).toBe("2026-06-01T18:00:00.000Z");
+      expect(pass.relevantDate).toBe("2026-06-01T18:00:00Z");
       expect(pass.passTypeIdentifier).toBe("pass.com.nordvow.test");
       expect(pass.teamIdentifier).toBe("TEAMID1234");
     } finally {

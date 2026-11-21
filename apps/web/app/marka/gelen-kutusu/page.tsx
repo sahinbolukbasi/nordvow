@@ -61,6 +61,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
           description={tt("Gelen kutusunu açmadan önce çalışmak istediğiniz kanalı seçin. Gerekli API anahtarları ve firma botu aktif olduğunda sistem gelen mesajları otomatik yönetir.")}
           actions={
             <div className="flex flex-wrap gap-2">
+              <ButtonLink href="/dashboard/mesaj-kutusu" size="sm">{tt("Birleşik Mesaj Kutusu'nu Aç →")}</ButtonLink>
               <ButtonLink href="/marka/kanallar" variant="secondary" size="sm">{tt("API Anahtarlarını Yönet")}</ButtonLink>
               <ButtonLink href="/marka/asistanlar" variant="secondary" size="sm">{tt("Firma Botu Ayarları")}</ButtonLink>
             </div>

@@ -4,126 +4,303 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { envStr } from "../env";
+import { logWallet } from "./passes";
 import { BRAND_NAME } from "../brand";
-import { appleWalletConfigured, logWallet, passInstant, type PassData } from "./passes";
+import { appleWalletConfigured, type PassData } from "./passes";
+import { renderBannerPng, renderBrandIconPng } from "./png";
 
 /**
  * Apple Wallet .pkpass üretimi (gerçek PKCS#7 imzalı).
  *
  * Geçerli bir .pkpass: pass.json + görseller + manifest.json (her dosyanın SHA1'i) +
  * signature (manifest'in Pass Type sertifikasıyla PKCS#7/detached imzası) ZIP'lenir.
- * İmzalama openssl ile yapılır (container'da kuruludur).
+ * İmzalama openssl ile yapılır.
  *
- * Gereken ortam değişkenleri (Secrets Manager):
+ * Gereken ortam değişkenleri:
  *   APPLE_WALLET_CERT          — Pass Type ID sertifikası + özel anahtar, .p12, BASE64
  *   APPLE_WALLET_CERT_PASSWORD — .p12 parolası
- *   APPLE_WALLET_WWDR          — Apple WWDR ara sertifikası (.pem veya .cer), BASE64
- *   APPLE_WALLET_TEAM_ID       — Apple Team ID
+ *   APPLE_WALLET_WWDR          — Apple WWDR ara sertifikası (.pem veya .cer), BASE64 veya PEM
+ *   APPLE_WALLET_TEAM_ID       — Apple Team ID (10 karakter)
  *   APPLE_WALLET_PASS_TYPE_ID  — pass.com.nordvow... (Pass Type Identifier)
  */
 
-// Minimal zorunlu görseller (pkpass icon şart). Nordvow mor düz renk (29/58 px).
-const ICON_29 = "iVBORw0KGgoAAAANSUhEUgAAAB0AAAAdCAIAAADZ8fBYAAAAJklEQVR42mOY6/ufFohh1NxRc0fNHTV31NxRc0fNHTV31NxBZS4AuGtGzJuNe0oAAAAASUVORK5CYII=";
-const ICON_58 = "iVBORw0KGgoAAAANSUhEUgAAADoAAAA6CAIAAABu2d1/AAAARElEQVR42u3OAQkAAAgDsBc0olk1x2GwAMvOFYmurq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6ubo8HEdgbPDsJluoAAAAASUVORK5CYII=";
+function nonEmpty(value: string | null | undefined, fallback: string): string {
+  const v = (value ?? "").trim();
+  return v.length > 0 ? v : fallback;
+}
 
-export function applePassJson(data: PassData, serial: string): Record<string, unknown> {
-  const teamId = envStr("APPLE_WALLET_TEAM_ID", "TEAMID");
-  const passTypeId = envStr("APPLE_WALLET_PASS_TYPE_ID", "pass.com.nordvow");
-  const common = {
+function isoDate(d: Date | string | null | undefined): string | undefined {
+  if (!d) return undefined;
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return undefined;
+  // Apple PassKit milisaniye (.000Z) kabul etmez; tam saniye ISO 8601 gerekir.
+  return dt.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+export function applePassJson(
+  data: PassData,
+  serial: string,
+  overrides?: { teamId?: string; passTypeId?: string },
+): Record<string, unknown> {
+  const teamId = nonEmpty(overrides?.teamId ?? envStr("APPLE_WALLET_TEAM_ID", ""), "TEAMID");
+  const passTypeId = nonEmpty(overrides?.passTypeId ?? envStr("APPLE_WALLET_PASS_TYPE_ID", ""), "pass.com.nordvow");
+  const organizer = nonEmpty(data.organizer, BRAND_NAME);
+  const code = nonEmpty(data.code, serial);
+
+  const aux = data.fields
+    .filter((f) => f.label.trim().length > 0 && f.value.trim().length > 0)
+    .slice(0, 4)
+    .map((f, i) => ({ key: `f${i}`, label: f.label.trim(), value: f.value.trim() }));
+
+  const backFields: { key: string; label: string; value: string }[] = [
+    { key: "code", label: data.kind === "ticket" ? "Bilet Kodu" : "Kupon Kodu", value: code },
+  ];
+  if (data.description?.trim()) backFields.push({ key: "desc", label: "Açıklama", value: data.description.trim() });
+  if (data.terms?.trim()) backFields.push({ key: "terms", label: "Kullanım Koşulları", value: data.terms.trim() });
+  if (data.webUrl?.trim()) backFields.push({ key: "web", label: "Web Kartı", value: data.webUrl.trim() });
+
+  const headerValue = nonEmpty(data.statusLabel, data.kind === "ticket" ? "BİLET" : "KUPON");
+  const headerLabel = data.kind === "ticket" ? "BİLET" : "KUPON";
+
+  const fields =
+    data.kind === "ticket"
+      ? {
+        headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
+        primaryFields: [{ key: "title", label: "ETKİNLİK", value: nonEmpty(data.title, "Etkinlik Bileti") }],
+        secondaryFields: [{ key: "subtitle", label: "KATILIMCI", value: nonEmpty(data.subtitle, "Misafir") }],
+        auxiliaryFields: aux,
+        backFields,
+      }
+      : {
+        headerFields: [{ key: "kind", label: headerLabel, value: headerValue }],
+        primaryFields: [{ key: "value", label: nonEmpty(data.title, "Kupon"), value: nonEmpty(data.subtitle, "İndirim") }],
+        secondaryFields: [{ key: "brand", label: "MARKA", value: organizer }],
+        auxiliaryFields: aux,
+        backFields,
+      };
+
+  const pass: Record<string, unknown> = {
     formatVersion: 1,
     passTypeIdentifier: passTypeId,
     teamIdentifier: teamId,
-    organizationName: BRAND_NAME,
-    description: data.title,
+    organizationName: organizer,
+    logoText: organizer,
+    description: nonEmpty(data.title, organizer),
     serialNumber: serial,
-    backgroundColor: hexToRgb(data.accentColor ?? "#ff2bd6"),
+    backgroundColor: "rgb(20,20,31)",
     foregroundColor: "rgb(255,255,255)",
-    labelColor: "rgb(255,255,255)",
-    barcodes: [{ format: "PKBarcodeFormatQR", message: data.code, messageEncoding: "iso-8859-1" }],
+    labelColor: "rgb(185,185,205)",
+    barcodes: [{ format: "PKBarcodeFormatQR", message: code, messageEncoding: "utf-8", altText: code }],
+    barcode: { format: "PKBarcodeFormatQR", message: code, messageEncoding: "utf-8", altText: code },
+    ...(data.kind === "ticket" ? { eventTicket: fields } : { coupon: fields }),
   };
-  const dated: Record<string, string> = {};
-  if (data.kind === "ticket") {
-    const relevantDate = passInstant(data.relevantDate);
-    if (relevantDate) dated.relevantDate = relevantDate;
-  } else {
-    const expirationDate = passInstant(data.expirationDate);
-    if (expirationDate) dated.expirationDate = expirationDate;
-  }
-  const fields = {
-    headerFields: [{ key: "kind", label: data.kind === "ticket" ? "BİLET" : "KUPON", value: "" }],
-    primaryFields: [{ key: "title", label: "", value: data.title }],
-    secondaryFields: [{ key: "subtitle", label: data.kind === "ticket" ? "Katılımcı" : "Marka", value: data.subtitle }],
-    auxiliaryFields: data.fields.slice(0, 4).map((f, i) => ({ key: `f${i}`, label: f.label, value: f.value })),
-  };
-  return data.kind === "ticket" ? { ...common, ...dated, eventTicket: fields } : { ...common, ...dated, coupon: fields };
-}
 
-function hexToRgb(hex: string): string {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
-  if (!m) return "rgb(255,43,214)";
-  return `rgb(${parseInt(m[1]!, 16)},${parseInt(m[2]!, 16)},${parseInt(m[3]!, 16)})`;
+  if (data.kind === "ticket") {
+    const rel = isoDate(data.relevantDate);
+    if (rel) pass.relevantDate = rel;
+  } else {
+    const exp = isoDate(data.expirationDate);
+    if (exp) pass.expirationDate = exp;
+  }
+  if (data.location && Number.isFinite(data.location.latitude) && Number.isFinite(data.location.longitude)) {
+    pass.locations = [
+      {
+        latitude: data.location.latitude,
+        longitude: data.location.longitude,
+        ...(data.location.relevantText ? { relevantText: data.location.relevantText } : {}),
+      },
+    ];
+  }
+
+  return pass;
 }
 
 function sha1(buf: Buffer): string {
   return createHash("sha1").update(buf).digest("hex");
 }
 
+function cleanBase64(raw: string): string {
+  let s = raw.trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  const dataUriIdx = s.indexOf(";base64,");
+  if (dataUriIdx !== -1) s = s.slice(dataUriIdx + 8);
+  return s.replace(/\s+/g, "");
+}
+
+function decodeWwdr(raw: string): Buffer {
+  const trimmed = raw.trim().replace(/\\n/g, "\n");
+  if (trimmed.includes("BEGIN CERTIFICATE")) {
+    return Buffer.from(trimmed, "utf8");
+  }
+  const buf = Buffer.from(cleanBase64(trimmed), "base64");
+  if (buf.toString("utf8").includes("BEGIN CERTIFICATE")) {
+    return buf;
+  }
+  const b64 = buf.toString("base64").replace(/(.{64})/g, "$1\n");
+  return Buffer.from(`-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`);
+}
+
+function extractCertIds(certPath: string): { passTypeId?: string; teamId?: string } {
+  const r = spawnSync("openssl", ["x509", "-in", certPath, "-noout", "-subject", "-nameopt", "RFC2253"], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) return {};
+  const out = r.stdout ?? "";
+  const uidMatch = /(?:^|,|\s)(?:UID|userId)=([^,\r\n]+)/i.exec(out);
+  const ouMatch = /(?:^|,|\s)OU=([^,\r\n]+)/i.exec(out);
+  return {
+    passTypeId: uidMatch?.[1]?.trim(),
+    teamId: ouMatch?.[1]?.trim(),
+  };
+}
+
+type CachedCertMaterial = {
+  fingerprint: string;
+  certPem: Buffer;
+  keyPem: Buffer;
+  wwdrPem: Buffer;
+  certIds: { passTypeId?: string; teamId?: string };
+};
+
+let cachedCerts: CachedCertMaterial | null = null;
+const pngCache = new Map<string, Buffer>();
+const pkpassCache = new Map<string, { buf: Buffer; expiresAt: number }>();
+
+function getCachedPng(key: string, build: () => Buffer): Buffer {
+  const hit = pngCache.get(key);
+  if (hit) return hit;
+  const buf = build();
+  if (pngCache.size < 64) pngCache.set(key, buf);
+  return buf;
+}
+
+function decodePemOrBase64(raw: string): Buffer {
+  const trimmed = raw.trim().replace(/\\n/g, "\n");
+  if (trimmed.includes("-----BEGIN ")) {
+    return Buffer.from(trimmed, "utf8");
+  }
+  const buf = Buffer.from(cleanBase64(trimmed), "base64");
+  if (buf.toString("utf8").includes("-----BEGIN ")) {
+    return buf;
+  }
+  return buf;
+}
+
+function getCertMaterial(
+  p12raw: string,
+  wwdrRaw: string,
+  p12pass: string,
+  signerCertRaw?: string,
+  signerKeyRaw?: string,
+): CachedCertMaterial | null {
+  const fp = sha1(Buffer.from(`${p12raw}|${wwdrRaw}|${p12pass}|${signerCertRaw ?? ""}|${signerKeyRaw ?? ""}`));
+  if (cachedCerts && cachedCerts.fingerprint === fp) return cachedCerts;
+
+  const dir = mkdtempSync(path.join(tmpdir(), "pkpass-cert-"));
+  try {
+    const certPath = path.join(dir, "cert.pem");
+    const keyPath = path.join(dir, "key.pem");
+    const wwdrPath = path.join(dir, "wwdr.pem");
+    const wwdrPem = decodeWwdr(wwdrRaw);
+    writeFileSync(wwdrPath, wwdrPem);
+
+    if (signerCertRaw && signerKeyRaw) {
+      writeFileSync(certPath, decodePemOrBase64(signerCertRaw));
+      writeFileSync(keyPath, decodePemOrBase64(signerKeyRaw));
+    } else {
+      const p12Path = path.join(dir, "cert.p12");
+      writeFileSync(p12Path, Buffer.from(cleanBase64(p12raw), "base64"));
+
+      const tryExtract = (extra: string[]) => {
+        const c = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, ...extra]);
+        const k = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, ...extra]);
+        return { ok: c.ok && k.ok, err: c.err || k.err };
+      };
+
+      let extracted = tryExtract(["-legacy"]);
+      if (!extracted.ok) extracted = tryExtract([]);
+      if (!extracted.ok) {
+        logWallet("apple", "[apple-wallet] .p12 ayıklama hatası:", extracted.err);
+        return null;
+      }
+    }
+
+    const certIds = extractCertIds(certPath);
+    cachedCerts = {
+      fingerprint: fp,
+      certPem: readFileSync(certPath),
+      keyPem: readFileSync(keyPath),
+      wwdrPem,
+      certIds,
+    };
+    return cachedCerts;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
- * İmzalı .pkpass üretir. Sertifika yoksa null (fallback: web görünümü).
+ * İmzalı .pkpass üretir. Sertifika yoksa veya imzalama başarısız olursa null döner.
  */
 export async function buildPkpass(data: PassData, serial: string): Promise<Buffer | null> {
   if (!appleWalletConfigured()) return null;
-  const p12b64 = envStr("APPLE_WALLET_CERT", "").trim();
-  const wwdrb64 = envStr("APPLE_WALLET_WWDR", "").trim();
+  const p12raw = envStr("APPLE_WALLET_CERT", "").trim();
+  const wwdrRaw = envStr("APPLE_WALLET_WWDR", "").trim();
   const p12pass = envStr("APPLE_WALLET_CERT_PASSWORD", "");
-  if (!p12b64 || !wwdrb64) {
-    logWallet("apple", "APPLE_WALLET_CERT veya APPLE_WALLET_WWDR boş");
-    return null;
+  const signerCertRaw = envStr("APPLE_WALLET_SIGNER_CERT", "").trim() || undefined;
+  const signerKeyRaw = envStr("APPLE_WALLET_SIGNER_KEY", "").trim() || undefined;
+  if ((!p12raw && !(signerCertRaw && signerKeyRaw)) || !wwdrRaw) return null;
+
+  const cacheKey = sha1(Buffer.from(JSON.stringify({ serial, data })));
+  const cached = pkpassCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.buf;
   }
+
+  const certs = getCertMaterial(p12raw, wwdrRaw, p12pass, signerCertRaw, signerKeyRaw);
+  if (!certs) return null;
 
   const dir = mkdtempSync(path.join(tmpdir(), "pkpass-"));
   try {
-    // 1) Dosyalar: pass.json + ikonlar
-    const passJson = Buffer.from(JSON.stringify(applePassJson(data, serial)));
+    const certPath = path.join(dir, "cert.pem");
+    const keyPath = path.join(dir, "key.pem");
+    const wwdrPath = path.join(dir, "wwdr.pem");
+    writeFileSync(certPath, certs.certPem);
+    writeFileSync(keyPath, certs.keyPem);
+    writeFileSync(wwdrPath, certs.wwdrPem);
+
+    const { certIds } = certs;
+    const envTeamId = envStr("APPLE_WALLET_TEAM_ID", "").trim();
+    const envPassTypeId = envStr("APPLE_WALLET_PASS_TYPE_ID", "").trim();
+
+    // 2) Dosyalar: pass.json + görseller (PNG'ler önbellekten)
+    const passJson = Buffer.from(
+      JSON.stringify(
+        applePassJson(data, serial, {
+          teamId: certIds.teamId || envTeamId || undefined,
+          passTypeId: certIds.passTypeId || envPassTypeId || undefined,
+        }),
+      ),
+    );
+    const accentKey = data.accentColor ?? "default";
     const files: Record<string, Buffer> = {
       "pass.json": passJson,
-      "icon.png": Buffer.from(ICON_29, "base64"),
-      "icon@2x.png": Buffer.from(ICON_58, "base64"),
+      "icon.png": getCachedPng("icon:29", () => renderBrandIconPng(29)),
+      "icon@2x.png": getCachedPng("icon:58", () => renderBrandIconPng(58)),
+      "icon@3x.png": getCachedPng("icon:87", () => renderBrandIconPng(87)),
+      "logo.png": getCachedPng("icon:50", () => renderBrandIconPng(50)),
+      "logo@2x.png": getCachedPng("icon:100", () => renderBrandIconPng(100)),
+      "strip.png": getCachedPng(`strip:375:${accentKey}`, () => renderBannerPng(375, 123, data.accentColor)),
+      "strip@2x.png": getCachedPng(`strip:750:${accentKey}`, () => renderBannerPng(750, 246, data.accentColor)),
     };
-    // 2) manifest.json (her dosyanın SHA1'i)
+
+    // 3) manifest.json (her dosyanın SHA1'i)
     const manifest: Record<string, string> = {};
     for (const [name, buf] of Object.entries(files)) manifest[name] = sha1(buf);
     files["manifest.json"] = Buffer.from(JSON.stringify(manifest));
     for (const [name, buf] of Object.entries(files)) writeFileSync(path.join(dir, name), buf);
-
-    // 3) Sertifikaları ayıkla (.p12 → cert.pem + key.pem) ve WWDR'ı yaz
-    const p12Path = path.join(dir, "cert.p12");
-    const certPath = path.join(dir, "cert.pem");
-    const keyPath = path.join(dir, "key.pem");
-    const wwdrPath = path.join(dir, "wwdr.pem");
-    writeFileSync(p12Path, Buffer.from(p12b64, "base64"));
-    writeFileSync(wwdrPath, normalizeWwdr(Buffer.from(wwdrb64, "base64")));
-
-    // .p12'den sertifika ve anahtarı çıkar (legacy bayrağı eski .p12'ler için).
-    const legacyCert = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`, "-legacy"]);
-    const legacyKey = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`, "-legacy"]);
-    let certOk = legacyCert.ok;
-    let keyOk = legacyKey.ok;
-    let certErr = legacyCert.err;
-    let keyErr = legacyKey.err;
-    if (!certOk || !keyOk) {
-      // -legacy desteklemeyen veya modern .p12 okuyamayan openssl için tekrar dene.
-      const plainCert = openssl(["pkcs12", "-in", p12Path, "-clcerts", "-nokeys", "-out", certPath, "-passin", `pass:${p12pass}`]);
-      const plainKey = openssl(["pkcs12", "-in", p12Path, "-nocerts", "-nodes", "-out", keyPath, "-passin", `pass:${p12pass}`]);
-      certOk = plainCert.ok;
-      keyOk = plainKey.ok;
-      certErr = plainCert.err || certErr;
-      keyErr = plainKey.err || keyErr;
-    }
-    if (!certOk || !keyOk) {
-      logWallet("apple", "p12 ayrılamadı", certOk ? keyErr : certErr);
-      return null;
-    }
 
     // 4) manifest.json'ı PKCS#7 detached imzala → signature
     const sigPath = path.join(dir, "signature");
@@ -131,25 +308,30 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
       "smime", "-sign", "-binary",
       "-signer", certPath, "-inkey", keyPath, "-certfile", wwdrPath,
       "-in", path.join(dir, "manifest.json"), "-out", sigPath,
-      "-outform", "DER", "-noattr",
+      "-outform", "DER",
     ]);
     if (!sign.ok) {
-      logWallet("apple", "manifest imzalanamadı", sign.err);
+      logWallet("apple", "[apple-wallet] PKCS#7 imzalama hatası:", sign.err);
       return null;
     }
 
-    // 5) Hepsini zip'le (.pkpass). zip CLI container'da kurulu.
+    // 5) Hepsini zip'le (.pkpass)
     const zipPath = path.join(dir, "pass.pkpass");
-    const entries = ["pass.json", "icon.png", "icon@2x.png", "manifest.json", "signature"];
-    const zipRes = spawnSync("zip", ["-q", "-X", zipPath, ...entries], { cwd: dir });
+    const entries = [...Object.keys(files), "signature"];
+    const zipRes = spawnSync("zip", ["-q", "-X", zipPath, ...entries], { cwd: dir, encoding: "utf8" });
     if (zipRes.status !== 0) {
-      const stderr = Buffer.isBuffer(zipRes.stderr) ? zipRes.stderr.toString("utf8") : zipRes.stderr || "";
-      logWallet("apple", "pkpass arşivi oluşturulamadı", stderr || zipRes.error?.message || "zip başarısız");
+      logWallet("apple", "[apple-wallet] zip hatası:", zipRes.stderr);
       return null;
     }
-    return readFileSync(zipPath);
+    const out = readFileSync(zipPath);
+    if (pkpassCache.size >= 50) {
+      const oldest = pkpassCache.keys().next().value;
+      if (oldest) pkpassCache.delete(oldest);
+    }
+    pkpassCache.set(cacheKey, { buf: out, expiresAt: Date.now() + 60_000 });
+    return out;
   } catch (err) {
-    logWallet("apple", "pkpass üretilemedi", err);
+    logWallet("apple", "[apple-wallet] Beklenmeyen hata:", err);
     return null;
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -158,14 +340,5 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
 
 function openssl(args: string[]): { ok: boolean; err: string } {
   const r = spawnSync("openssl", args, { encoding: "utf8" });
-  const err = [r.stderr, r.error?.message].filter(Boolean).join(" ").trim();
-  return { ok: r.status === 0, err };
-}
-
-/** WWDR .cer (DER) ise PEM'e çevir; zaten PEM ise olduğu gibi bırak. */
-function normalizeWwdr(buf: Buffer): Buffer {
-  const asText = buf.toString("utf8");
-  if (asText.includes("BEGIN CERTIFICATE")) return buf;
-  const b64 = buf.toString("base64").replace(/(.{64})/g, "$1\n");
-  return Buffer.from(`-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`);
+  return { ok: r.status === 0, err: r.stderr ?? "" };
 }

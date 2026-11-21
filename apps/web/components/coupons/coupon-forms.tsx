@@ -9,7 +9,7 @@ import { CouponCard } from "@/components/luma/pass-cards";
 import { cn } from "@/lib/cn";
 import { dateLong } from "@/lib/event-format";
 import { AGENCY_TZ, isDay, zonedToUtc } from "@/lib/time";
-import { createCouponAction, grantCouponAction, setCouponStatusAction } from "@/lib/actions/coupons";
+import { createCouponAction, generateBulkCouponCodesAction, grantCouponAction, importCouponCodesAction, setCouponGrantStatusAction, setCouponStatusAction } from "@/lib/actions/coupons";
 
 function Section({ n, title, hint, children }: { n: number; title: string; hint?: string; children: ReactNode }) {
   return (
@@ -188,6 +188,103 @@ export function GrantForm({ couponId, influencers }: { couponId: string; influen
       <InfluencerPicker items={influencers} allLabel="Tümünü seç" />
       <label className="flex items-center gap-2 text-sm text-fg-muted">
         <input type="checkbox" name="all" value="true" className="h-4 w-4 accent-[var(--color-fg)]" />{tt("Seçim yerine tüm aktif içerik üreticilerine gönder")}</label>
+    </ActionForm>
+  );
+}
+
+/** Excel (.xlsx) veya CSV (.csv) dosyasından toplu kupon kodu yükleyip içerik üreticilerine dağıtır. */
+export function CouponImportForm({ couponId }: { couponId: string }) {
+  const tt = useTT();
+  return (
+    <ActionForm
+      action={importCouponCodesAction}
+      submitLabel={tt("Dosyadan Kodları Yükle ve Dağıt")}
+      resetOnSuccess
+      aria-label={tt("Excel veya CSV ile kupon kodu içe aktar")}
+      className="gap-3"
+    >
+      <input type="hidden" name="couponId" value={couponId} />
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="coupon-import-file" className="text-[13px] font-medium text-fg">
+          {tt("Excel (.xlsx) veya CSV (.csv) Dosyası")}
+        </label>
+        <input
+          id="coupon-import-file"
+          name="file"
+          type="file"
+          required
+          accept=".xlsx,.xls,.csv,.txt"
+          className="block w-full rounded-xl border border-line bg-bg px-3 py-2 text-sm text-fg file:mr-3 file:rounded-lg file:border-0 file:bg-surface-muted file:px-3 file:py-1 file:text-xs file:font-medium file:text-fg hover:file:bg-surface-hover"
+        />
+        <p className="text-[12px] text-fg-muted">
+          {tt("İlk sütunda kupon kodları, opsiyonel olarak ikinci sütunda influencer e-posta, isim veya @handle bilgisi yer alabilir.")}
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-xs text-fg-muted">
+        <input type="checkbox" name="autoAssign" value="true" defaultChecked className="h-4 w-4 accent-[var(--color-fg)]" />
+        {tt("Belirli bir alıcı yazılmayan kodları henüz kupon almamış aktif influencer'lara sırayla ata")}
+      </label>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <a
+          href={`/api/kupon/${couponId}/excel?template=1`}
+          className="rounded-full border border-line px-3 py-1 text-fg-muted hover:border-line-strong hover:text-fg"
+        >
+          {tt("Örnek Excel Şablonu (.xlsx)")}
+        </a>
+        <a
+          href={`/api/kupon/${couponId}/csv?template=1`}
+          className="rounded-full border border-line px-3 py-1 text-fg-muted hover:border-line-strong hover:text-fg"
+        >
+          {tt("Örnek CSV Şablonu (.csv)")}
+        </a>
+      </div>
+    </ActionForm>
+  );
+}
+
+/** Toplu benzersiz kupon kodu üretici (CSV dışa aktarma veya havuz kullanımı için). */
+export function BulkCodeGenerateForm({ couponId }: { couponId: string }) {
+  const tt = useTT();
+  return (
+    <ActionForm
+      action={generateBulkCouponCodesAction}
+      submitLabel={tt("Kodları Üret")}
+      resetOnSuccess
+      aria-label={tt("Toplu kupon kodu üret")}
+      className="gap-3"
+    >
+      <input type="hidden" name="couponId" value={couponId} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={tt("Kod adedi (1-500)")}>
+          {(p) => <Input {...p} name="count" type="number" min={1} max={500} defaultValue={25} required />}
+        </Field>
+        <Field label={tt("Ön ek (opsiyonel)")}>
+          {(p) => <Input {...p} name="prefix" maxLength={8} defaultValue="KPN" placeholder="YAZ26" className="font-mono uppercase" />}
+        </Field>
+      </div>
+    </ActionForm>
+  );
+}
+
+/** Tekil kupon kodunun durumunu günceller. */
+export function CouponGrantStatusButton({
+  grantId,
+  to,
+  label,
+  variant = "ghost",
+}: {
+  grantId: string;
+  to: "GONDERILDI" | "KULLANILDI" | "IPTAL";
+  label: string;
+  variant?: "primary" | "secondary" | "ghost";
+}) {
+  return (
+    <ActionForm action={setCouponGrantStatusAction} aria-label={label} className="!flex-row">
+      <input type="hidden" name="grantId" value={grantId} />
+      <input type="hidden" name="to" value={to} />
+      <Button type="submit" size="sm" variant={variant}>
+        {label}
+      </Button>
     </ActionForm>
   );
 }

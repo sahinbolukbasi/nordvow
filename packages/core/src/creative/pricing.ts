@@ -13,7 +13,7 @@ import { getConfig, setConfig } from "../config/store";
 export type CreativePricing = { usdTry: number; markup: number; minTry: number; autoFx: boolean; fxUpdatedAt: string | null; fx?: Record<string, number> };
 
 /** 1 USD karşılığı (open.er-api.com yoksa son bilinen). Hesap kendi para biriminde fiyatlanır; gösterimde çevrim yapılmaz. */
-const FX_FALLBACK: Record<string, number> = { TRY: 50.18, EUR: 0.86, CHF: 0.8, GBP: 0.75, USD: 1 };
+const FX_FALLBACK: Record<string, number> = { TRY: 34.5, EUR: 0.92, GBP: 0.79, USD: 1 };
 const ceilCents = (n: number) => Math.ceil(n * 100 - 1e-9) / 100;
 /** TL birim fiyatından hesabın para birimine oran (USD üzerinden; ör. EUR = fx.EUR / fx.TRY). */
 export function rateFromTry(p: Pick<CreativePricing, "usdTry" | "fx">, currency: string): number {
@@ -37,8 +37,21 @@ export function starterIn(starterTry: number, p: Pick<CreativePricing, "usdTry" 
   return Math.max(1, Math.round(starterTry * rateFromTry(p, currency)));
 }
 
+let inflightFx: Promise<CreativePricing> | null = null;
+const FX_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
 export async function creativePricing(): Promise<CreativePricing> {
-  return getConfig("pricing.creative");
+  const cur = await getConfig("pricing.creative");
+  if (process.env.NODE_ENV !== "test" && cur.autoFx) {
+    const age = cur.fxUpdatedAt ? Date.now() - new Date(cur.fxUpdatedAt).getTime() : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(age) || age > FX_MAX_AGE_MS || !cur.fx?.EUR || !cur.fx?.GBP) {
+      inflightFx ??= refreshFx().finally(() => {
+        inflightFx = null;
+      });
+      return inflightFx;
+    }
+  }
+  return cur;
 }
 
 /** Birim TL fiyatı (3 hane hassasiyet; yuvarlama iş toplamında yapılır). */
@@ -46,23 +59,23 @@ export function unitPriceTry(unitPriceUsd: number, p: Pick<CreativePricing, "usd
   return Math.round(unitPriceUsd * p.usdTry * p.markup * 1000) / 1000;
 }
 
-/** Bir işin bakiyeden düşecek tutarı (tam TL, en az minTry). */
+/** Bir işin bakiyeden düşecek tutarı. TRY tam liraya yukarı yuvarlanır, en az minTry. */
 export function jobChargeTry(creditsPerUnit: number, units: number, minTry: number): number {
   return Math.max(minTry, Math.ceil(creditsPerUnit * units - 1e-9));
 }
 
-/** USD/TRY kurunu açık bir kaynaktan çeker; başarısızsa mevcut değer kalır. */
+/** USD/TRY, EUR ve GBP kurlarını canlı açık kaynaktan çeker; başarısızsa mevcut değer kalır. */
 export async function refreshFx(fetcher: typeof fetch = fetch): Promise<CreativePricing> {
-  const cur = await creativePricing();
+  const cur = await getConfig("pricing.creative");
   if (!cur.autoFx) return cur;
   try {
     const res = await fetcher("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(8000) });
     const j = (await res.json()) as { result?: string; rates?: Record<string, number> };
     const rate = j.rates?.TRY;
     // Akıl sağlığı kontrolü: bozuk/aşırı veri fiyatları bozmasın.
-    if (j.result === "success" && typeof rate === "number" && rate > 1 && rate < 1000 && Math.abs(rate - cur.usdTry) / cur.usdTry < 0.5) {
+    if (j.result === "success" && typeof rate === "number" && rate > 5 && rate < 200) {
       const fx: Record<string, number> = { USD: 1, TRY: Math.round(rate * 100) / 100 };
-      for (const c of ["EUR", "CHF", "GBP"]) {
+      for (const c of ["EUR", "GBP"]) {
         const v = j.rates?.[c];
         const old = cur.fx?.[c] ?? FX_FALLBACK[c]!;
         if (typeof v === "number" && v > 0 && Math.abs(v - old) / old < 0.5) fx[c] = Math.round(v * 10000) / 10000;

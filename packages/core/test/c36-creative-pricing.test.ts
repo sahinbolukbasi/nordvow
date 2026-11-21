@@ -1,7 +1,8 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../src/db";
-import { jobChargeTry, unitPriceTry } from "../src/creative/pricing";
+import { chargeIn, creativePricing, jobChargeTry, unitPriceTry } from "../src/creative/pricing";
+import { tenantCurrency } from "../src/creative/tenant";
 import { audioUnits, planGeneration } from "../src/creative/adapters";
 import { _resetJwksCache, verifyFalWebhook } from "../src/creative/fal-webhook-verify";
 import { ensureStarterCredits, placeHold, topUp } from "../src/creative/credits";
@@ -124,6 +125,10 @@ describe("K36 Creative fiyatlandırma ve tahsilat doğruluğu", () => {
     expect((await prisma.creativeJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("COMPLETED");
     const acc = await prisma.creditAccount.findUniqueOrThrow({ where: { tenantId: t } });
     expect(Number(acc.heldCredits)).toBe(0);
-    expect(Number(acc.balanceCredits)).toBe(498); // yalnız tamamlanan iş (en az 2 TL) tahsil edildi
+    const pricing = await creativePricing();
+    const model = await prisma.modelRegistry.findUniqueOrThrow({ where: { key: "flux-schnell" } });
+    const cpu = Number(model.unitPriceUsd) > 0 ? unitPriceTry(Number(model.unitPriceUsd), pricing) : Number(model.creditsPerUnit);
+    const charged = chargeIn(cpu, 1, pricing, await tenantCurrency(t));
+    expect(Number(acc.balanceCredits)).toBe(500 - charged);
   });
 });

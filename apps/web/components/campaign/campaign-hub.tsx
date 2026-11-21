@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Button, Input, Textarea } from "@/components/ui/form";
 import { StatusDot } from "@/components/ui/status";
 import {
+  brandReviewDeliverableAction,
+  deleteCampaignAction,
   influencerMarkDeliverableDoneAction,
   runCampaignStoryAgentAction,
   sendCampaignMessageAction,
@@ -15,7 +17,13 @@ import {
   type CampaignDirectMessage,
 } from "@/lib/actions/campaign-hub";
 import { cn } from "@/lib/cn";
+import { formatHandle } from "@/lib/format";
 import { useTT } from "@/lib/i18n/tt-client";
+import {
+  addDeliverableTimestampCommentAction,
+  getDeliverableTimestampCommentsAction,
+  type TimestampReviewComment,
+} from "@/lib/actions/quick-campaign";
 
 export type UnifiedCampaignRow = {
   rowKey: string; // "assignment:<id>" or "offer:<id>"
@@ -37,6 +45,7 @@ export type UnifiedCampaignRow = {
     id: string;
     label: string;
     status: string;
+    rawStatus?: string;
     isDone: boolean;
     postUrl: string | null;
     publishedAt: string | null;
@@ -155,9 +164,9 @@ export function CampaignHub({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-section">{tt("Tek Merkezli Kampanya & Teklif Yönetim Tablosu")}</h2>
+              <h2 className="text-section">{tt("Kampanya ekibi ve teklifler")}</h2>
               <span className="rounded-full border border-line bg-surface-muted px-2.5 py-0.5 text-[11px] font-medium text-fg-muted">
-                {executionMode === "SELF" ? tt("Marka Yönetimi (Self-Managed)") : tt("Ajans Yönetimi")}
+                {executionMode === "SELF" ? tt("Marka Yönetimi") : tt("Ajans Yönetimi")}
               </span>
             </div>
             <p className="text-[13px] text-fg-muted">
@@ -210,7 +219,7 @@ export function CampaignHub({
                 <tr className="border-b border-line text-[11px] uppercase tracking-[0.08em] text-fg-muted">
                   <th className="py-2.5 pr-3 font-medium">{tt("Influencer")}</th>
                   <th className="px-3 py-2.5 font-medium">{tt("Onay / Teklif Durumu")}</th>
-                  <th className="px-3 py-2.5 font-medium">{tt("Tutar (Çift Taraflı Kur)")}</th>
+                  <th className="px-3 py-2.5 font-medium">{tt("Tutar")}</th>
                   <th className="px-3 py-2.5 font-medium">{tt("Görev & İçerik Senkronu")}</th>
                   <th className="py-2.5 pl-3 text-right font-medium">{tt("Hızlı Aksiyonlar")}</th>
                 </tr>
@@ -232,7 +241,7 @@ export function CampaignHub({
                             {r.influencerName}
                           </Link>
                           <span className="text-[12px] text-fg-muted">
-                            {r.influencerHandle ? `@${r.influencerHandle} · ` : ""}
+                            {r.influencerHandle ? `${formatHandle(r.influencerHandle)} · ` : ""}
                             {r.influencerCountry} ({r.influencerCurrency})
                           </span>
                           <span className="text-[11px] text-fg-passive">
@@ -253,31 +262,29 @@ export function CampaignHub({
                       </td>
 
                       <td className="px-3 py-3.5 tabular-nums">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-semibold text-fg">
-                            {r.feeMinor > 0
-                              ? formatDualMinor(r.feeMinor, r.feeCurrency || campaignCurrency, {
-                                  viewerCurrency:
-                                    r.influencerCurrency !== (r.feeCurrency || campaignCurrency)
-                                      ? r.influencerCurrency
-                                      : undefined,
-                                  perspective: "brand",
+                        {viewerRole === "BRAND" && r.kind === "ASSIGNMENT" ? (
+                          <span className="text-fg-passive">—</span>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-fg">
+                              {r.feeMinor > 0
+                                ? formatDualMinor(r.feeMinor, r.feeCurrency || campaignCurrency, {
+                                  viewerCurrency: campaignCurrency,
                                   fx,
-                                  showGlobalEquivalents: true,
                                 })
-                              : "—"}
-                          </span>
-                          {r.counterFeeMinor && r.counterFeeMinor > 0 ? (
-                            <span className="text-[12px] text-amber-600 dark:text-amber-400">
-                              {tt("Karşı teklif:")}{" "}
-                              {formatDualMinor(r.counterFeeMinor, r.feeCurrency || campaignCurrency, {
-                                viewerCurrency: r.influencerCurrency,
-                                perspective: "brand",
-                                fx,
-                              })}
+                                : "—"}
                             </span>
-                          ) : null}
-                        </div>
+                            {r.counterFeeMinor && r.counterFeeMinor > 0 ? (
+                              <span className="text-[12px] text-amber-600 dark:text-amber-400">
+                                {tt("Karşı teklif:")}{" "}
+                                {formatDualMinor(r.counterFeeMinor, r.feeCurrency || campaignCurrency, {
+                                  viewerCurrency: campaignCurrency,
+                                  fx,
+                                })}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-3 py-3.5">
@@ -290,32 +297,83 @@ export function CampaignHub({
                             <span className="text-[12px] font-medium text-fg">
                               {r.deliverablesDone} / {r.deliverablesTotal} {tt("tamamlandı")}
                             </span>
-                            <ul className="flex flex-col gap-1">
-                              {r.deliverableItems.map((d) => (
-                                <li key={d.id} className="flex flex-wrap items-center gap-1.5 text-[12px]">
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                                      d.isDone
-                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                                        : "bg-surface-muted text-fg-muted",
-                                    )}
-                                  >
-                                    {d.isDone ? "✓ Yaptı" : "⏳ Bekliyor"}
-                                  </span>
-                                  <span className="text-fg">{d.label}</span>
-                                  {d.postUrl ? (
-                                    <a
-                                      href={d.postUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-[11px] underline opacity-80 hover:opacity-100"
-                                    >
-                                      {tt("Paylaşım ↗")}
-                                    </a>
-                                  ) : null}
-                                </li>
-                              ))}
+                            <ul className="flex flex-col gap-1.5">
+                              {r.deliverableItems.map((d) => {
+                                const code = d.rawStatus ?? d.status;
+                                const awaitingReview =
+                                  code === "ICERIK_YUKLENDI" ||
+                                  code === "YAYINLANDI" ||
+                                  code === "METRIK_BEKLIYOR";
+                                const isCompleted = code === "TAMAMLANDI";
+                                const publishedMs = d.publishedAt ? new Date(d.publishedAt).getTime() : null;
+                                const remainingHours =
+                                  publishedMs != null
+                                    ? Math.max(0, Math.ceil((publishedMs + 24 * 3_600_000 - Date.now()) / 3_600_000))
+                                    : 24;
+                                return (
+                                  <li key={d.id} className="flex flex-col gap-1 rounded-md border border-border/60 bg-surface-muted/20 px-2 py-1.5 text-[12px]">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                          isCompleted
+                                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                            : d.isDone
+                                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                                              : "bg-surface-muted text-fg-muted",
+                                        )}
+                                      >
+                                        {isCompleted
+                                          ? "✓ Onaylandı / Hak Ediş"
+                                          : d.isDone
+                                            ? "✓ Yaptı (Onay Bekliyor)"
+                                            : "⏳ Bekliyor"}
+                                      </span>
+                                      <span className="text-fg">{d.label}</span>
+                                      {d.postUrl ? (
+                                        <a
+                                          href={d.postUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-[11px] underline opacity-80 hover:opacity-100"
+                                        >
+                                          {tt("Paylaşım ↗")}
+                                        </a>
+                                      ) : null}
+                                    </div>
+                                    {awaitingReview ? (
+                                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                        <span className="text-[11px] text-fg-muted">
+                                          {remainingHours > 0
+                                            ? tt(`Otomatik onay: ~${remainingHours} saat`)
+                                            : tt("Otomatik onay süresi doldu")}
+                                        </span>
+                                        <ActionForm action={brandReviewDeliverableAction} className="inline-flex">
+                                          <input type="hidden" name="deliverableId" value={d.id} />
+                                          <input type="hidden" name="decision" value="ONAY" />
+                                          <button
+                                            type="submit"
+                                            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                          >
+                                            {tt("Onayla & Hak Edişe Aktar")}
+                                          </button>
+                                        </ActionForm>
+                                        <ActionForm action={brandReviewDeliverableAction} className="inline-flex">
+                                          <input type="hidden" name="deliverableId" value={d.id} />
+                                          <input type="hidden" name="decision" value="REVIZYON" />
+                                          <button
+                                            type="submit"
+                                            className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                                          >
+                                            {tt("Değişiklik İste")}
+                                          </button>
+                                        </ActionForm>
+                                      </div>
+                                    ) : null}
+                                    <DeliverableTimestampReviewer deliverableId={d.id} brandName={campaignName} />
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </div>
                         )}
@@ -428,20 +486,20 @@ export function CampaignHub({
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-section">{tt("Otonom Agent & Instagram Story / İçerik Takibi")}</h2>
+              <h2 className="text-section">{tt("Instagram Story ve İçerik Takibi")}</h2>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                {tt("Canlı Veritabanı Telemetrisi")}
+                {tt("Otomatik Takip")}
               </span>
             </div>
             <p className="text-[13px] text-fg-muted">
-              {tt("Kampanyaya katılan influencer'ların Instagram hesapları ve paylaştıkları Story/Reels içerikleri otonom agent tarafından takip edilir: Story görüntülenme, link tıklaması, paylaşım durumu ve yayında kalma süresi.")}
+              {tt("Kampanyaya katılan influencer'ların paylaştıkları Story ve Reels içerikleri otomatik olarak izlenir: görüntülenme, bağlantı tıklaması, paylaşım durumu ve yayında kalma süresi.")}
             </p>
           </div>
           {canManage ? (
             <ActionForm
               action={runCampaignStoryAgentAction}
-              submitLabel={tt("Story & Gönderi Agent Taramasını Şimdi Çalıştır")}
+              submitLabel={tt("Story ve Gönderileri Şimdi Tara")}
               submitSize="sm"
               submitVariant="secondary"
             >
@@ -474,7 +532,7 @@ export function CampaignHub({
                       <div className="flex flex-col">
                         <span className="font-medium text-fg">{s.influencerName}</span>
                         <span className="text-[11px] text-fg-muted">
-                          {s.igHandle ? `@${s.igHandle}` : tt("Instagram hesabı")} ·{" "}
+                          {s.igHandle ? formatHandle(s.igHandle) : tt("Instagram hesabı")} ·{" "}
                           {s.oauthConnected ? tt("Meta Graph API Doğrulamalı") : tt("Instagram Gezgini Bot")}
                         </span>
                       </div>
@@ -652,6 +710,237 @@ export function InfluencerTaskSyncCard({
           />
         </ActionForm>
       </Card>
+    </div>
+  );
+}
+
+/** Saniye damgalı taslak video yorumu + sürüm geçmişi (v1, v2) + md. 23/A hızlı kontrolü. */
+function DeliverableTimestampReviewer({ deliverableId, brandName }: { deliverableId: string; brandName: string }) {
+  const [open, setOpen] = useState(false);
+  const [comments, setComments] = useState<TimestampReviewComment[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [secInput, setSecInput] = useState("7");
+  const [version, setVersion] = useState(1);
+  const [commentText, setCommentText] = useState("");
+  const [captionCheck, setCaptionCheck] = useState("");
+  const [disclosureIssues, setDisclosureIssues] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const toggleOpen = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !loaded) {
+      const list = await getDeliverableTimestampCommentsAction(deliverableId).catch(() => []);
+      setComments(list);
+      setLoaded(true);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (commentText.trim().length < 2) return;
+    setSaving(true);
+    try {
+      const res = await addDeliverableTimestampCommentAction({
+        deliverableId,
+        timestampSec: Number(secInput) || 0,
+        version,
+        comment: commentText,
+        captionToCheck: captionCheck.trim() || null,
+        brandName,
+      });
+      if (res.ok && res.comments) {
+        setComments(res.comments);
+        setCommentText("");
+        setDisclosureIssues(res.disclosureIssues ?? []);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="pt-0.5">
+      <button
+        type="button"
+        onClick={() => void toggleOpen()}
+        className="text-[11px] font-medium text-fg-muted underline underline-offset-2 hover:text-fg"
+      >
+        {open ? "Saniyeli yorumları gizle" : `Saniyeli video yorumu & 23/A (${comments.length || "not ekle"})`}
+      </button>
+      {open ? (
+        <div className="mt-2 flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5 text-[11px]">
+          {comments.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {comments.map((c) => (
+                <li key={c.id} className="flex items-start gap-2 rounded bg-surface-muted/40 px-2 py-1">
+                  <span className="shrink-0 rounded bg-fg px-1.5 py-0.5 font-mono text-[10px] text-bg">
+                    v{c.version} · {c.timestampLabel}
+                  </span>
+                  <span className="text-fg">
+                    <strong>{c.authorName}:</strong> {c.comment}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-fg-passive">Henüz saniye damgalı yorum yok.</p>
+          )}
+          <div className="grid grid-cols-[72px_68px_1fr] gap-1.5">
+            <Input
+              type="number"
+              min={0}
+              value={secInput}
+              onChange={(e) => setSecInput(e.target.value)}
+              placeholder="sn"
+              aria-label="Saniye"
+            />
+            <Input
+              type="number"
+              min={1}
+              max={20}
+              value={version}
+              onChange={(e) => setVersion(Number(e.target.value) || 1)}
+              placeholder="v1"
+              aria-label="Sürüm"
+            />
+            <Input
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder="Örn. 0:07 ürün logosu görünmüyor"
+            />
+          </div>
+          <Input
+            value={captionCheck}
+            onChange={(e) => setCaptionCheck(e.target.value)}
+            placeholder="İsteğe bağlı: açıklama metnini yapıştırıp md. 23/A ibaresini kontrol et"
+          />
+          {disclosureIssues.length > 0 ? (
+            <p className="rounded bg-amber-500/10 px-2 py-1 text-amber-800 dark:text-amber-300">
+              23/A uyarısı: {disclosureIssues.join(" · ")}
+            </p>
+          ) : null}
+          <div className="flex justify-end">
+            <Button type="button" size="sm" variant="secondary" disabled={saving} onClick={() => void handleAdd()}>
+              {saving ? "Kaydediliyor…" : "Saniyeli yorum ekle"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Kampanyayı silme butonu (onay modalı ile kazara silmeyi önler).
+ */
+export function CampaignDeleteButton({ campaignId, campaignName, inline = false }: { campaignId: string; campaignName: string; inline?: boolean }) {
+  const tt = useTT();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className={inline ? "text-xs font-medium text-critical hover:underline" : "w-full justify-start text-critical hover:bg-critical/10"}
+      >
+        {tt("Sil")}
+      </Button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-campaign-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+        >
+          <div className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-surface p-6 shadow-xl">
+            <h3 id="delete-campaign-title" className="text-base font-semibold text-fg">
+              {tt("Kampanyayı silmek istediğinize emin misiniz?")}
+            </h3>
+            <p className="text-sm text-fg-muted">
+              <strong className="text-fg">{campaignName}</strong>{" "}
+              {tt("kampanyası ve bağlı tüm teklif/teslimat kayıtları kalıcı olarak kaldırılacaktır. Bu işlem geri alınamaz.")}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>
+                {tt("Vazgeç")}
+              </Button>
+              <ActionForm action={deleteCampaignAction} submitLabel={tt("Evet, Kalıcı Olarak Sil")} submitSize="sm" submitVariant="primary">
+                <input type="hidden" name="campaignId" value={campaignId} />
+              </ActionForm>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * "⋯" aksiyon menüsü: "Kampanyayı Sil" gibi yıkıcı eylemleri satır veya başlık içinde
+ * çıplak göstermek yerine tek bir menü ve zorunlu onay modalı arkasına toplar.
+ */
+export function CampaignActionsMenu({
+  campaignId,
+  campaignName,
+  editHref,
+  viewHref,
+}: {
+  campaignId: string;
+  campaignName: string;
+  editHref?: string;
+  viewHref?: string;
+}) {
+  const tt = useTT();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label={tt("Kampanya işlemleri")}
+        onClick={() => setMenuOpen((v) => !v)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-fg-muted transition-colors hover:border-fg/40 hover:text-fg"
+      >
+        <span aria-hidden className="text-base leading-none">⋯</span>
+      </button>
+      {menuOpen ? (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} aria-hidden />
+          <div
+            role="menu"
+            className="absolute right-0 z-40 mt-1.5 flex w-48 flex-col gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lg"
+          >
+            {viewHref ? (
+              <Link
+                href={viewHref}
+                role="menuitem"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-1.5 text-left text-[13px] text-fg hover:bg-surface-muted"
+              >
+                {tt("Kampanyayı aç")}
+              </Link>
+            ) : null}
+            {editHref ? (
+              <Link
+                href={editHref}
+                role="menuitem"
+                onClick={() => setMenuOpen(false)}
+                className="rounded-lg px-3 py-1.5 text-left text-[13px] text-fg hover:bg-surface-muted"
+              >
+                {tt("Düzenle")}
+              </Link>
+            ) : null}
+            <div className="border-t border-line pt-1">
+              <CampaignDeleteButton campaignId={campaignId} campaignName={campaignName} />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -11,6 +11,7 @@
 export type LandingVideo = {
   src?: string;
   poster?: string;
+  avatar?: string;
   creator: string;
   handle: string;
   platform: "Instagram" | "TikTok" | "YouTube";

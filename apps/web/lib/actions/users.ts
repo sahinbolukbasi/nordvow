@@ -3,8 +3,11 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
+import { ensureStarterCredits, topUp } from "@infulancer/core/creative/credits";
+import { runOnboardingQuickScan } from "@infulancer/core/social/multi-agent-analytics";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { dispatchNotification } from "@infulancer/core/notify/dispatch";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { assertPlatformAdmin, requireActor } from "@/lib/auth-guard";
@@ -71,6 +74,9 @@ export async function createStaffUserAction(_p: ActionState, fd: FormData): Prom
     const passwordHash = await bcrypt.hash(input.password, 10);
     const user = await prisma.user.create({ data: { email: input.email, name: input.name, role: input.role, passwordHash } });
     await audit.append({ actor: toAuditActor(actor), action: "USER_CREATED", entityType: "User", entityId: user.id, data: { role: input.role, email: input.email } });
+    await dispatchNotification("STAFF_INVITED", [
+      { userId: user.id, email: user.email, vars: { ad: user.name, rol: input.role === "ADMIN" ? "Yönetici" : "Ajans", link: "/giris" } },
+    ]).catch(() => undefined);
     revalidateAll();
     return { ok: true, message: `${input.email} eklendi. Geçici şifreyi güvenli bir kanaldan paylaşın.` };
   });
@@ -106,12 +112,15 @@ const directUserSchema = z.object({
   brandId: z.string().trim().max(64).optional(),
   companyName: z.string().trim().max(120).optional(),
   category: z.string().trim().max(80).optional(),
+  initialCredits: z.number().min(0, { error: "Başlangıç kredisi negatif olamaz." }).max(1_000_000).optional(),
 });
 
 /** Admin: davet linki beklemeden doğrudan Influencer, Marka, Ajans veya Admin kullanıcısı ekler. */
 export async function createDirectUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN");
   return attempt(async () => {
+    const rawCredits = optStr(fd, "initialCredits");
+    const parsedCredits = rawCredits !== null && rawCredits !== "" ? Number(rawCredits.replace(",", ".")) : undefined;
     const input = parseInput(
       directUserSchema,
       {
@@ -123,8 +132,9 @@ export async function createDirectUserAction(_p: ActionState, fd: FormData): Pro
         brandId: optStr(fd, "brandId") ?? undefined,
         companyName: optStr(fd, "companyName") ?? undefined,
         category: optStr(fd, "category") ?? undefined,
+        initialCredits: parsedCredits,
       },
-      { name: "Ad soyad", email: "E-posta", password: "Şifre", role: "Rol" },
+      { name: "Ad soyad", email: "E-posta", password: "Şifre", role: "Rol", initialCredits: "Başlangıç kredisi" },
     );
     if (input.role === "ADMIN" || input.role === "AGENCY") assertPlatformAdmin(actor);
     if (await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } })) {
@@ -182,18 +192,155 @@ export async function createDirectUserAction(_p: ActionState, fd: FormData): Pro
           brandId,
           influencerId,
         },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, brandId: true, influencerId: true },
       });
     });
+
+    const tenantId = created.brandId ?? created.influencerId;
+    if (tenantId) {
+      const hadAccount = input.brandId ? await prisma.creditAccount.findUnique({ where: { tenantId }, select: { tenantId: true } }) : null;
+      if (hadAccount && input.initialCredits && input.initialCredits > 0) {
+        await topUp(tenantId, input.initialCredits, "Yeni kullanıcı başlangıç kredisi");
+      } else {
+        await ensureStarterCredits(tenantId, input.initialCredits);
+      }
+    }
+
+    if (created.influencerId) {
+      void runOnboardingQuickScan(created.influencerId).catch(() => {});
+    }
 
     await audit.append({
       actor: toAuditActor(actor),
       action: "USER_CREATED_DIRECT",
       entityType: "User",
       entityId: created.id,
-      data: { role: created.role, email: created.email },
+      data: { role: created.role, email: created.email, initialCredits: input.initialCredits ?? null },
     });
     revalidateAll();
     return { ok: true, message: `${created.email} (${created.role}) doğrudan eklendi ve aktifleştirildi.` };
+  });
+}
+
+const deleteUserSchema = z.object({ userId: z.string().min(1).max(64) });
+
+/** Admin: kullanıcıyı kalıcı olarak siler (bağlı kilitli kayıtlar varsa engeller). */
+export async function deleteUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const input = parseInput(deleteUserSchema, { userId: str(fd, "userId") }, { userId: "Kullanıcı" });
+    if (input.userId === actor.userId) {
+      throw new DomainError("KURAL_IHLALI", "Kendi hesabınızı silemezsiniz.");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, name: true, role: true, status: true },
+    });
+    if (!user) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
+
+    if (user.role === "ADMIN" && user.status === "ACTIVE") {
+      const activeAdmins = await prisma.user.count({ where: { role: "ADMIN", status: "ACTIVE" } });
+      if (activeAdmins <= 1) {
+        throw new DomainError("KURAL_IHLALI", "Son aktif admin silinemez.");
+      }
+    }
+
+    try {
+      await prisma.user.delete({ where: { id: user.id } });
+    } catch (e: unknown) {
+      const code = typeof e === "object" && e !== null && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2003") {
+        throw new DomainError(
+          "KURAL_IHLALI",
+          "Bu kullanıcıya bağlı geçmiş kampanya briefi, dosya, inceleme veya ödeme kayıtları bulunduğu için silinemiyor. Bunun yerine kullanıcıyı askıya alabilirsiniz.",
+        );
+      }
+      throw e;
+    }
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "USER_DELETED",
+      entityType: "User",
+      entityId: user.id,
+      data: { email: user.email, name: user.name, role: user.role },
+    });
+    revalidateAll();
+    return { ok: true, message: `${user.email} silindi.` };
+  });
+}
+
+const updateUserSchema = z.object({
+  userId: z.string().min(1).max(64),
+  name: z.string().trim().min(2).max(120),
+  email: z.email().max(200),
+  phone: z.string().trim().max(40).nullable(),
+  brandId: z.string().trim().max(64).nullable().optional(),
+  password: z.string().min(8, { error: "Şifre en az 8 karakter olmalı." }).max(200).optional(),
+});
+
+/** Admin: kullanıcının ad, e-posta, telefon, bağlı marka ve opsiyonel şifre bilgisini günceller. */
+export async function updateUserAction(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireActor("ADMIN");
+  assertPlatformAdmin(actor);
+  return attempt(async () => {
+    const rawPassword = optStr(fd, "password");
+    const rawBrandId = optStr(fd, "brandId");
+    const input = parseInput(
+      updateUserSchema,
+      {
+        userId: str(fd, "userId"),
+        name: str(fd, "name"),
+        email: str(fd, "email").toLowerCase(),
+        phone: optStr(fd, "phone"),
+        brandId: fd.has("brandId") ? rawBrandId : undefined,
+        password: rawPassword || undefined,
+      },
+      { userId: "Kullanıcı", name: "Ad soyad", email: "E-posta", phone: "Telefon", brandId: "Bağlı marka", password: "Yeni şifre" },
+    );
+
+    const existing = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { id: true, email: true, name: true, phone: true, role: true, brandId: true },
+    });
+    if (!existing) throw new DomainError("BULUNAMADI", "Kullanıcı bulunamadı.");
+
+    if (input.email !== existing.email) {
+      const taken = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
+      if (taken) throw new DomainError("DOGRULAMA", "Bu e-posta başka bir kullanıcıda kayıtlı.");
+    }
+
+    if (input.brandId) {
+      const b = await prisma.brand.findUnique({ where: { id: input.brandId }, select: { id: true } });
+      if (!b) throw new DomainError("BULUNAMADI", "Seçilen marka bulunamadı.");
+    }
+
+    const passwordHash = input.password ? await bcrypt.hash(input.password, 10) : undefined;
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: input.name,
+        email: input.email,
+        phone: input.phone || null,
+        ...(existing.role === "BRAND" && input.brandId !== undefined ? { brandId: input.brandId || null } : {}),
+        ...(passwordHash ? { passwordHash } : {}),
+      },
+    });
+
+    await audit.append({
+      actor: toAuditActor(actor),
+      action: "USER_UPDATED",
+      entityType: "User",
+      entityId: existing.id,
+      data: {
+        from: { name: existing.name, email: existing.email, phone: existing.phone },
+        to: { name: input.name, email: input.email, phone: input.phone },
+        passwordChanged: !!passwordHash,
+      },
+    });
+    revalidateAll();
+    return { ok: true, message: `${input.name} güncellendi.` };
   });
 }

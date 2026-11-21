@@ -9,6 +9,7 @@ import { syncReasonNotes, syncSourceLabels } from "@infulancer/core/social/sync"
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { AuditAgentControls } from "@/components/agent/agent-forms";
 import { CustomAgentCard, CustomAgentForm, InstagramExplorer, SyncCampaignInstagramButton } from "@/components/agent/agentcore-center";
+import { LiveAgentMonitor } from "@/components/agent/live-agent-monitor";
 import { TrackerGallery, TrackerList } from "@/components/agent/tracker-ui";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
@@ -24,6 +25,7 @@ export const dynamic = "force-dynamic";
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 const SECTIONS = [
+  { id: "telemetri", label: "Canlı Ajanlar & Loglar" },
   { id: "kampanya", label: "Kampanya & Analitik" },
   { id: "instagram", label: "Instagram Gezgini" },
   { id: "ozel", label: "Özel Agent (AgentCore)" },
@@ -33,7 +35,7 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
   const tt = await getTT();
   await requireActor("ADMIN");
   const sp = await searchParams;
-  const section = SECTIONS.find((s) => s.id === one(sp.bolum))?.id ?? "kampanya";
+  const section = SECTIONS.find((s) => s.id === one(sp.bolum))?.id ?? "telemetri";
 
   const [campaigns, customRow, openCount] = await Promise.all([
     prisma.campaign.findMany({
@@ -82,7 +84,9 @@ export default async function AgentCenterPage({ searchParams }: { searchParams: 
         ))}
       </nav>
 
-      {section === "kampanya" ? (
+      {section === "telemetri" ? (
+        <LiveAgentMonitor />
+      ) : section === "kampanya" ? (
         <CampaignAgentsView campaigns={campaigns} selectedCampaignId={selectedCampaignId} customAgents={customAgents} />
       ) : section === "instagram" ? (
         <InstagramOnlyView />
@@ -231,7 +235,7 @@ async function CampaignAgentsView({
                 {igAccounts.map((a) => (
                   <tr key={a.handle}>
                     <td className="py-2 pr-4 font-medium text-fg">{a.influencer}</td>
-                    <td className="py-2 pr-4 text-fg-muted">@{a.handle}</td>
+                    <td className="py-2 pr-4 text-fg-muted">@{a.handle.replace(/^@+/, "")}</td>
                     <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
                     <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                     <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>
@@ -337,7 +341,7 @@ async function InstagramOnlyView() {
                       {a.influencer.name}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4 text-fg-muted">@{a.handle}</td>
+                  <td className="py-2 pr-4 text-fg-muted">@{a.handle.replace(/^@+/, "")}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.followers.toLocaleString("tr-TR")}</td>
                   <td className="py-2 pr-4 tabular-nums">{a.avgLikes?.toLocaleString("tr-TR") ?? "—"}</td>
                   <td className="py-2 pr-4 tabular-nums">%{(Number(a.engagementRate) * 100).toFixed(2)}</td>

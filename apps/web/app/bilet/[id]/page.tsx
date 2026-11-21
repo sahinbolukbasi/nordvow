@@ -9,6 +9,7 @@ import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { TicketCard } from "@/components/luma/pass-cards";
 import { QrImage, WalletButtons } from "@/components/wallet/pass-card";
 import { rangeLabel } from "@/lib/event-format";
+import { eventPublicPath } from "@/lib/event-url";
 import { mediaSrc } from "@/lib/media";
 import { BRAND_NAME } from "@/lib/brand";
 
@@ -54,6 +55,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
           statusLabel={st.label}
           statusTone={st.tone}
           coverSrc={mediaSrc(e.coverImageKey)}
+          logoSrc="/brand/nordvow-logo-dark.svg"
           qr={<QrImage dataUrl={links.qrDataUrl} alt={`Bilet QR kodu ${ticket.code}`} />}
         />
 
@@ -73,7 +75,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
               </>
             ) : null}
           </div>
-          <Link href={`/etkinlik/${e.id}`} className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">{tt("Etkinlik sayfasını görüntüle →")}</Link>
+          <Link href={eventPublicPath(e.id, e.title)} className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">{tt("Etkinlik sayfasını görüntüle →")}</Link>
         </section>
       </div>
     </main>

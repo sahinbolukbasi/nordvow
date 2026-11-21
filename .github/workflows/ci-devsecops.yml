@@ -1,0 +1,82 @@
+name: DevSecOps CI & Security Gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * *"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secrets-and-sast:
+    name: Secrets (Gitleaks) & SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/typescript
+            p/python
+            p/dockerfile
+            p/terraform
+
+  sca-and-iac:
+    name: SCA & IaC Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy Filesystem Scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Trivy Terraform Config Scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: infra/terraform
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  build-and-test:
+    name: Typecheck, Unit Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Core Unit Tests
+        working-directory: packages/core
+        run: npx vitest run --config vitest.unit.config.ts
+      - name: Voice Assistant Tests
+        working-directory: services/voice-assistant
+        run: npm ci && npm test
+      - name: Production Web Build
+        env:
+          DATABASE_URL: postgresql://build:build@localhost:5432/build
+          AUDIT_DATABASE_URL: postgresql://build:build@localhost:5432/build_audit
+          AUTH_SECRET: build-only-placeholder
+          S3_BUCKET: build
+        run: npm run build -w @infulancer/web
+

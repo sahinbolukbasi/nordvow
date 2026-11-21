@@ -1,5 +1,6 @@
 import { prisma } from "../db";
 import { prompts } from "../llm";
+import { dispatchNotification, recipientsFromUserIds } from "../notify/dispatch";
 import { HOUR_MS, notifyInfluencer, recordRun } from "./common";
 
 /**
@@ -37,6 +38,18 @@ export async function runStoryReminder(now = new Date()): Promise<boolean[]> {
         `${d.assignment.campaign.name} story'n 24 saatte kaybolacak. İstatistik ekran görüntüsünü şimdi yükle.`,
         `/influencer/isler/${d.id}`,
       );
+      const infUser = await prisma.user.findUnique({ where: { influencerId: d.assignment.influencerId }, select: { id: true } });
+      if (infUser?.id) {
+        const recipients = await recipientsFromUserIds([infUser.id]);
+        if (recipients.length) {
+          await dispatchNotification("TASK_REMINDER", recipients, {
+            kampanya: d.assignment.campaign.name,
+            gorev: "Story istatistik ekran görüntüsü yükleme",
+            tarih: "24 saat dolmadan",
+            link: `/influencer/isler/${d.id}`,
+          }).catch(() => undefined);
+        }
+      }
     }
     out.push(created);
   }

@@ -12,6 +12,7 @@ npx tsx packages/core/scripts/bootstrap.ts ensure-audit-db
 npm run db:migrate
 npm run audit:migrate
 npx tsx packages/core/scripts/bootstrap.ts sync-models
+npx tsx packages/core/scripts/bootstrap.ts seed-system
 if [ "${SEED_ON_START:-false}" = "true" ]; then
   npx tsx packages/core/scripts/bootstrap.ts seed-if-empty
 fi

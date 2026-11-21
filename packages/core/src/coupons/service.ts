@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { DomainError } from "../domain/errors";
 import { uniqueCode } from "../wallet/maps";
+import type { ImportedCouponRow } from "./spreadsheet";
 
 /**
  * Kupon / hediye çeki yönetimi: marka şablon tasarlar, influencer'lara gönderir.
@@ -110,4 +111,161 @@ export async function redeemGrant(code: string) {
 export function couponValueLabel(valueType: "YUZDE" | "TUTAR", value: bigint | number): string {
   const v = Number(value);
   return valueType === "YUZDE" ? `%${v} indirim` : `${(v / 100).toLocaleString("tr-TR")} TL değerinde`;
+}
+
+/**
+ * Excel veya CSV dosyasından okunan kupon kodlarını eşleşen (veya sıradaki uygun)
+ * influencer'lara dağıtarak ya da havuz kodu (influencerId: null) olarak CouponGrant kayıtları oluşturur.
+ */
+export async function importCouponCodesAndGrant(input: {
+  couponId: string;
+  rows: ImportedCouponRow[];
+  autoAssignUnmatched?: boolean;
+  allowUnassigned?: boolean;
+}): Promise<{
+  createdCount: number;
+  assignedCount: number;
+  poolCount: number;
+  skippedDuplicates: number;
+  unmatchedCount: number;
+  grantedInfluencerIds: string[];
+}> {
+  const coupon = await prisma.coupon.findUnique({
+    where: { id: input.couponId },
+    select: { id: true, status: true },
+  });
+  if (!coupon) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+  if (coupon.status !== "YAYINDA") {
+    throw new DomainError("KURAL_IHLALI", "Kod içe aktarmak için kuponu önce yayına alın.");
+  }
+  if (input.rows.length === 0) {
+    throw new DomainError("DOGRULAMA", "Dosyada geçerli kupon kodu bulunamadı.");
+  }
+
+  const [existingGrants, existingCodes, influencers] = await Promise.all([
+    prisma.couponGrant.findMany({
+      where: { couponId: input.couponId },
+      select: { influencerId: true },
+    }),
+    prisma.couponGrant.findMany({
+      where: { code: { in: input.rows.map((r) => r.code) } },
+      select: { code: true },
+    }),
+    prisma.influencer.findMany({
+      where: { isActive: true, user: { status: "ACTIVE" } },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        name: true,
+        user: { select: { email: true } },
+        socialAccounts: { select: { handle: true } },
+      },
+    }),
+  ]);
+
+  const usedInfluencers = new Set(existingGrants.map((g) => g.influencerId).filter((x): x is string => !!x));
+  const takenCodes = new Set(existingCodes.map((c) => c.code.toUpperCase()));
+
+  const findInfluencerByHint = (hint: string) => {
+    const q = hint.trim().toLocaleLowerCase("tr").replace(/^@/, "");
+    if (!q) return null;
+    return (
+      influencers.find((inf) => {
+        if (usedInfluencers.has(inf.id)) return false;
+        if (inf.user?.email.toLocaleLowerCase("tr") === q) return true;
+        if (inf.name.toLocaleLowerCase("tr") === q) return true;
+        return inf.socialAccounts.some((s) => s.handle.toLocaleLowerCase("tr").replace(/^@/, "") === q);
+      }) ?? null
+    );
+  };
+
+  let createdCount = 0;
+  let assignedCount = 0;
+  let poolCount = 0;
+  let skippedDuplicates = 0;
+  let unmatchedCount = 0;
+  const grantedInfluencerIds: string[] = [];
+
+  for (const row of input.rows) {
+    const codeKey = row.code.toUpperCase();
+    if (takenCodes.has(codeKey)) {
+      skippedDuplicates++;
+      continue;
+    }
+
+    let target = row.recipientHint ? findInfluencerByHint(row.recipientHint) : null;
+    if (!target && !row.recipientHint && input.autoAssignUnmatched !== false) {
+      target = influencers.find((inf) => !usedInfluencers.has(inf.id)) ?? null;
+    } else if (!target && row.recipientHint && input.autoAssignUnmatched) {
+      target = influencers.find((inf) => !usedInfluencers.has(inf.id)) ?? null;
+    }
+
+    if (!target && input.allowUnassigned === false) {
+      unmatchedCount++;
+      continue;
+    }
+
+    await prisma.couponGrant.create({
+      data: {
+        couponId: input.couponId,
+        influencerId: target?.id ?? null,
+        code: row.code,
+      },
+    });
+    if (target) {
+      usedInfluencers.add(target.id);
+      grantedInfluencerIds.push(target.id);
+      assignedCount++;
+    } else {
+      poolCount++;
+    }
+    takenCodes.add(codeKey);
+    createdCount++;
+  }
+
+  return { createdCount, assignedCount, poolCount, skippedDuplicates, unmatchedCount, grantedInfluencerIds };
+}
+
+/** Toplu benzersiz kupon kodu üretir (CSV dışa aktarma veya sonradan dağıtım için havuz oluşturur). */
+export async function generateBulkCouponCodes(input: {
+  couponId: string;
+  count: number;
+  prefix?: string | null;
+}) {
+  if (input.count < 1 || input.count > 500) {
+    throw new DomainError("DOGRULAMA", "Tek seferde 1 ile 500 arasında kod üretilebilir.");
+  }
+  const coupon = await prisma.coupon.findUnique({ where: { id: input.couponId }, select: { id: true, status: true } });
+  if (!coupon) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
+  if (coupon.status !== "YAYINDA") {
+    throw new DomainError("KURAL_IHLALI", "Kod üretmek için kuponu önce yayına alın.");
+  }
+  const cleanPrefix = (input.prefix ?? "KPN")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8) || "KPN";
+
+  const created: string[] = [];
+  for (let i = 0; i < input.count; i++) {
+    const code = uniqueCode(cleanPrefix);
+    await prisma.couponGrant.create({
+      data: { couponId: input.couponId, influencerId: null, code },
+    });
+    created.push(code);
+  }
+  return created;
+}
+
+/** Bir kupon kodunun durumunu günceller (kullanıldı / iptal / aktif). */
+export async function setCouponGrantStatus(grantId: string, to: "GONDERILDI" | "KULLANILDI" | "IPTAL") {
+  const grant = await prisma.couponGrant.findUnique({ where: { id: grantId }, select: { id: true } });
+  if (!grant) throw new DomainError("BULUNAMADI", "Kupon kodu bulunamadı.");
+  return prisma.couponGrant.update({
+    where: { id: grantId },
+    data: {
+      status: to,
+      redeemedAt: to === "KULLANILDI" ? new Date() : null,
+    },
+  });
 }

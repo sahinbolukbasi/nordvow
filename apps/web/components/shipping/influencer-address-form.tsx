@@ -1,0 +1,115 @@
+"use client";
+
+import { useActionState } from "react";
+import { idleState } from "@/lib/action-state";
+import { saveInfluencerAddressAction } from "@/lib/actions/shipping";
+import { Button, Field, Input } from "@/components/ui/form";
+import type { SavedAddressRow } from "./offer-shipment-modal";
+
+export function InfluencerAddressForm({
+  initial,
+}: {
+  initial: SavedAddressRow | null;
+}) {
+  const [state, action, pending] = useActionState(
+    saveInfluencerAddressAction,
+    idleState,
+  );
+
+  return (
+    <form action={action} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <Field label="Adres Başlığı">
+        {(p) => (
+          <Input
+            {...p}
+            name="label"
+            defaultValue={initial?.label ?? "Ev / Stüdyo"}
+            placeholder="Örn. Ev / Ajans"
+          />
+        )}
+      </Field>
+      <Field label="Alıcı Adı Soyadı">
+        {(p) => (
+          <Input
+            {...p}
+            name="recipientName"
+            defaultValue={initial?.recipientName ?? ""}
+            placeholder="Ad Soyad"
+          />
+        )}
+      </Field>
+      <Field label="Telefon Numarası">
+        {(p) => (
+          <Input
+            {...p}
+            name="recipientPhone"
+            defaultValue={initial?.recipientPhone ?? ""}
+            placeholder="05XX XXX XX XX"
+          />
+        )}
+      </Field>
+      <Field label="İl">
+        {(p) => (
+          <Input
+            {...p}
+            name="city"
+            defaultValue={initial?.city ?? ""}
+            placeholder="İstanbul"
+          />
+        )}
+      </Field>
+      <Field label="İlçe">
+        {(p) => (
+          <Input
+            {...p}
+            name="district"
+            defaultValue={initial?.district ?? ""}
+            placeholder="Kadıköy"
+          />
+        )}
+      </Field>
+      <Field label="Mahalle">
+        {(p) => <Input {...p} name="neighborhood" defaultValue="" placeholder="Mahalle" />}
+      </Field>
+      <Field label="Posta Kodu (Opsiyonel)">
+        {(p) => (
+          <Input
+            {...p}
+            name="postalCode"
+            defaultValue={initial?.postalCode ?? ""}
+            placeholder="34710"
+          />
+        )}
+      </Field>
+      <Field label="Açık Teslimat Adresi" className="sm:col-span-2">
+        {(p) => (
+          <Input
+            {...p}
+            name="addressLine"
+            defaultValue={initial?.addressLine ?? ""}
+            placeholder="Mahalle, sokak, bina ve daire no"
+          />
+        )}
+      </Field>
+      <Field label="Adres Tarifi (Opsiyonel)" className="sm:col-span-2">
+        {(p) => <Input {...p} name="addressDescription" placeholder="Bina, kapı veya teslimat notu" />}
+      </Field>
+      <div className="flex items-center justify-end sm:col-span-2">
+        <Button type="submit" disabled={pending}>
+          {pending ? "Kaydediliyor…" : "Teslimat Adresini Kaydet"}
+        </Button>
+      </div>
+      {state.message ? (
+        <p
+          role="status"
+          className={`sm:col-span-2 text-xs ${
+            state.ok ? "text-emerald-600 dark:text-emerald-400" : "text-critical"
+          }`}
+        >
+          {state.message}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+

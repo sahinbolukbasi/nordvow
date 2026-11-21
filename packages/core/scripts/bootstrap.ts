@@ -38,7 +38,24 @@ async function syncModels() {
   await seedModelRegistry();
   console.log("bootstrap: model kaydı (fiyatlar) güncellendi");
 }
+
+/** Yalnız sistem/çekirdek verilerini (config, agent şablonları, model kaydı) yükler; sahte kullanıcı/kampanya eklemez. */
+async function seedSystem() {
+  const { seedConfig } = await import("../src/config/store");
+  const { seedAgentTemplates } = await import("../src/assistant/catalog");
+  const { seedModelRegistry } = await import("../src/creative/registry");
+  await seedConfig();
+  await seedAgentTemplates();
+  await seedModelRegistry();
+  console.log("bootstrap: sistem çekirdek verileri (config, şablonlar, modeller) güncellendi");
+}
+
 async function seedIfEmpty() {
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_SEED !== "true") {
+    console.log("bootstrap: production ortamında demo seed devre dışı; yalnız sistem verileri yükleniyor");
+    await seedSystem();
+    return;
+  }
   const client = new pg.Client({ connectionString: requireEnv("DATABASE_URL") });
   await client.connect();
   let users = 0;
@@ -70,9 +87,18 @@ async function seedIfEmpty() {
 }
 
 const cmd = process.argv[2];
-const run = cmd === "ensure-audit-db" ? ensureAuditDb : cmd === "seed-if-empty" ? seedIfEmpty : cmd === "sync-models" ? syncModels : null;
+const run =
+  cmd === "ensure-audit-db"
+    ? ensureAuditDb
+    : cmd === "seed-if-empty"
+      ? seedIfEmpty
+      : cmd === "seed-system"
+        ? seedSystem
+        : cmd === "sync-models"
+          ? syncModels
+          : null;
 if (!run) {
-  console.error("Kullanım: bootstrap.ts ensure-audit-db | seed-if-empty | sync-models");
+  console.error("Kullanım: bootstrap.ts ensure-audit-db | seed-system | seed-if-empty | sync-models");
   process.exit(1);
 }
 run().catch((err) => {

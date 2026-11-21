@@ -23,7 +23,7 @@ export default async function BrandDetailPage({ params }: { params: Promise<{ id
     },
   });
   if (!brand) notFound();
-  const others = await prisma.brand.findMany({ where: { id: { not: id } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } });
+  const others = await prisma.brand.findMany({ where: { isActive: true, id: { not: id } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } });
 
   return (
     <Stagger className="flex flex-col gap-8">

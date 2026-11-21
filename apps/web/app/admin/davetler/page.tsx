@@ -4,6 +4,8 @@ import Link from "next/link";
 import { prisma } from "@infulancer/core/db";
 import { DirectUserForm } from "@/components/forms/user-status-button";
 import { CopyLinkButton, CreateInviteForm, ReviewApplicationForm, RevokeInviteButton } from "@/components/signup/invite-forms";
+import { InviteRequestsPanel } from "@/components/signup/invite-requests-panel";
+import type { InviteRequestRecord } from "@/lib/actions/invites";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/layout";
 import { PageGuide } from "@/components/ui/page-guide";
@@ -21,16 +23,21 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
   const tt = await getTT();
   await requireActor("ADMIN");
   const { bolum } = await searchParams;
-  const section = bolum === "davetler" ? "davetler" : "basvurular";
+  const section = bolum === "davetler" ? "davetler" : bolum === "talepler" ? "talepler" : "basvurular";
   const appUrl = process.env.APP_URL ?? "";
   const now = new Date();
-  const [pending, recent, invites, brands, cats] = await Promise.all([
+  const [pending, recent, invites, brands, cats, reqRow, quickMsgRow] = await Promise.all([
     prisma.signupApplication.findMany({ where: { status: "PENDING" }, orderBy: { createdAt: "asc" }, include: { user: true, invite: { include: { createdBy: { select: { name: true, role: true } } } } } }),
     prisma.signupApplication.findMany({ where: { status: { not: "PENDING" } }, orderBy: { reviewedAt: "desc" }, take: 20, include: { user: { select: { name: true, email: true } } } }),
     prisma.invite.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { createdBy: { select: { name: true, role: true } }, _count: { select: { applications: true } } } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ select: { id: true, name: true } }),
+    prisma.configValue.findUnique({ where: { key: "invite.requests" }, select: { value: true } }),
+    prisma.configValue.findUnique({ where: { key: "invite.quickWhatsappText" }, select: { value: true } }),
   ]);
+  const inviteRequests: InviteRequestRecord[] = Array.isArray(reqRow?.value) ? (reqRow.value as InviteRequestRecord[]) : [];
+  const quickWhatsappText = typeof quickMsgRow?.value === "string" ? quickMsgRow.value : "";
+  const activeRequestsCount = inviteRequests.filter((r) => r.status !== "ARCHIVED").length;
   const catName = new Map(cats.map((c) => [c.id, c.name]));
 
   return (
@@ -50,6 +57,7 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
       <nav aria-label={tt("Bölümler")} className="flex gap-2 border-b border-border">
         {[
           ["basvurular", `Onay bekleyenler (${pending.length})`],
+          ["talepler", `Davet talepleri (${activeRequestsCount})`],
           ["davetler", "Davet linkleri"],
         ].map(([id, label]) => (
           <Link key={id} href={`/admin/davetler?bolum=${id}`} aria-current={section === id ? "page" : undefined} className={cn("-mb-px border-b-2 px-3 py-2 text-sm", section === id ? "border-fg text-fg" : "border-transparent text-fg-muted hover:text-fg")}>
@@ -134,6 +142,8 @@ export default async function InvitesPage({ searchParams }: { searchParams: Prom
             </Card>
           ) : null}
         </div>
+      ) : section === "talepler" ? (
+        <InviteRequestsPanel requests={inviteRequests} initialQuickText={quickWhatsappText} />
       ) : (
         <div className="flex flex-col gap-6">
           <Card interactive={false} className="flex flex-col gap-4">

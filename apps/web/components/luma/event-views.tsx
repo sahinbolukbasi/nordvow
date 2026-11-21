@@ -2,16 +2,24 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@infulancer/core/db";
 import { envStr } from "@infulancer/core/env";
+import { canBrandManageEvent, getEventIdsForBrand, getEventPartnerIds, getEventsPartnerMap } from "@infulancer/core/events/partners";
+import { listQrScannerAccountsForOwner } from "@infulancer/core/events/scanner-accounts";
 import { googleCalendarUrl } from "@infulancer/core/wallet/ical";
 import { mapLinks } from "@infulancer/core/wallet/maps";
-import { CheckInForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { EventPartnersForm, EventStatusButton, InviteForm, InviteResponse } from "@/components/events/event-forms";
+import { EventQrSelector } from "@/components/events/event-qr-selector";
+import { QrScannerAccountsPanel } from "@/components/events/qr-scanner-accounts";
+import { TicketScannerPanel } from "@/components/events/ticket-scanner";
 import { ButtonLink } from "@/components/ui/form";
 import { Tabs } from "@/components/ui/tabs";
 import { CopyCode } from "@/components/wallet/copy-code";
 import { dateLong, pctOf, rangeLabel, timeShort } from "@/lib/event-format";
+import { eventPublicPath } from "@/lib/event-url";
 import { mediaSrc } from "@/lib/media";
 import { BRAND_NAME } from "@/lib/brand";
-import { fmtDateTime } from "@/lib/time";
+import { listLocations, localizedName } from "@infulancer/core/i18n/locations";
+import { getPreferences } from "@/lib/i18n/server";
+import { formatMoneyIntl } from "@/lib/i18n/format";
 import { EventListItem, eventStatusView } from "./list-items";
 import { ListToolbar, type ToolbarSelect } from "./list-toolbar";
 import { BackLink, CalIcon, DateBadge, FilterTabs, InfoRow, PersonIcon, PinIcon, Pill, SectionHead, StatStrip, type PillTone } from "./primitives";
@@ -29,6 +37,8 @@ export async function EventsIndex({
   filter,
   query,
   brandFilter,
+  countryFilter,
+  cityFilter,
   title,
   description,
 }: {
@@ -37,28 +47,56 @@ export async function EventsIndex({
   filter?: string;
   query?: string;
   brandFilter?: string;
+  countryFilter?: string;
+  cityFilter?: string;
   title: string;
   description: string;
 }) {
-  const where = tenantId ? { tenantId } : {};
+  const [{ locale }, locations] = await Promise.all([getPreferences(), listLocations()]);
+  const partnerEventIds = tenantId ? await getEventIdsForBrand(tenantId) : [];
+  const where = tenantId ? { OR: [{ tenantId }, ...(partnerEventIds.length ? [{ id: { in: partnerEventIds } }] : [])] } : {};
   const events = await prisma.event.findMany({
     where,
     orderBy: { startsAt: "asc" },
     take: 300,
-    include: { invites: { select: { status: true } }, tickets: { select: { status: true } } },
+    include: {
+      invites: { select: { status: true } },
+      tickets: { select: { status: true } },
+      countryRef: { select: { id: true, code: true, names: true, currency: true } },
+      cityRef: { select: { id: true, names: true, timezone: true } },
+    },
   });
-  const brands = new Map((await prisma.brand.findMany({ where: { id: { in: [...new Set(events.map((e) => e.tenantId).filter((x): x is string => !!x))] } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]));
+  const partnerMap = await getEventsPartnerMap(events.map((e) => e.id));
+  const allBrandIds = [
+    ...new Set([
+      ...events.map((e) => e.tenantId).filter((x): x is string => !!x),
+      ...[...partnerMap.values()].flat(),
+    ]),
+  ];
+  const brands = new Map((await prisma.brand.findMany({ where: { id: { in: allBrandIds } }, select: { id: true, name: true } })).map((b) => [b.id, b.name]));
   const now = new Date();
   const isPast = (e: (typeof events)[number]) => (e.endsAt ?? e.startsAt) < now || e.status === "TAMAMLANDI";
-  const orgName = (e: (typeof events)[number]) => (e.tenantId ? (brands.get(e.tenantId) ?? "Marka") : BRAND_NAME);
+  const orgName = (e: (typeof events)[number]) => {
+    const main = e.tenantId ? (brands.get(e.tenantId) ?? "Marka") : BRAND_NAME;
+    const partners = (partnerMap.get(e.id) ?? []).map((id) => brands.get(id)).filter((x): x is string => !!x);
+    return partners.length ? [main, ...partners].join(" × ") : main;
+  };
   // Arama (başlık, mekan, şehir, düzenleyen) ve marka filtresi bucket'lardan ÖNCE uygulanır;
   // böylece sekme sayıları da filtrelenmiş sonucu yansıtır.
   const q = (query ?? "").trim().toLocaleLowerCase("tr");
   const canFilterBrand = !tenantId; // yalnız admin/ajans görünümünde marka seçilebilir
   const filtered = events.filter((e) => {
     if (canFilterBrand && brandFilter && e.tenantId !== brandFilter) return false;
+    if (countryFilter) {
+      const matchesCountry = e.countryId === countryFilter || e.countryRef?.code === countryFilter;
+      if (!matchesCountry) return false;
+    }
+    if (cityFilter) {
+      const matchesCity = e.cityId === cityFilter || (e.city ?? "").toLowerCase() === cityFilter.toLowerCase();
+      if (!matchesCity) return false;
+    }
     if (q) {
-      const hay = `${e.title} ${e.venueName ?? ""} ${e.city ?? ""} ${e.address ?? ""} ${orgName(e)}`.toLocaleLowerCase("tr");
+      const hay = `${e.title} ${e.venueName ?? ""} ${e.city ?? ""} ${e.address ?? ""} ${e.countryRef ? localizedName(e.countryRef.names, locale) : ""} ${orgName(e)}`.toLocaleLowerCase("tr");
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -69,18 +107,47 @@ export async function EventsIndex({
     taslak: filtered.filter((e) => e.status === "TASLAK"),
     tumu: [...filtered].reverse(),
   };
-  const searching = !!q || (canFilterBrand && !!brandFilter);
+  const searching = !!q || (canFilterBrand && !!brandFilter) || !!countryFilter || !!cityFilter;
   // Arama/filtre varken "Tümü"ne düş ki sonuçlar sekmeyle gizlenmesin.
   const active = (FILTERS.some((f) => f.id === filter) ? filter : searching ? "tumu" : buckets.yaklasan.length || !events.length ? "yaklasan" : "tumu") as keyof typeof buckets;
   const list = buckets[active];
   const invites = events.flatMap((e) => e.invites);
   const going = invites.filter((i) => i.status === "KABUL").length;
   const checkedIn = events.flatMap((e) => e.tickets).filter((t) => t.status === "KULLANILDI").length;
-  const keep = (id: string) => `${basePath}?filtre=${id}${q ? `&ara=${encodeURIComponent(q)}` : ""}${canFilterBrand && brandFilter ? `&marka=${brandFilter}` : ""}`;
+  const keep = (id: string) =>
+    `${basePath}?filtre=${id}${q ? `&ara=${encodeURIComponent(q)}` : ""}${canFilterBrand && brandFilter ? `&marka=${brandFilter}` : ""}${countryFilter ? `&ulke=${encodeURIComponent(countryFilter)}` : ""}${cityFilter ? `&sehir=${encodeURIComponent(cityFilter)}` : ""}`;
   const brandOptions = canFilterBrand
     ? [...brands.entries()].map(([id, name]) => ({ value: id, label: name })).sort((a, b) => a.label.localeCompare(b.label, "tr"))
     : [];
-  const selects: ToolbarSelect[] = brandOptions.length ? [{ param: "marka", label: "Tüm markalar", options: brandOptions }] : [];
+  const countryOptions = locations.map((c) => ({
+    value: c.id.startsWith("seed-") ? c.code : c.id,
+    label: `${localizedName(c.names, locale)} (${c.code})`,
+  }));
+  const selectedCountryObj = countryFilter
+    ? locations.find((c) => c.id === countryFilter || c.code === countryFilter)
+    : null;
+  const cityOptions = selectedCountryObj
+    ? selectedCountryObj.cities.map((ct) => ({
+        value: ct.id.startsWith("seed-") ? localizedName(ct.names, locale) : ct.id,
+        label: localizedName(ct.names, locale),
+      }))
+    : [...new Set(events.map((e) => e.city).filter((x): x is string => !!x))].map((c) => ({ value: c, label: c }));
+
+  const selects: ToolbarSelect[] = [
+    ...(brandOptions.length ? [{ param: "marka", label: "Tüm markalar", options: brandOptions }] : []),
+    ...(countryOptions.length ? [{ param: "ulke", label: locale === "en" ? "All countries" : "Tüm ülkeler", options: countryOptions }] : []),
+    ...(cityOptions.length ? [{ param: "sehir", label: locale === "en" ? "All cities" : "Tüm şehirler", options: cityOptions }] : []),
+  ];
+
+  // Ülke / şehir bazlı özet raporlama
+  const locationSummary = new Map<string, number>();
+  for (const e of filtered) {
+    const cName = e.countryRef ? localizedName(e.countryRef.names, locale) : null;
+    const cityName = e.cityRef ? localizedName(e.cityRef.names, locale) : e.city;
+    const key = [cName, cityName].filter(Boolean).join(" · ") || (locale === "en" ? "Unspecified" : "Belirtilmemiş");
+    locationSummary.set(key, (locationSummary.get(key) ?? 0) + 1);
+  }
+  const topLocations = [...locationSummary.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
   // Ay başlıklarıyla grupla.
   const groups: { key: string; items: typeof list }[] = [];
   for (const e of list) {
@@ -118,6 +185,16 @@ export async function EventsIndex({
           resultLabel={searching ? `${filtered.length} sonuç${q ? ` · “${query}”` : ""}` : undefined}
         />
       ) : null}
+      {topLocations.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
+          <span className="font-medium text-fg">{locale === "en" ? "Country & city breakdown:" : "Ülke ve şehir dağılımı:"}</span>
+          {topLocations.map(([label, count]) => (
+            <span key={label} className="rounded-full border border-line bg-surface px-2.5 py-0.5 text-fg-muted">
+              {label} · <strong className="text-fg">{count}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <FilterTabs active={active} items={FILTERS.map((f) => ({ id: f.id, label: f.label, href: keep(f.id), count: buckets[f.id].length }))} />
       {list.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-6 py-14 text-center">
@@ -143,13 +220,22 @@ export async function EventsIndex({
                       title: e.title,
                       organizer: orgName(e),
                       startsAt: e.startsAt,
-                      venueLabel: [e.venueName, e.city].filter(Boolean).join(", ") || null,
+                      venueLabel: [
+                        e.venueName,
+                        e.cityRef ? localizedName(e.cityRef.names, locale) : e.city,
+                        e.countryRef ? localizedName(e.countryRef.names, locale) : null,
+                        e.timezone ? `(${e.timezone})` : null,
+                        e.priceMinor && e.priceMinor > 0 ? formatMoneyIntl(e.priceMinor, e.currency ?? e.countryRef?.currency ?? "TRY", { locale, country: e.countryRef?.code }) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || null,
                       coverSrc: mediaSrc(e.coverImageKey),
                       status: e.status,
                       visibility: e.visibility,
                       guests: e.invites.length,
                       going: e.invites.filter((i) => i.status === "KABUL").length,
                       capacity: e.capacity,
+                      canDelete: true,
                     }}
                   />
                 ))}
@@ -168,20 +254,24 @@ const inviteView: Record<string, { label: string; tone: PillTone }> = {
   RED: { label: "Katılmıyor", tone: "red" },
   IPTAL: { label: "İptal", tone: "gray" },
 };
-/** Etkinlik yönetim sayfası (Luma "manage event"): genel bakış, misafirler, giriş, paylaş. */
+/** Etkinlik yönetim sayfası (Luma "manage event"): genel bakış, misafirler, paylaş. */
 export async function EventManage({ id, basePath, tenantId, tab }: { id: string; basePath: string; tenantId?: string; tab?: string }) {
   const e = await prisma.event.findUnique({
     where: { id },
     include: { invites: { orderBy: { createdAt: "desc" }, include: { ticket: true } }, tickets: { orderBy: { checkedInAt: "desc" } } },
   });
-  if (!e || (tenantId && e.tenantId !== tenantId)) notFound();
-  const [organizer, influencers, invitedNames] = await Promise.all([
+  if (!e || (tenantId && !(await canBrandManageEvent(e, tenantId)))) notFound();
+  const [organizer, partnerIds, allBrands, influencers, invitedNames, qrScanners] = await Promise.all([
     e.tenantId ? prisma.brand.findUnique({ where: { id: e.tenantId }, select: { name: true } }) : null,
-    prisma.influencer.findMany({ where: { user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
+    getEventPartnerIds(e.id),
+    prisma.brand.findMany({ where: { isActive: true, ...(e.tenantId ? { id: { not: e.tenantId } } : {}) }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.influencer.findMany({ where: { isActive: true, user: { status: "ACTIVE" } }, orderBy: { name: "asc" }, select: { id: true, name: true, category: true } }),
     prisma.influencer.findMany({ where: { id: { in: e.invites.map((i) => i.influencerId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
+    listQrScannerAccountsForOwner(tenantId ?? e.tenantId ?? null),
   ]);
   const names = new Map(invitedNames.map((x) => [x.id, x.name]));
-  const orgName = organizer?.name ?? BRAND_NAME;
+  const partnerNames = allBrands.filter((b) => partnerIds.includes(b.id)).map((b) => b.name);
+  const orgName = [organizer?.name ?? BRAND_NAME, ...partnerNames].join(" × ");
   const invitedIds = new Set(e.invites.map((i) => i.influencerId).filter(Boolean));
   const pickable = influencers.filter((i) => !invitedIds.has(i.id));
   const going = e.invites.filter((i) => i.status === "KABUL").length;
@@ -194,13 +284,23 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
   const map = mapLinks({ latitude: e.latitude, longitude: e.longitude, address: e.address, venueName: e.venueName });
   const location = [e.venueName, e.address, e.city].filter(Boolean).join(", ");
   const base = envStr("APP_URL", "").replace(/\/$/, "");
-  const publicUrl = `${base}/etkinlik/${e.id}`;
+  const publicPath = eventPublicPath(e.id, e.title);
+  const publicUrl = `${base}${publicPath}`;
   const gcal = googleCalendarUrl({ uid: e.id, title: e.title, description: e.description, location: location || null, startsAt: e.startsAt, endsAt: e.endsAt });
   const needsGuests = e.invites.length === 0 && e.status !== "IPTAL";
   const guests = (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section className="flex flex-col gap-3" aria-label="Misafir listesi">
-        <SectionHead title={`Misafirler (${e.invites.length})`} />
+        <SectionHead
+          title={`Misafirler (${e.invites.length})`}
+          action={
+            e.tickets.length ? (
+              <a href={`/api/etkinlik/${e.id}/csv`} className="rounded-full border border-line px-3 py-1 text-[12px] text-fg hover:border-line-strong">
+                Katılımcıları CSV İndir
+              </a>
+            ) : null
+          }
+        />
         {e.invites.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-[13px] text-fg-muted">Henüz misafir yok. Sağdaki listeden içerik üreticisi seçip davet gönderin.</p>
         ) : (
@@ -228,7 +328,7 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
                     {ticket ? (
                       <>
                         <CopyCode code={ticket.code} tone="app" size="sm" />
-                        <a href={`/api/wallet/apple/ticket/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Apple Wallet</a>
+                        <a href={`/api/wallet/apple/ticket/${ticket.id}`} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Apple Wallet</a>
                         <a href={`/api/wallet/google/ticket/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">Google Pay</a>
                         <a href={`/api/bilet/${ticket.id}/pdf`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-line px-2 py-0.5 text-[11px] text-fg hover:border-line-strong">PDF</a>
                         <Link href={`/bilet/${ticket.id}`} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-fg underline-offset-4 hover:underline">Bilet ↗</Link>
@@ -250,38 +350,13 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
       </section>
     </div>
   );
-  const checkin = (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-      <section className="flex flex-col gap-3">
-        <SectionHead title="Kapıda giriş" />
-        <div className="rounded-2xl border border-line bg-surface p-4">
-          <CheckInForm />
-        </div>
-      </section>
-      <section className="flex flex-col gap-3">
-        <SectionHead title={`Giriş yapanlar (${checkedIn.length}/${liveTickets.length})`} />
-        {checkedIn.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-[13px] text-fg-muted">Henüz giriş yapan yok.</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface text-sm">
-            {checkedIn.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                <span className="font-medium text-fg">{t.holderName}</span>
-                <span className="text-[12px] tabular-nums text-fg-muted">{t.checkedInAt ? fmtDateTime(t.checkedInAt) : ""}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
   const share = (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
         <h3 className="font-semibold text-fg">Etkinlik sayfası</h3>
         <p className="text-[13px] text-fg-muted">{e.visibility === "HERKESE_ACIK" ? "Bağlantıya sahip herkes sayfayı görebilir." : "Sayfa bağlantıyla açılır; bilet yalnız davetlilere verilir."}</p>
         <CopyCode code={publicUrl} tone="app" size="sm" />
-        <Link href={`/etkinlik/${e.id}`} target="_blank" className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">Sayfayı aç ↗</Link>
+        <Link href={publicPath} target="_blank" className="w-fit text-[13px] font-medium text-fg underline-offset-4 hover:underline">Sayfayı aç ↗</Link>
       </section>
       <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-5">
         <h3 className="font-semibold text-fg">Takvim ve konum</h3>
@@ -310,7 +385,8 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
           <h1 className="text-title text-fg">{e.title}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href={`/etkinlik/${e.id}`} target="_blank" className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] text-fg hover:border-border-strong">Etkinlik sayfası ↗</Link>
+          <Link href={publicPath} target="_blank" className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] text-fg hover:border-border-strong">Etkinlik sayfası ↗</Link>
+          <Link href={`${basePath}/${e.id}/qr`} className="inline-flex h-8 items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong">QR Giriş &amp; Biletler</Link>
           {e.status === "TASLAK" ? <EventStatusButton id={e.id} to="YAYINDA" label="Yayınla" variant="primary" /> : null}
           {e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="TAMAMLANDI" label="Tamamlandı" /> : null}
           {e.status === "TASLAK" || e.status === "YAYINDA" ? <EventStatusButton id={e.id} to="IPTAL" label="İptal et" variant="ghost" /> : null}
@@ -336,6 +412,16 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
             ) : null}
           </InfoRow>
           <InfoRow icon={<PersonIcon />} title={`Düzenleyen: ${orgName}`}>{e.capacity ? `${liveTickets.length}/${e.capacity} bilet` : `${liveTickets.length} bilet · kapasite sınırsız`}</InfoRow>
+          {allBrands.length ? (
+            <details className="rounded-2xl border border-line bg-surface px-4 py-3 text-[13px]">
+              <summary className="cursor-pointer font-medium text-fg">
+                İş birliği yapılan markalar ({partnerIds.length})
+              </summary>
+              <div className="mt-3">
+                <EventPartnersForm eventId={e.id} brands={allBrands} initialPartnerIds={partnerIds} />
+              </div>
+            </details>
+          ) : null}
           <p className="line-clamp-4 whitespace-pre-line text-[14px] text-fg-muted">{e.description}</p>
         </div>
       </div>
@@ -364,9 +450,167 @@ export async function EventManage({ id, basePath, tenantId, tab }: { id: string;
         defaultTab={tab}
         tabs={[
           { id: "misafirler", label: `Misafirler (${e.invites.length})`, content: guests },
-          { id: "giris", label: `Giriş (${checkedIn.length})`, content: checkin },
+          {
+            id: "qr-gorevlileri",
+            label: `QR Okuyucular (${qrScanners.filter((s) => s.allowedEventIds.includes(e.id)).length})`,
+            content: <QrScannerAccountsPanel eventId={e.id} initialAccounts={qrScanners} />,
+          },
           { id: "paylas", label: "Paylaş", content: share },
         ]}
+      />
+    </div>
+  );
+}
+
+/** Etkinlik QR okuma ve kapı giriş sayfası (ayrı sayfa). */
+export async function EventQrManage({ id, basePath, tenantId }: { id: string; basePath: string; tenantId?: string }) {
+  const e = await prisma.event.findUnique({
+    where: { id },
+    include: { tickets: { orderBy: { checkedInAt: "desc" } } },
+  });
+  if (!e || (tenantId && !(await canBrandManageEvent(e, tenantId)))) notFound();
+  const st = eventStatusView[e.status] ?? { label: e.status, tone: "gray" as PillTone };
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <BackLink href={`${basePath}/${e.id}`}>{e.title}</BackLink>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone={st.tone}>{st.label}</Pill>
+            <span className="text-[12px] text-fg-muted">{rangeLabel(e.startsAt, e.endsAt)}</span>
+            {e.venueName ? <span className="text-[12px] text-fg-muted">· {e.venueName}</span> : null}
+          </div>
+          <h1 className="text-title text-fg">{e.title} — QR Giriş</h1>
+        </div>
+        <Link
+          href={`${basePath}/${e.id}`}
+          className="inline-flex h-8 w-fit items-center rounded-[8px] border border-border px-3 text-[13px] font-medium text-fg hover:border-border-strong"
+        >
+          Etkinlik Yönetimi
+        </Link>
+      </header>
+      <TicketScannerPanel
+        eventId={e.id}
+        capacity={e.capacity}
+        initialTickets={e.tickets.map((t) => ({
+          id: t.id,
+          code: t.code,
+          holderName: t.holderName,
+          status: t.status,
+          checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
+        }))}
+      />
+    </div>
+  );
+}
+
+/** Menüden erişilen bağımsız QR Giriş & Biletler hub sayfası (etkinlik seçmeli). */
+export async function EventQrHub({
+  qrPath,
+  tenantId,
+  selectedEventId,
+  allowedEventIds,
+}: {
+  qrPath: string;
+  tenantId?: string;
+  selectedEventId?: string;
+  allowedEventIds?: string[];
+}) {
+  const partnerEventIds = tenantId ? await getEventIdsForBrand(tenantId) : [];
+  const tenantWhere = tenantId
+    ? { OR: [{ tenantId }, ...(partnerEventIds.length ? [{ id: { in: partnerEventIds } }] : [])] }
+    : {};
+  const where = allowedEventIds
+    ? { AND: [tenantWhere, { id: { in: allowedEventIds } }] }
+    : tenantWhere;
+  const events = allowedEventIds && allowedEventIds.length === 0
+    ? []
+    : await prisma.event.findMany({
+        where,
+        orderBy: { startsAt: "asc" },
+        take: 200,
+        select: {
+          id: true,
+          title: true,
+          startsAt: true,
+          endsAt: true,
+          venueName: true,
+          status: true,
+          capacity: true,
+        },
+      });
+
+  if (events.length === 0) {
+    return (
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <img src="/brand/nordvow-logo-dark.svg" alt="NordVow" className="h-8 w-auto" />
+            <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+          </div>
+          <p className="text-[14px] text-fg-muted">Etkinlik kapısında QR kod okutun ve katılımcı biletlerini yönetin.</p>
+        </header>
+        <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line px-6 py-14 text-center">
+          <span className="text-fg-muted"><CalIcon /></span>
+          <p className="font-medium text-fg">
+            {allowedEventIds ? "Size atanmış etkinlik izni bulunmuyor" : "Henüz etkinlik bulunmuyor"}
+          </p>
+          <p className="max-w-sm text-[13px] text-fg-muted">
+            {allowedEventIds
+              ? "Etkinlik yöneticisi bu hesaba etkinlik tarama izni verdiğinde biletler burada görünür."
+              : "Etkinlik oluşturulduğunda QR kod okuma ve kapı giriş listesi burada görünür."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const now = new Date();
+  const activeEvent =
+    events.find((ev) => ev.id === selectedEventId) ??
+    events.find((ev) => (ev.endsAt ?? ev.startsAt) >= now && ev.status !== "IPTAL" && ev.status !== "TAMAMLANDI") ??
+    events.at(-1)!;
+
+  const tickets = await prisma.eventTicket.findMany({
+    where: { eventId: activeEvent.id },
+    orderBy: { checkedInAt: "desc" },
+  });
+
+  const st = eventStatusView[activeEvent.status] ?? { label: activeEvent.status, tone: "gray" as PillTone };
+
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone={st.tone}>{st.label}</Pill>
+          <span className="text-[12px] text-fg-muted">{rangeLabel(activeEvent.startsAt, activeEvent.endsAt)}</span>
+          {activeEvent.venueName ? <span className="text-[12px] text-fg-muted">· {activeEvent.venueName}</span> : null}
+        </div>
+        <h1 className="text-title text-fg">QR Giriş &amp; Biletler</h1>
+        <p className="text-[14px] text-fg-muted">Etkinlik seçip kamerayla QR okutabilir veya bilet kodunu doğrulayabilirsiniz.</p>
+      </header>
+
+      <EventQrSelector
+        basePath={qrPath}
+        selectedId={activeEvent.id}
+        events={events.map((ev) => ({
+          id: ev.id,
+          title: ev.title,
+          dateLabel: rangeLabel(ev.startsAt, ev.endsAt),
+          statusLabel: (eventStatusView[ev.status] ?? { label: ev.status }).label,
+        }))}
+      />
+
+      <TicketScannerPanel
+        eventId={activeEvent.id}
+        capacity={activeEvent.capacity}
+        initialTickets={tickets.map((t) => ({
+          id: t.id,
+          code: t.code,
+          holderName: t.holderName,
+          status: t.status,
+          checkedInAt: t.checkedInAt ? t.checkedInAt.toISOString() : null,
+        }))}
       />
     </div>
   );

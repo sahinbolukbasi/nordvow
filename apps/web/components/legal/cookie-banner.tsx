@@ -60,9 +60,16 @@ export function CookieBanner() {
         {t("cookie.title", "Çerez tercihleri")}
       </h2>
       <p className="mt-1 text-[13px] text-fg-muted">
-        {t("cookie.body", "Oturum ve güvenlik için zorunlu çerezler, tema tercihiniz için işlevsel bir çerez kullanıyoruz. Reklam veya takip çerezi yok.")}{" "}
+        {t(
+          "cookie.body",
+          "Oturum ve güvenlik için zorunlu çerezler, dil/tema tercihiniz için işlevsel çerezler kullanıyoruz. Ülke düzeyinde dil algılama yapılır; ham IP adresi saklanmaz.",
+        )}{" "}
         <Link href="/cerez-politikasi" className="underline underline-offset-4">
           {t("cookie.policy", "Çerez Politikası")}
+        </Link>{" "}
+        ·{" "}
+        <Link href="/kvkk" className="underline underline-offset-4">
+          KVKK / GDPR
         </Link>
       </p>
       {details ? (

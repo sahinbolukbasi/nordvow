@@ -158,6 +158,14 @@ export function fmtDayLabel(day: string): string {
   );
 }
 
+/** Haftalık sütun başlığı: "18 Kas Pzt" veya "Pzt 18" biçiminde gün + tarih. */
+export function fmtWeekDayLabel(day: string): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const wd = trFormatter("weekday_short", { timeZone: "UTC", weekday: "short" }).format(date);
+  return `${wd} ${d}`;
+}
+
 /** "GMT+3" gibi kısa saat dilimi adı. */
 export function tzShort(tz: string, at: Date = new Date()): string {
   const part = trFormatter(`tzn:${tz}`, { timeZone: tz, timeZoneName: "short" })

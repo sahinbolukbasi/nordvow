@@ -17,7 +17,7 @@ export default async function EditCampaignPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const [c, brands] = await Promise.all([
     prisma.campaign.findUnique({ where: { id } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.brand.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   if (!c) notFound();
   return (
@@ -37,6 +37,15 @@ export default async function EditCampaignPage({ params }: { params: Promise<{ i
             endsAt: localDay(c.endsAt, AGENCY_TZ),
             status: c.status,
             targets: parseTargets(c.targets),
+            description: c.description,
+            objective: c.objective,
+            targetCountries: c.targetCountries,
+            platforms: c.platforms,
+            audienceAgeMin: c.audienceAgeMin,
+            audienceAgeMax: c.audienceAgeMax,
+            audienceGender: c.audienceGender,
+            audienceInterests: c.audienceInterests,
+            contentPlan: c.contentPlan,
           }}
         />
       </Card>

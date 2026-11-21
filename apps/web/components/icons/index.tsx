@@ -240,6 +240,25 @@ export const GridIcon = (p: IconProps) => (
     <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
   </Base>
 );
+export const QrCodeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z" />
+    <path d="M14 14h3v3h-3zM18 18h2v2h-2zM17 14h3M14 20h3" />
+  </Base>
+);
+export const NewspaperIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h11A1.5 1.5 0 0 1 18 5.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />
+    <path d="M18 8h1.5A1.5 1.5 0 0 1 21 9.5V18a2 2 0 0 1-2 2h-1" />
+    <path d="M8 8h6M8 12h6M8 16h4" />
+  </Base>
+);
+export const BookOpenIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H12v17H4.5A2.5 2.5 0 0 0 2 22Z" />
+    <path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H12v17h7.5A2.5 2.5 0 0 1 22 22Z" />
+  </Base>
+);
 export const ResetIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5" />
@@ -255,5 +274,19 @@ export const SunIcon = (p: IconProps) => (
 export const MoonIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z" />
+  </Base>
+);
+export const TruckIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
+    <path d="M9 18h6" />
+    <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
+    <circle cx="7" cy="18" r="2" />
+    <circle cx="17" cy="18" r="2" />
+  </Base>
+);
+export const PhoneIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92Z" />
   </Base>
 );

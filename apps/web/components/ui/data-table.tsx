@@ -131,7 +131,7 @@ export function DataTable({
     setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 
   return (
-    <div className="max-h-[70vh] overflow-auto rounded-[8px] border border-border">
+    <div className="max-h-[82vh] min-h-[24rem] overflow-auto rounded-[8px] border border-border">
       <table className="w-full border-collapse text-sm">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead className="sticky top-0 z-10 bg-surface">

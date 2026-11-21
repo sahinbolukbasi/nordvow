@@ -73,7 +73,14 @@ export async function CalendarScreen({
             <Link href={href(per.prev)} className={buttonClass("secondary", "sm")} aria-label={tt("Önceki")}>
               <ChevronLeftIcon size={16} />
             </Link>
-            <span className="min-w-40 text-center text-sm font-medium tabular-nums">{title}</span>
+            <span className="min-w-40 text-center text-sm font-medium tabular-nums">
+              {title}
+              {per.view === "gun" && per.anchor === per.today ? (
+                <span className="ml-2 rounded-full bg-neon-pink px-2 py-0.5 text-[10px] font-semibold text-black">
+                  {tt("Bugün")}
+                </span>
+              ) : null}
+            </span>
             <Link href={href(per.next)} className={buttonClass("secondary", "sm")} aria-label={tt("Sonraki")}>
               <ChevronRightIcon size={16} />
             </Link>

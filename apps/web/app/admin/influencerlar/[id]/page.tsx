@@ -9,6 +9,8 @@ import {
   taxStatusLabels,
 } from "@infulancer/core/domain/labels";
 import { computeBalances, holdDays } from "@infulancer/core/domain/ledger";
+import { getMultiAgentReport } from "@infulancer/core/social/multi-agent-analytics";
+import { AdminTelemetryPanel } from "@/components/agent/admin-telemetry-panel";
 import { AgentRunList } from "@/components/agent/agent-run-list";
 import { BarChart } from "@/components/charts/charts";
 import { BalanceCards } from "@/components/finance/balance-cards";
@@ -18,6 +20,7 @@ import { ButtonLink } from "@/components/ui/form";
 import { requireActor } from "@/lib/auth-guard";
 import { WorkHistory } from "@/components/history/work-history";
 import { SyncAccountsButton } from "@/components/forms/agent-job-forms";
+import { InfluencerDeleteButton, InfluencerToggleActiveButton } from "@/components/forms/influencer-lifecycle-buttons";
 import { compact, pct, pct1 } from "@/lib/format";
 import { fmtDate } from "@/lib/time";
 
@@ -59,7 +62,7 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
   if (!inf) notFound();
 
   const deliverableIds = inf.assignments.flatMap((a) => a.deliverables.map((d) => d.id));
-  const [stats, balances, runs] = await Promise.all([
+  const [stats, balances, runs, telemetryReport] = await Promise.all([
     computeInfluencerStats([inf.id], now),
     computeBalances(inf.id, now),
     prisma.agentRun.findMany({
@@ -74,6 +77,7 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
       include: { resolvedBy: { select: { name: true } } },
       take: 50,
     }),
+    getMultiAgentReport(inf.id),
   ]);
   const st = stats.get(inf.id);
 
@@ -99,6 +103,16 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
         </span>
       </div>
 
+      {!inf.isActive ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
+        >
+          <span>{tt("Bu influencer şu an pasif durumda ve sistemde gizli.")}</span>
+          <InfluencerToggleActiveButton influencerId={inf.id} name={inf.name} isActive={inf.isActive} />
+        </div>
+      ) : null}
+
       {/* Marka Vitrini + Instagram Gezgini (AI Analiz, 7G/30G/90G Gelişim Grafikleri, Kaydetme/İzlenme, Marka İşbirlikleri & Admin Kontrolleri) */}
       <CreatorShowcase
         influencerId={inf.id}
@@ -107,9 +121,13 @@ export default async function InfluencerProfilePage({ params }: { params: Promis
           <div className="flex flex-wrap items-center gap-2">
             <SyncAccountsButton influencerId={inf.id} />
             <ButtonLink href={`/admin/influencerlar/${inf.id}/duzenle`}>{tt("Profili Düzenle")}</ButtonLink>
+            <InfluencerToggleActiveButton influencerId={inf.id} name={inf.name} isActive={inf.isActive} />
+            <InfluencerDeleteButton influencerId={inf.id} name={inf.name} redirectToList />
           </div>
         }
       />
+
+      <AdminTelemetryPanel influencerId={inf.id} report={telemetryReport} />
 
       {/* Admin Operasyonel Metrikleri */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

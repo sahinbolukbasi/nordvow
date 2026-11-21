@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "../db";
 import { envStr } from "../env";
+import { verifyMetaSignature } from "../inbox/meta-security";
 import { objectStore, rawKey } from "./raw-store";
 
 /**
@@ -63,11 +64,24 @@ export async function receiveWebhook(provider: string, rawBody: string, signatur
       console.warn(`[webhook:${provider}] payload_too_large`);
       return { status: 200, rawId: null, accepted: false, reason: "payload_too_large" };
     }
-    const secret = envStr(provider === "fal" ? "FAL_WEBHOOK_SECRET" : "META_APP_SECRET", "").trim();
     const requireSig = envStr("WEBHOOK_REQUIRE_SIGNATURE", "true") !== "false";
-    if (requireSig && !verifySignature(rawBody, signatureHeader, secret)) {
-      console.warn(`[webhook:${provider}] bad_signature (secretSet=${Boolean(secret)}, hasHeader=${Boolean(signatureHeader)})`);
-      return { status: 200, rawId: null, accepted: false, reason: "bad_signature" };
+    const secret = provider === "fal" ? envStr("FAL_WEBHOOK_SECRET", "").trim() : envStr("META_APP_SECRET", "").trim();
+    const classified = signatureFailureReason(rawBody, signatureHeader, secret);
+    const sigOk = provider === "fal" ? classified === null : verifyMetaSignature(rawBody, signatureHeader);
+    if (requireSig && !sigOk) {
+      const reason = classified ?? "mismatch";
+      console.warn(`[webhook:${provider}] bad_signature (hasHeader=${Boolean(signatureHeader)})`);
+      void import("../dm-automation/store")
+        .then((m) =>
+          m.recordOperationalEvent({
+            level: "WARNING",
+            type: "webhook.bad_signature",
+            details: { provider, hadSignatureHeader: Boolean(signatureHeader), bodyLength: rawBody.length },
+            bodyPreview: rawBody.slice(0, 200),
+          }),
+        )
+        .catch(() => undefined);
+      return { status: 200, rawId: null, accepted: false, reason };
     }
     const key = rawKey(provider);
     await objectStore().put(key, rawBody, "application/json");

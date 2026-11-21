@@ -1,22 +1,33 @@
 import type { Metadata } from "next";
 import { prisma } from "@infulancer/core/db";
+import { QuickCampaignWizard } from "@/components/campaign/quick-campaign-wizard";
 import { CampaignWizardPage } from "@/components/campaign/wizard/wizard-page";
 import { Card } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { requireActor } from "@/lib/auth-guard";
 import { getTT } from "@/lib/i18n/tt-server";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 
 export const metadata: Metadata = { title: "Yeni kampanya" };
 export const dynamic = "force-dynamic";
 
-export default async function BrandNewCampaignPage() {
+export default async function BrandNewCampaignPage({ searchParams }: { searchParams: Promise<{ mod?: string; kampanyaId?: string }> }) {
   const tt = await getTT();
+  const { mod, kampanyaId } = await searchParams;
   const actor = await requireActor("BRAND");
-  const brand = await prisma.brand.findUnique({
-    where: { id: actor.brandId! },
-    select: { defaultExecutionMode: true },
-  });
+  const [brand, categories, catalogRow] = await Promise.all([
+    prisma.brand.findUnique({
+      where: { id: actor.brandId! },
+      select: { name: true, defaultExecutionMode: true },
+    }),
+    prisma.category.findMany({ select: { name: true }, orderBy: { name: "asc" }, take: 50 }),
+    prisma.configValue.findUnique({ where: { key: CAMPAIGN_CATALOG_KEY }, select: { value: true } }),
+  ]);
+  const catalog = Array.isArray(catalogRow?.value) ? (catalogRow.value as unknown as CampaignCatalogEntry[]).filter((x) => x.active) : [];
+  const existing = kampanyaId
+    ? await prisma.campaign.findFirst({ where: { id: kampanyaId, brandId: actor.brandId! }, select: { id: true, name: true } })
+    : null;
 
   if ((brand?.defaultExecutionMode ?? "AJANS") === "AJANS") {
     return (
@@ -41,5 +52,19 @@ export default async function BrandNewCampaignPage() {
     );
   }
 
-  return <CampaignWizardPage actor={actor} campaignId={null} />;
+  if (mod === "gelismis") {
+    return <CampaignWizardPage actor={actor} campaignId={null} />;
+  }
+
+  return (
+    <QuickCampaignWizard
+      role="BRAND"
+      defaultBrandId={actor.brandId ?? undefined}
+      defaultBrandName={brand?.name}
+      initialCampaignId={existing?.id}
+      initialCampaignName={existing?.name}
+      categoryOptions={categories.map((c) => c.name)}
+      catalog={catalog}
+    />
+  );
 }
