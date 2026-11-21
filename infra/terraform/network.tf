@@ -16,7 +16,8 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
   availability_zone       = local.azs[count.index]
-  map_public_ip_on_launch = true
+  # Fargate assign_public_ip ile kendi adresini alır. Alt ağ yeni örneklere otomatik genel IP vermez.
+  map_public_ip_on_launch = false
   tags                    = { Name = "${local.name}-public-${count.index}" }
 }
 
