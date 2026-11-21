@@ -8,6 +8,8 @@ import { requireRole, toAuditActor, type Actor } from "./actor";
 import { DomainError } from "../domain/errors";
 import { setBrandCategories, setInfluencerCategories } from "../domain/categories";
 import type { Role } from "../generated/prisma/enums";
+import { KVKK_ACCEPTANCE_DOC, LEGAL_VERSION, requiredAcceptanceDocs } from "../legal/acceptance";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "../social/handles";
 
 /**
  * Davetle kayıt. Kayıt yalnız geçerli bir davet koduyla (özel link: /kayit?kod=...) yapılır; kayıt olan
@@ -92,6 +94,8 @@ export type RegisterInput = {
   name: string;
   phone: string;
   acceptTerms?: boolean;
+  acceptOpenConsent?: boolean;
+  acceptCommercial?: boolean;
   application: InfluencerApplication | BrandApplication;
 };
 
@@ -107,6 +111,7 @@ export async function registerWithInvite(input: RegisterInput) {
   if (name.length < 3 || name.length > 80) throw new DomainError("DOGRULAMA", "Ad soyad 3–80 karakter olmalı.");
   const phone = input.phone.replace(/[^\d+]/g, "");
   if (!/^\+?\d{10,15}$/.test(phone)) throw new DomainError("DOGRULAMA", "Geçerli bir telefon numarası girin.");
+  if (!input.acceptTerms) throw new DomainError("DOGRULAMA", "Kullanım koşulları, gizlilik politikası ve KVKK aydınlatma metnini kabul etmelisiniz.");
   const a = input.application;
   if (!a.categoryIds.length || a.categoryIds.length > 8) throw new DomainError("DOGRULAMA", "1–8 kategori seçin.");
   const cats = await prisma.category.count({ where: { id: { in: a.categoryIds }, active: true } });
@@ -133,6 +138,15 @@ export async function registerWithInvite(input: RegisterInput) {
     if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw new DomainError("DOGRULAMA", "Bu e-posta ile kayıtlı bir hesap var.");
     const u = await tx.user.create({ data: { email, name, phone, passwordHash, role: inv.targetRole, status: "PENDING" } });
     await tx.signupApplication.create({ data: { userId: u.id, inviteId: inv.id, targetRole: inv.targetRole, data: a as object } });
+    const docs = [
+      ...requiredAcceptanceDocs(inv.targetRole === "BRAND" ? "BRAND" : "INFLUENCER"),
+      ...(input.acceptOpenConsent ? ["acik-riza"] : []),
+      ...(input.acceptCommercial ? ["ileti-izni"] : []),
+    ];
+    if (!docs.includes(KVKK_ACCEPTANCE_DOC)) throw new DomainError("DOGRULAMA", "KVKK aydınlatma metni kabul edilmeden kayıt olunamaz.");
+    await tx.legalAcceptance.createMany({
+      data: docs.map((document) => ({ userId: u.id, email, document, version: LEGAL_VERSION })),
+    });
     const admins = await tx.user.findMany({ where: { role: { in: ["ADMIN", "AGENCY"] }, status: "ACTIVE" }, select: { id: true } });
     await tx.notification.createMany({
       data: admins.map((x) => ({ userId: x.id, title: "Yeni üyelik başvurusu", body: `${name} (${a.kind === "BRAND" ? "marka" : "influencer"}) onayınızı bekliyor.`, href: "/admin/davetler?bolum=basvurular" })),
@@ -163,7 +177,10 @@ export async function approveApplication(actorIn: Actor, applicationId: string, 
       });
       if (cats.length) await setInfluencerCategories(tx, inf.id, cats.map((c) => c.id), cats[0]!.id);
       for (const [platform, h] of [["INSTAGRAM", data.instagram], ["TIKTOK", data.tiktok], ["YOUTUBE", data.youtube]] as const) {
-        if (h?.trim()) await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: cleanHandle(h), followers: 0, engagementRate: 0, demographics: {} } });
+        if (!h?.trim()) continue;
+        if (platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, h, inf.id);
+        const stored = platform === "INSTAGRAM" ? normalizeInstagramHandle(h) : cleanHandle(h).replace(/^@/, "");
+        await tx.socialAccount.create({ data: { influencerId: inf.id, platform, handle: stored, followers: 0, engagementRate: 0, demographics: {} } });
       }
       // Vergi durumu belirlenene kadar ödeme kilitli.
       await tx.influencerTaxProfile.create({ data: { influencerId: inf.id, status: "diger" } });

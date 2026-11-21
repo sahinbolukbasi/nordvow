@@ -8,19 +8,10 @@ import {
   resolveLocaleAndCountry,
 } from "@infulancer/core/i18n/geo";
 import { roleHome } from "./lib/roles";
+import { clearAuthCookies } from "./lib/auth-cookies";
+import { isPublicPath } from "./lib/public-paths";
 
 const { auth } = NextAuth(authConfig);
-
-const PUBLIC_PATHS = new Set([
-  "/gizlilik",
-  "/kullanim-kosullari",
-  "/kvkk",
-  "/cerez-politikasi",
-  "/destek",
-  "/sifremi-unuttum",
-  "/sifre-sifirla",
-  "/veri-silme-durumu",
-]);
 
 /** Konuma göre /tr/... veya /en/... yönlendirmesi yapılacak herkese açık SEO rotaları. */
 const LOCALIZED_REDIRECT_EXACT = new Set([
@@ -208,11 +199,10 @@ function handleAuth(
   country: string | null,
 ): NextResponse | null {
   if (
-    PUBLIC_PATHS.has(pathname) ||
+    isPublicPath(pathname) ||
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/meta/") ||
     pathname === "/api/voice/connect" ||
-    pathname === "/api/health" ||
     pathname === "/api/locations" ||
     pathname === "/sitemap.xml" ||
     pathname === "/robots.txt"
@@ -256,6 +246,8 @@ function handleAuth(
         : NextResponse.next();
   }
   if (pathname === "/giris") {
+    const signingOut = req.nextUrl.searchParams.get("cikis") === "1" || req.cookies.get("nv_logout")?.value === "1";
+    if (signingOut) return clearAuthCookies(NextResponse.next());
     if (user?.role) return NextResponse.redirect(new URL(pending ? "/onay-bekliyor" : roleHome[user.role], req.nextUrl));
     return locale ? null : NextResponse.next();
   }

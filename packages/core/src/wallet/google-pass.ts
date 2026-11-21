@@ -1,7 +1,7 @@
 import { importPKCS8, SignJWT } from "jose";
 import { envStr } from "../env";
 import { BRAND_NAME } from "../brand";
-import { googleWalletConfigured, type PassData } from "./passes";
+import { googleWalletConfigured, logWallet, type PassData } from "./passes";
 
 /**
  * Google Wallet "Save to Wallet" bağlantısı üretimi.
@@ -21,10 +21,19 @@ function serviceAccount(): ServiceAccount | null {
   if (!raw) return null;
   try {
     const j = JSON.parse(raw) as ServiceAccount;
-    return j.client_email && j.private_key ? j : null;
-  } catch {
+    if (j.client_email && j.private_key) return j;
+    logWallet("google", "servis hesabı eksik alan");
+    return null;
+  } catch (err) {
+    logWallet("google", "servis hesabı JSON değil", err);
     return null;
   }
+}
+
+/** Anahtar yoksa ağa çıkmaz. Sınıf zaten JWT içinde gömülü olduğu için uzak upsert gerekmez. */
+export async function upsertGoogleGenericClass(kind: PassData["kind"]): Promise<boolean> {
+  if (!googleWalletConfigured() || !serviceAccount()) return false;
+  return kind === "ticket" || kind === "coupon";
 }
 
 /**
@@ -45,6 +54,8 @@ function appBaseHttps(): string | null {
 function buildGenericClass(issuerId: string, kind: PassData["kind"]) {
   return {
     id: classId(issuerId, kind),
+    multipleDevicesAndHoldersAllowedStatus: kind === "ticket" ? "ONE_USER_ALL_DEVICES" : "MULTIPLE_HOLDERS",
+    textModulesData: [{ id: "kind", header: "Tür", body: kind }],
     classTemplateInfo: {
       cardTemplateOverride: {
         cardRowTemplateInfos: [
@@ -77,13 +88,13 @@ function buildGenericObject(issuerId: string, data: PassData, serial: string) {
       ? [
           { id: "f0", header: "KATILIMCI", body: data.subtitle || "Misafir" },
           { id: "f1", header: "DURUM", body: data.statusLabel || "Geçerli" },
-          { id: "f2", header: "TARİH", body: data.fields[0]?.value || "-" },
-          { id: "f3", header: "MEKAN", body: data.fields[1]?.value || "-" },
+          { id: "f2", header: "TARİH", body: data.fields[0]?.value?.trim() || "-" },
+          { id: "f3", header: "MEKAN", body: data.fields[1]?.value?.trim() || "-" },
         ]
       : [
           { id: "f0", header: "MARKA", body: organizer },
           { id: "f1", header: "DURUM", body: data.statusLabel || "Kullanılabilir" },
-          { id: "f2", header: "SON KULLANIM", body: data.fields[0]?.value || "Süresiz" },
+          { id: "f2", header: "SON KULLANIM", body: data.fields[0]?.value?.trim() || "Süresiz" },
           { id: "f3", header: "KOD", body: data.code },
         ];
 
@@ -97,7 +108,8 @@ function buildGenericObject(issuerId: string, data: PassData, serial: string) {
   const obj: Record<string, unknown> = {
     id: objectId,
     classId: classId(issuerId, data.kind),
-    genericType: "GENERIC_TYPE_UNSPECIFIED",
+    genericType: data.kind === "ticket" ? "GENERIC_ENTRY_TICKET" : "GENERIC_VOUCHER",
+    state: "ACTIVE",
     hexBackgroundColor: "#13131d",
     cardTitle: { defaultValue: { language: "tr", value: organizer } },
     subheader: {
@@ -119,6 +131,11 @@ function buildGenericObject(issuerId: string, data: PassData, serial: string) {
     },
     textModulesData: rowModules,
   };
+
+  if (data.kind === "coupon" && data.expirationDate) {
+    const end = new Date(data.expirationDate);
+    if (!Number.isNaN(end.getTime())) obj.validTimeInterval = { end: { date: end.toISOString() } };
+  }
 
   if (httpsBase) {
     obj.logo = {
@@ -160,7 +177,12 @@ export async function buildGoogleWalletLink(data: PassData, serial: string): Pro
       genericObjects: [buildGenericObject(issuerId, data, serial)],
     },
   };
-  const key = await importPKCS8(sa.private_key, "RS256");
-  const jwt = await new SignJWT(payload).setProtectedHeader({ alg: "RS256", typ: "JWT" }).sign(key);
-  return `https://pay.google.com/gp/v/save/${jwt}`;
+  try {
+    const key = await importPKCS8(sa.private_key, "RS256");
+    const jwt = await new SignJWT(payload).setProtectedHeader({ alg: "RS256", typ: "JWT" }).setIssuedAt().sign(key);
+    return `https://pay.google.com/gp/v/save/${jwt}`;
+  } catch (err) {
+    logWallet("google", "JWT üretilemedi", err);
+    return null;
+  }
 }

@@ -6,9 +6,7 @@ import { toAuditActor } from "@infulancer/core/access/actor";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, optStr, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
-
-export type CampaignCatalogEntry = { id: string; kind: "sector" | "template"; name: string; sector?: string; active: boolean };
-export const CAMPAIGN_CATALOG_KEY = "campaign.catalog";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 
 export async function saveCampaignCatalogEntry(_p: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireActor("ADMIN");

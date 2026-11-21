@@ -11,6 +11,7 @@ import { platformLabels } from "@infulancer/core/domain/labels";
 import { publish } from "@infulancer/core/events";
 import { setInfluencerCategories } from "@infulancer/core/domain/categories";
 import { cleanSocialHandle } from "@infulancer/core/social/handle";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "@infulancer/core/social/handles";
 import { readCategorySelection } from "@/lib/categories";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, bool, intOrNull, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
@@ -110,9 +111,11 @@ function parseAccounts(fd: FormData): AccountInput[] {
       throw new DomainError("DOGRULAMA", `${label}: demografi alanı geçerli bir JSON nesnesi olmalı (ör. {"kadin": 0.7}).`);
     }
     demographics = mergeStructuredAudience(fd, p, demographics, label);
+    const normalized = platform === "INSTAGRAM" ? normalizeInstagramHandle(handle) : handle.replace(/^@/, "");
+    if (platform === "INSTAGRAM" && !/^[a-z0-9._]{1,30}$/.test(normalized)) throw new DomainError("DOGRULAMA", `${label}: geçerli bir Instagram kullanıcı adı girin.`);
     out.push({
       platform,
-      handle: handle.trim().replace(/^@+/, ""),
+      handle: normalized,
       followers,
       engagementRate: Math.round(erPct * 100) / 10000,
       demographics,
@@ -170,6 +173,7 @@ export async function saveInfluencer(_prev: ActionState, fd: FormData): Promise<
       const existing = await tx.socialAccount.findMany({ where: { influencerId } });
       const now = new Date();
       for (const acc of accounts) {
+        if (acc.platform === "INSTAGRAM") await assertUniqueInstagramHandle(tx, acc.handle, influencerId);
         const prev = existing.find((e) => e.platform === acc.platform);
         const values = {
           handle: acc.handle,
@@ -218,7 +222,7 @@ export async function saveInfluencer(_prev: ActionState, fd: FormData): Promise<
     if (created.id) await publish({ type: "INFLUENCER_CREATED", influencerId: created.id });
     // Bağlı hesaplardan takipçi ve profil fotoğrafını hemen çek (senkron kapalıysa sessizce geçer).
     const savedId = id ?? created.id;
-    if (savedId) await import("@infulancer/core/social/sync").then((m) => m.syncInfluencer(savedId)).catch(() => null);
+    if (savedId) await import("@infulancer/core/social/sync").then((m) => m.syncInfluencer(savedId, undefined, { force: true })).catch(() => null);
     revalidateAll();
     return { ok: true, message: "Influencer kaydedildi." };
   });
@@ -232,7 +236,7 @@ export async function syncInfluencerAccounts(_prev: ActionState, fd: FormData): 
   return attempt(async () => {
     const id = str(fd, "id");
     const { syncInfluencer } = await import("@infulancer/core/social/sync");
-    const results = await syncInfluencer(id);
+    const results = await syncInfluencer(id, undefined, { force: true });
     revalidateAll();
     const failed = results.filter((r) => !r.ok);
     if (!results.length) return { ok: true, message: "Senkronlanacak hesap yok." };

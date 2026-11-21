@@ -94,7 +94,7 @@ yeniden uygulayın.
 ## Güvenlik notları
 
 - Sırlar yalnız Secrets Manager'da; repoda gerçek anahtar yoktur. `.env`, `terraform.tfvars`, `*.tfstate` gitignore'dadır.
-- Girişsiz erişilebilen yollar: `/giris`, `/api/auth/*`, `/gizlilik`, `/kullanim-kosullari`, `/fiyatlandirma` ve webhook uçları
+- Girişsiz erişilebilen yollar: `/giris`, `/api/auth/*`, `/gizlilik`, `/kullanim-kosullari`, `/kullanim-sartlari`, `/veri-silme`, `/kvkk`, `/api/meta/data-deletion` ve webhook uçları
   `/api/webhooks/meta` (X-Hub-Signature-256 imzası, `META_APP_SECRET` tanımlı değilse tüm istekler reddedilir) ve `/api/webhooks/fal`
   (paylaşılan gizli başlık). Diğer tüm sayfa/API'ler oturum ve rol kontrolünden geçer. Prod'da webhook için API Gateway mTLS önerilir.
 - **Henüz yok:** giriş denemesi sınırı (rate limit), MFA, özel alan adı/WAF. Canlı müşteri verisinden önce eklenmeli.

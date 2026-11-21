@@ -17,8 +17,8 @@ export const REGIONS: Region[] = [
   { code: "TR", name: "Türkiye", nativeName: "Türkiye", locale: "tr", intl: "tr-TR", currency: "TRY", timezone: "Europe/Istanbul" },
   { code: "US", name: "ABD", nativeName: "United States", locale: "en", intl: "en-US", currency: "USD", timezone: "America/New_York" },
   { code: "GB", name: "Birleşik Krallık", nativeName: "United Kingdom", locale: "en", intl: "en-GB", currency: "GBP", timezone: "Europe/London" },
-  { code: "DE", name: "Almanya", nativeName: "Deutschland", locale: "en", intl: "de-DE", currency: "EUR", timezone: "Europe/Berlin" },
-  { code: "FR", name: "Fransa", nativeName: "France", locale: "en", intl: "fr-FR", currency: "EUR", timezone: "Europe/Paris" },
+  { code: "DE", name: "Almanya", nativeName: "Deutschland", locale: "de", intl: "de-DE", currency: "EUR", timezone: "Europe/Berlin" },
+  { code: "FR", name: "Fransa", nativeName: "France", locale: "fr", intl: "fr-FR", currency: "EUR", timezone: "Europe/Paris" },
   { code: "NL", name: "Hollanda", nativeName: "Nederland", locale: "en", intl: "nl-NL", currency: "EUR", timezone: "Europe/Amsterdam" },
   { code: "AT", name: "Avusturya", nativeName: "Österreich", locale: "en", intl: "de-AT", currency: "EUR", timezone: "Europe/Vienna" },
   { code: "CH", name: "İsviçre", nativeName: "Schweiz", locale: "en", intl: "de-CH", currency: "EUR", timezone: "Europe/Zurich" },
@@ -139,21 +139,27 @@ export function formatDualMinor(
 
 /**
  * Dil + ülke algılama (giriş öncesi):
- * 1) CDN/proxy ülke başlığı: TR -> tr, diğer tüm ülkeler -> en
- * 2) Tarayıcı Accept-Language başlığı: tr -> tr (TR), aksi halde en (US)
+ * Bilinen ülke kendi dilini önerir; tarayıcı desteklenen bir dildeyse (tr, en, de, fr) o dil kazanır.
+ * Tanınmayan ülke kodu (ör. JP) varsayılan bölgeye düşer. CDN sahte kodları (XX, T1) yok sayılır.
  */
 export function detectRegion(input: { ipCountry?: string | null; acceptLanguage?: string | null }): { country: string; locale: Locale } {
   const ip = (input.ipCountry ?? "").trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(ip) && !["XX", "T1", "A1", "A2", "ZZ"].includes(ip)) {
-    return { country: ip, locale: ip === "TR" ? "tr" : "en" };
-  }
   const langs = (input.acceptLanguage ?? "")
     .split(",")
-    .map((p) => p.split(";")[0]!.trim().toLowerCase())
+    .map((p) => p.split(";")[0]!.trim())
     .filter(Boolean);
-  const firstTwo = langs[0]?.slice(0, 2);
-  if (firstTwo === "tr") {
-    return { country: "TR", locale: "tr" };
+  const langLocale = langs.map((l) => l.slice(0, 2).toLowerCase()).find((l) => isLocale(l)) as Locale | undefined;
+  const langCountry = langs.map((l) => l.split("-")[1]?.toUpperCase()).find((c) => c && isRegion(c));
+  const usableIp = /^[A-Z]{2}$/.test(ip) && !["XX", "T1", "A1", "A2", "ZZ"].includes(ip) ? ip : "";
+  if (usableIp && isRegion(usableIp)) {
+    const r = regionOf(usableIp);
+    return { country: r.code, locale: langLocale ?? r.locale };
   }
-  return { country: "US", locale: "en" };
+  if (langCountry) return { country: langCountry, locale: langLocale ?? regionOf(langCountry).locale };
+  if (langLocale) {
+    const byLang = REGIONS.find((r) => r.locale === langLocale) ?? DEFAULT_REGION;
+    return { country: byLang.code, locale: langLocale };
+  }
+  if (usableIp) return { country: usableIp, locale: "en" };
+  return { country: DEFAULT_REGION.code, locale: DEFAULT_REGION.locale };
 }

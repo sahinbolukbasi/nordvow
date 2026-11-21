@@ -9,6 +9,7 @@ import { prisma } from "@infulancer/core/db";
 import { checkBrandConflict, enforceBrandConflict } from "@infulancer/core/domain/brand-conflict";
 import { transitionDeliverable } from "@infulancer/core/domain/deliverable-status";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { assertFeeKurus, MAX_FEE_KURUS, MAX_FEE_LABEL } from "@infulancer/core/domain/money";
 import { assertInfluencerFitsCampaign } from "@infulancer/core/domain/campaign-region";
 import { assertCanManageCampaign } from "@infulancer/core/domain/campaign-manage-guard";
 import { linkOrCreateShipmentForAssignment } from "@infulancer/core/shipping/service";
@@ -35,8 +36,8 @@ export async function previewBrandConflict(input: { campaignId: string; influenc
 const assignmentSchema = z.object({
   campaignId: z.string().min(1).max(64),
   influencerId: z.string().min(1, { error: "Influencer seçin." }).max(64),
-  feeKurus: z.number({ error: "Geçerli bir tutar girin." }).int().positive(),
-  commissionKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative(),
+  feeKurus: z.number({ error: "Geçerli bir tutar girin." }).int().positive().max(MAX_FEE_KURUS, { error: `Influencer bedeli en fazla ${MAX_FEE_LABEL} olabilir.` }),
+  commissionKurus: z.number({ error: "Geçerli bir tutar girin." }).int().nonnegative().max(MAX_FEE_KURUS, { error: `Ajans komisyonu en fazla ${MAX_FEE_LABEL} olabilir.` }),
   exclusivityDays: z.number({ error: "Tam sayı girin." }).int().min(0).max(365),
   exclusivityCategory: z.string().max(60).nullable(),
   couponCode: z.string().regex(/^[A-Za-z0-9_-]{3,40}$/, { error: "Harf, rakam, - ve _ (3–40)." }).nullable(),
@@ -73,12 +74,14 @@ async function insertAssignment(actor: Actor, input: AssignmentInput, opts: { ac
       actor,
       overrideReason: input.overrideReason,
     });
+    const feeKurus = assertFeeKurus(input.feeKurus, "Influencer bedeli", 1);
+    const commissionKurus = assertFeeKurus(input.commissionKurus, "Ajans komisyonu");
     const a = await tx.assignment.create({
       data: {
         campaignId: input.campaignId,
         influencerId: input.influencerId,
-        feeKurus: input.feeKurus,
-        commissionKurus: input.commissionKurus,
+        feeKurus,
+        commissionKurus,
         exclusivityDays: input.exclusivityDays,
         exclusivityCategory: input.exclusivityCategory,
         couponCode: input.couponCode,
@@ -233,7 +236,7 @@ const bulkSchema = z.object({
   campaignId: z.string().min(1).max(64),
   commissionPct: z.number().min(0).max(100),
   items: z
-    .array(z.object({ influencerId: z.string().min(1).max(64), feeKurus: z.number().int().positive({ error: "Bedel girin." }) }))
+    .array(z.object({ influencerId: z.string().min(1).max(64), feeKurus: z.number().int().positive({ error: "Bedel girin." }).max(MAX_FEE_KURUS, { error: `Influencer bedeli en fazla ${MAX_FEE_LABEL} olabilir.` }) }))
     .min(1, { error: "En az bir influencer seçin." })
     .max(50, { error: "Tek seferde en fazla 50 influencer." }),
 });

@@ -56,8 +56,24 @@ export async function setCouponStatus(tenantId: string, id: string, to: "TASLAK"
 }
 
 /** Bir kuponu bir influencer'a gönderir (benzersiz veya paylaşılan kod). */
-export async function grantCoupon(couponId: string, influencerId: string) {
-  const coupon = await prisma.coupon.findUnique({ where: { id: couponId }, select: { id: true, sharedCode: true, status: true } });
+export type CouponDisplayKey = "suresi_doldu" | "yayinda" | "taslak" | "pasif";
+
+/** Tek görünen durum: süre dolduysa yayın rozeti gösterilmez. */
+export function couponDisplayStatus(status: string, validUntil: Date | null | undefined, now = new Date()): { key: CouponDisplayKey; label: string; tone: "red" | "green" | "gray" | "amber" } {
+  if (validUntil && validUntil.getTime() < now.getTime()) return { key: "suresi_doldu", label: "Süresi doldu", tone: "red" };
+  if (status === "YAYINDA") return { key: "yayinda", label: "Yayında", tone: "green" };
+  if (status === "PASIF") return { key: "pasif", label: "Pasif", tone: "amber" };
+  return { key: "taslak", label: "Taslak", tone: "gray" };
+}
+
+/** Süresi geçmiş YAYINDA kuponları PASIF yapar. Saatlik teklif işiyle birlikte çalışır. */
+export async function expirePublishedCoupons(now = new Date()): Promise<number> {
+  const r = await prisma.coupon.updateMany({ where: { status: "YAYINDA", validUntil: { not: null, lt: now } }, data: { status: "PASIF" } });
+  return r.count;
+}
+
+export async function grantCoupon(couponId: string, influencerId: string, tenantId: string) {
+  const coupon = await prisma.coupon.findFirst({ where: { id: couponId, tenantId }, select: { id: true, sharedCode: true, status: true } });
   if (!coupon) throw new DomainError("BULUNAMADI", "Kupon bulunamadı.");
   if (coupon.status !== "YAYINDA") throw new DomainError("KURAL_IHLALI", "Yalnız yayında olan kupon gönderilebilir.");
   const dup = await prisma.couponGrant.findFirst({ where: { couponId, influencerId }, select: { id: true } });
@@ -68,11 +84,11 @@ export async function grantCoupon(couponId: string, influencerId: string) {
 }
 
 /** Toplu gönderim: seçili influencer listesi (veya tümü için çağıran id listesini verir). */
-export async function grantCouponMany(couponId: string, influencerIds: string[]) {
+export async function grantCouponMany(couponId: string, influencerIds: string[], tenantId: string) {
   const results = [];
   for (const influencerId of [...new Set(influencerIds)]) {
     try {
-      results.push(await grantCoupon(couponId, influencerId));
+      results.push(await grantCoupon(couponId, influencerId, tenantId));
     } catch (e) {
       if (!(e instanceof DomainError && e.code === "CAKISMA")) throw e;
     }

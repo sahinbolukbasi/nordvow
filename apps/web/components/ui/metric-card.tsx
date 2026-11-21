@@ -9,24 +9,25 @@ import { cn } from "@/lib/cn";
 
 const DURATION = 600;
 
-/** 0'dan hedefe 600ms'de sayan değer (requestAnimationFrame; az hareket tercihinde direkt hedef). */
-function useCountUp(target: number): number {
+/** Sayı kartları 0'dan sayar. Para kartları ilk karede hedefi gösterir (enabled=false). */
+function useCountUp(target: number, enabled: boolean): number {
   const reduced = useReducedMotion();
-  const [value, setValue] = useState(0);
+  const [value, setValue] = useState(target);
   useEffect(() => {
-    if (reduced) return;
+    if (!enabled || reduced) return;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / DURATION);
+      const t = Math.min(1, Math.max(0, (now - start) / DURATION));
       const eased = 1 - Math.pow(1 - t, 3);
       setValue(target * eased);
       if (t < 1) raf = requestAnimationFrame(tick);
+      else setValue(target);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, reduced]);
-  return reduced ? target : value;
+  }, [target, reduced, enabled]);
+  return !enabled || reduced ? target : value;
 }
 
 export function Sparkline({ data, className }: { data: number[]; className?: string }) {
@@ -79,7 +80,7 @@ function formatValue(v: number, format: MetricCardProps["format"], currency?: st
 
 export function MetricCard({ label, value, format = "number", delta, sparkline, hint, currency }: MetricCardProps) {
   const tt = useTT();
-  const shown = useCountUp(value);
+  const shown = useCountUp(value, format !== "currency-kurus");
   const up = (delta ?? 0) >= 0;
   return (
     <div className="flex flex-col gap-4 rounded-[8px] border border-border bg-surface p-6 transition-standard hover:-translate-y-px hover:border-border-strong">

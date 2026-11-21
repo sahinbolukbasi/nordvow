@@ -124,7 +124,7 @@ export function CouponTile({ c }: { c: CouponTileData }) {
             {st ? <Pill tone={st.tone}>{st.label}</Pill> : null}
             {c.sent != null ? <span className="text-[12px] tabular-nums text-fg-muted">{c.sent} gönderim · {c.used ?? 0} kullanım</span> : null}
           </div>
-          {c.validLabel ? <span className={cn("text-[12px]", c.expired ? "text-red-500" : "text-fg-passive")}>{c.expired ? "Süresi doldu" : c.validLabel}</span> : null}
+          {c.validLabel ? <span className={cn("text-[12px]", c.expired ? "text-red-500" : "text-fg-passive")}>{c.validLabel}</span> : null}
         </div>
       </Link>
       {c.canDelete ? (

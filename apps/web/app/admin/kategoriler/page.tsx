@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/ui/layout";
 import { InfoNote } from "@/components/ui/unverified";
 import { requireActor } from "@/lib/auth-guard";
 import { CampaignCatalogForm } from "@/components/admin/campaign-catalog-form";
-import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/actions/campaign-catalog";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 
 export const metadata: Metadata = { title: "Kategoriler" };
 export const dynamic = "force-dynamic";

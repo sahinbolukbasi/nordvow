@@ -59,6 +59,14 @@ export function LoginForm({ next }: { next: string | null }) {
           {tt("Şifremi unuttum")}
         </Link>
       </div>
+      <label className="flex items-start gap-2 text-[13px] text-fg-muted">
+        <input type="checkbox" name="acceptTerms" required className="mt-0.5 h-4 w-4 accent-[var(--color-fg)]" />
+        <span>
+          <Link href="/kullanim-sartlari" target="_blank" className="underline underline-offset-4">{tt("Kullanım şartlarının")}</Link>
+          {" "}{tt("güncel sürümünü kabul ediyorum.")}{" "}
+          <Link href="/gizlilik" className="underline underline-offset-4">{tt("Gizlilik")}</Link>
+        </span>
+      </label>
       <p role="alert" aria-live="polite" className="min-h-5 text-[13px] text-critical">
         {state.error}
       </p>

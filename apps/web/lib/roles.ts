@@ -17,7 +17,7 @@ export function requiredRoleForPath(pathname: string): Role | null {
 }
 
 /** Ajans çalışanının (AGENCY) giremeyeceği yönetici ekranları. */
-export const ADMIN_ONLY_PREFIXES = ["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/api/finans"];
+export const ADMIN_ONLY_PREFIXES = ["/admin/kullanicilar", "/admin/yetkiler", "/admin/tanitim", "/admin/finans", "/admin/bot", "/api/finans"];
 export function isAdminOnlyPath(pathname: string): boolean {
   return ADMIN_ONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

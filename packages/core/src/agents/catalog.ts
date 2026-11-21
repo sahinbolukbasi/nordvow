@@ -45,7 +45,7 @@ export const AUDIT_AGENTS: AuditAgentMeta[] = [
   { job: "trackers", name: "Takip agent'ları", group: "icerik", does: "Şablondan kurulan kampanya, story, influencer ve marka takipçilerini çalıştırır; yalnız yeni bulgular için bildirim gönderir.", when: "Saatte bir + 'Şimdi çalıştır'", output: "Agent merkezindeki takipçi kartları ve bildirimler." },
   { job: "campaign-content-tracker", name: "Kampanya içerik & AI özet takibi", group: "icerik", checkType: "YAYIN_KONTROL", does: "Aktif kampanyalardaki Reels, Post ve Story paylaşımlarını, hashtag/etiket uyumunu, beğeni ve yorumları tarayıp AI özetini kampanya loglarına yazar.", when: "Saatte bir", output: "Kampanya Agent sekmesinde günlük AI özet raporu." },
   { job: "campaign-auto-close", name: "Kampanya otomatik kapanış", group: "sistem", does: "Bitiş tarihi geçen aktif kampanyaları kapatır; influencer hakedişleri çekilebilir bakiyeye geçer ve influencerlara bildirim gider.", when: "Saatte bir", output: "Kampanya durumu ve influencer Ödemeler sayfası.", required: true },
-  { job: "offer-expiry", name: "Teklif süresi", group: "sistem", does: "7 gün içinde yanıtlanmayan teklifleri 'Süresi doldu' olarak kapatır.", when: "Saatte bir", output: "Teklifler sayfası." },
+  { job: "offer-expiry", name: "Teklif ve kupon süresi", group: "sistem", does: "7 gün içinde yanıtlanmayan teklifleri kapatır; son kullanma tarihi geçmiş yayındaki kuponları pasife alır.", when: "Saatte bir", output: "Teklifler ve kuponlar." },
   { job: "channel-health", name: "Kanal bağlantı sağlığı", group: "kanal", does: "Her WhatsApp/Instagram bağlantısına hafif bir okuma çağrısı yapar; erişim iptal edilmişse bağlantıyı durdurur ve markayı uyarır.", when: "Saatte bir", output: "Kanallar sayfasında bağlantı durumu.", risk: "Kapatılırsa iptal edilen bağlantılar fark edilmez, mesajlar sessizce başarısız olur." },
   { job: "window-warnings", name: "Pencere kapanış uyarısı", group: "kanal", does: "WhatsApp 24 saatlik servis penceresi kapanmadan 15 dakika önce atanmış temsilciye bildirim gönderir.", when: "5 dakikada bir", output: "Temsilciye bildirim (pencere kapanınca yanıt ücretli template gerektirir)." },
   { job: "iys-register", name: "İYS kayıt gönderimi", group: "uyum", does: "Toplanan onay/ret kayıtlarını İYS'ye iletir (3 iş günü yasal süre).", when: "Saatte bir", output: "Uyum sayfasındaki İYS kuyruğu.", required: true },
@@ -79,6 +79,30 @@ export async function setJobEnabled(job: string, enabled: boolean) {
   if (meta.required && !enabled) throw new Error(`${meta.name} yasal zorunluluk nedeniyle kapatılamaz.`);
   const cfg = (await getConfig("features")) as Record<string, boolean>;
   await setConfig("features", { ...cfg, [`job.${job}`]: enabled }, true);
+}
+
+export type OpenFindingCounts = {
+  total: number;
+  kritik: number;
+  uyari: number;
+  bilgi: number;
+  /** Kritik + uyarı. Pano bunu "açık uyarı" olarak gösterir; toplam ayrıdır. */
+  uyarilar: number;
+};
+
+/** Açık bulguların tek sayımı. Pano ve agent merkezi aynı fonksiyonu kullanır. */
+export async function countOpenFindings(): Promise<OpenFindingCounts> {
+  const rows = await prisma.agentRun.groupBy({ by: ["severity"], where: { status: "ACIK" }, _count: true });
+  const n = (severity: "KRITIK" | "UYARI" | "BILGI") => {
+    const row = rows.find((r) => r.severity === severity);
+    if (!row) return 0;
+    const raw = row._count as number | { _all: number };
+    return typeof raw === "number" ? raw : raw._all;
+  };
+  const kritik = n("KRITIK");
+  const uyari = n("UYARI");
+  const bilgi = n("BILGI");
+  return { total: kritik + uyari + bilgi, kritik, uyari, bilgi, uyarilar: kritik + uyari };
 }
 
 /** Her job için son çalışma ve açık bulgu sayısı. */

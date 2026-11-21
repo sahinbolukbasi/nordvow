@@ -12,6 +12,7 @@ import { LANDING_FEATURES, type LandingReference, type LandingVideo } from "@/li
 import { cn } from "@/lib/cn";
 import { BRAND_NAME } from "@/lib/brand";
 import { NordvowMark } from "@/components/brand/logo";
+import { LegalFooterNav } from "@/components/legal/legal-footer-nav";
 
 export type LandingStats = { influencers: number; followers: number; campaigns: number; published: number };
 
@@ -355,7 +356,7 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
 
         {/* İçerik üreticileri */}
         <section id="ureticiler" className="mx-auto max-w-6xl px-6 pt-28">
-          <SectionTitle eyebrow={tt("Platformdaki içerik üreticileri")} title={tt("Markana uygun profili keşfet")} text={tt("Takipçi ve kategoriye göre içerik üreticilerini keşfet.")} />
+          <SectionTitle eyebrow={tt("Platformdaki içerik üreticileri")} title={tt("Markana uygun profili keşfet")} text={tt("Takipçi, şehir ve kategoriye göre karşılaştır.")} />
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {data.creators.slice(0, 8).map((c, i) => (
               <Reveal as="li" key={`${c.handle}-${i}`} delay={(i % 4) * 90}>
@@ -617,12 +618,9 @@ export async function LandingPage({ stats, data }: { stats: LandingStats; data: 
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-[13px] text-fg-passive">
           <span>© {new Date().getFullYear()} {BRAND_NAME}</span>
-          <nav aria-label={tt("Yasal")} className="flex flex-wrap gap-6">
+          <nav aria-label={tt("Yasal")} className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link href="/blog" className="font-medium text-fg-muted hover:text-fg">{tt("Blog")}</Link>
-            <Link href="/gizlilik" className="hover:text-fg">{tt("Gizlilik")}</Link>
-            <Link href="/kullanim-kosullari" className="hover:text-fg">{tt("Kullanım koşulları")}</Link>
-            <Link href="/kvkk" className="hover:text-fg">{tt("KVKK")}</Link>
-            <Link href="/cerez-politikasi" className="hover:text-fg">{tt("Çerezler")}</Link>
+            <LegalFooterNav className="flex flex-wrap gap-x-4 gap-y-2" />
             <Link href="/giris" className="hover:text-fg">{tt("Giriş")}</Link>
           </nav>
         </div>

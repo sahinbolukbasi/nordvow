@@ -27,6 +27,8 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
       name,
       phone: str(fd, "phone"),
       acceptTerms: bool(fd, "acceptTerms"),
+      acceptOpenConsent: bool(fd, "acceptOpenConsent"),
+      acceptCommercial: bool(fd, "acceptCommercial"),
       application:
         kind === "BRAND"
           ? { kind, companyName: str(fd, "companyName"), taxOffice: str(fd, "taxOffice"), taxNumber: str(fd, "taxNumber"), categoryIds, website: optStr(fd, "website") ?? undefined, about: optStr(fd, "about") ?? undefined }
@@ -65,7 +67,8 @@ export async function registerAction(_p: ActionState, fd: FormData): Promise<Act
 }
 
 export async function signOutAction() {
-  await signOut({ redirectTo: "/giris" });
+  const { completeSignOut } = await import("@/lib/complete-sign-out");
+  await completeSignOut();
 }
 
 export async function createInviteAction(_p: ActionState, fd: FormData): Promise<ActionState> {

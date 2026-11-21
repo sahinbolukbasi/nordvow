@@ -4,7 +4,7 @@ import { audit } from "@infulancer/core/audit";
 import { prisma, type ContentType, type Platform } from "@infulancer/core/db";
 import { contentTypeLabels, platformLabels, roleLabels } from "@infulancer/core/domain/labels";
 import { platformRules } from "@infulancer/core/domain/platform-rules";
-import { syncInfluencer, syncSourceLabels } from "@infulancer/core/social/sync";
+import { syncInfluencer, syncStatusView } from "@infulancer/core/social/sync";
 import { AvatarUploader } from "@/components/profile/avatar-uploader";
 import { DefaultModeCard, type AgencyOption } from "@/components/campaign/default-mode-card";
 import { PasswordForm, ProfileForm } from "@/components/profile/profile-forms";
@@ -24,6 +24,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { Tabs } from "@/components/ui/tabs";
+import { BotLinkPanel } from "@/components/profile/bot-link-panel";
 import { requireActor } from "@/lib/auth-guard";
 import { compact, pct1 } from "@/lib/format";
 import { fmtDate, fmtDateTime } from "@/lib/time";
@@ -61,7 +62,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const tt = await getTT();
   const actor = await requireActor();
   const { sekme } = await searchParams;
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { name: true, email: true, phone: true, instagramHandle: true, role: true, createdAt: true, avatarKey: true, brand: { select: { name: true } } } });
   const [activity, waLink] = await Promise.all([
     audit.listByActor(actor.userId, 60).catch(() => []),
     getOrCreateWhatsAppLink(actor.userId),
@@ -130,16 +131,22 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                     </div>
                   </dl>
                   <p className="text-[12px] text-fg-passive">
-                    {syncSourceLabels[a.syncSource] ?? a.syncSource}
+                    {syncStatusView(a).label}
                     {a.lastSyncedAt ? ` · son güncelleme ${fmtDate(a.lastSyncedAt)}` : ""}
                   </p>
-                  {a.syncError ? <span className="text-[12px] text-critical">{a.syncError}</span> : null}
+                  {syncStatusView(a).note ? <span className="text-[12px] text-fg-muted">{syncStatusView(a).note}</span> : null}
+                  {syncStatusView(a).error ? <span className="text-[12px] text-critical">{syncStatusView(a).error}</span> : null}
                 </Card>
               ))}
             </section>
           ) : (
             <p className="text-sm text-fg-passive">{tt("Henüz hesap yok. Yukarıdan kullanıcı adını ekle.")}</p>
           )}
+          <Card interactive={false} className="flex flex-col gap-3">
+            <CardTitle>{tt("Instagram hesabını bağla")}</CardTitle>
+            <p className="text-sm text-fg-muted">{tt("Kişisel, gizli veya kısıtlı hesaplar Business Discovery ile okunmaz. Instagram’ın kendi giriş ekranından bağlarsanız profiliniz sizin izninizle okunur. Şifre paylaşılmaz. Uygulama henüz yayında değilse yalnız test kullanıcıları bağlanabilir.")}</p>
+            <ButtonLink href="/api/instagram/oauth/start" variant="secondary" className="w-fit">{tt("Instagram ile bağlan")}</ButtonLink>
+          </Card>
           <TikTokCreatorPanel />
           <Card interactive={false} className="flex flex-col gap-4">
             <CardTitle>{tt("İçerik fiyatlarım")}</CardTitle>
@@ -215,7 +222,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         </Card>
         <Card interactive={false} className="flex flex-col gap-3">
           <CardTitle>{tt("Kişisel bilgiler")}</CardTitle>
-          <ProfileForm name={user.name} phone={user.phone} />
+          <ProfileForm name={user.name} phone={user.phone} instagram={user.instagramHandle} />
           {actor.role === "INFLUENCER" ? (
             <ButtonLink href="/profil?sekme=ayarlar" variant="secondary" size="sm" className="w-fit">
               {tt("Hesaplarım, fiyat listem ve teslimat adresim →")}
@@ -268,6 +275,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
           <PageHeader title={user.name} description={`${headline} · ${user.email} · üye ${fmtDate(user.createdAt)}`} />
         </div>
       </div>
+      <BotLinkPanel userId={actor.userId} />
       <Tabs
         key={sekme ?? "bilgiler"}
         label={tt("Profil bölümleri")}

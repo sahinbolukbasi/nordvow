@@ -229,6 +229,8 @@ model User {
   /// Davetle kayıt olanlar admin onayına kadar PENDING; mevcut kullanıcılar ACTIVE.
   status       UserStatus  @default(ACTIVE)
   phone        String?
+  /// Instagram kullanıcı adı, @ olmadan, küçük harf. Otomatik bağlama önerisi için.
+  instagramHandle String? @unique @map("instagram_handle")
   /// Kullanıcının yüklediği profil fotoğrafı (S3 anahtarı). Yoksa influencer sosyal hesabından türetilir.
   avatarKey    String?
   /// Arayüz dili (tr, en, de, fr) ve ülke (ISO2); ilk girişte otomatik algılanır, kullanıcı değiştirebilir.
@@ -256,8 +258,26 @@ model User {
   organization         Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   mediaJobs            MediaJob[]
   biometricConsents    BiometricLegalConsent[]
+  legalAcceptances     LegalAcceptance[]
+  channelAccountLinks  ChannelAccountLink[]
+  botLinkCodes         BotLinkCode[]
 
   @@index([brandId])
+}
+
+/// Kullanıcının hangi yasal metni, hangi sürümde, ne zaman kabul ettiği.
+model LegalAcceptance {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email      String
+  document   String
+  version    String
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+
+  @@index([userId, document])
+  @@index([email, document])
+  @@map("legal_acceptances")
 }
 
 // ───────────── Marka / Influencer ─────────────
@@ -352,7 +372,7 @@ model SocialAccount {
   followers      Int
   engagementRate Decimal    @db.Decimal(6, 4)
   demographics   Json
-  /// Senkron: manual | instagram_business_discovery | youtube_data | tiktok_oauth
+  /// META_API | INSTAGRAM_OAUTH | INSTAGRAM_PUBLIC | NONE | manual | youtube_data | tiktok_oauth | mock
   syncSource     String     @default("manual")
   externalId     String?
   profileUrl     String?
@@ -362,14 +382,23 @@ model SocialAccount {
   avgComments    Int?
   avgViews       Int?
   verified       Boolean    @default(false)
+  /// Business Discovery'den gelen ad ve kısa biyografi
+  displayName    String?    @map("display_name")
+  bioSnippet     String?    @map("bio_snippet")
   /// TikTok OAuth token'ı kasada (Secrets Manager); burada yalnız referans
   tokenRef       String?
   lastSyncedAt   DateTime?
   syncError      String?
+  /// TOKEN_INVALID | MISSING_PERMISSION | TARGET_NOT_DISCOVERABLE | RATE_LIMITED | UNKNOWN
+  lastErrorClass String?
+  /// Public yola düşüş nedeni (TOKEN_INVALID, MISSING_PERMISSION, RATE_LIMITED, TARGET_NOT_DISCOVERABLE, NOT_CONFIGURED)
+  syncReason     String?
+  retryCount     Int        @default(0)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
   snapshots SocialAccountSnapshot[]
+  syncEvents SocialSyncEvent[]
 
   @@unique([influencerId, platform])
 }
@@ -384,6 +413,29 @@ model SocialAccountSnapshot {
   takenAt         DateTime
 
   @@index([socialAccountId, takenAt])
+}
+
+/// Hesap başına senkron telemetrisi. Belirteç ve Graph gövdesi yazılmaz.
+model SocialSyncEvent {
+  id              String        @id @default(cuid())
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  durationMs      Int
+  errorClass      String?
+  /// Neden bu kaynak kullanıldı (ör. TOKEN_INVALID olduğu için INSTAGRAM_PUBLIC). Belirteç yok.
+  reason          String?
+  source          String
+  ok              Boolean
+  createdAt       DateTime      @default(now())
+
+  @@index([socialAccountId, createdAt])
+}
+
+/// EventBridge ve yerel zamanlayıcının aynı anda social-sync çalıştırmasını engeller.
+model SocialSyncLock {
+  id        String   @id
+  owner     String
+  expiresAt DateTime
 }
 
 // ───────────── Kampanya ─────────────
@@ -466,6 +518,7 @@ model Assignment {
   campaign               Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   influencerId           String
   influencer             Influencer     @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  /// Postgres INT. Yazma yolu assertFeeKurus ile 2.147.483.647 kuruşta kesilir; hakediş defteri de INT.
   feeKurus               Int
   commissionKurus        Int
   contractStatus         ContractStatus @default(TEKLIF)
@@ -1772,6 +1825,8 @@ model Event {
   visibility    EventVisibility @default(KAPALI)
   status        EventStatus     @default(TASLAK)
   capacity      Int?
+  /// Null veya 0: ücretsiz bilet. Pozitifse sohbette kart alınmaz, ödeme bağlantısı gönderilir.
+  priceKurus    Int?            @map("price_kurus")
   createdByUserId String?       @map("created_by_user_id")
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
@@ -2026,9 +2081,171 @@ model ShortLink {
   label      String?
   clicks     Int       @default(0)
   createdByUserId String? @map("created_by_user_id")
+  /// Marka veya influencer hesabı. Platform (admin) linklerinde boş.
+  tenantId   String?   @map("tenant_id")
   lastClickAt DateTime? @map("last_click_at")
   createdAt  DateTime  @default(now()) @map("created_at")
+  @@index([tenantId, createdAt])
   @@map("short_links")
+}
+
+/// WhatsApp / Instagram / Messenger kimliğinin Nordvow hesabına bağlanması.
+model ChannelAccountLink {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String          @map("user_id")
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifiedAt DateTime        @default(now()) @map("verified_at")
+  revokedAt  DateTime?       @map("revoked_at")
+
+  @@unique([channel, externalId])
+  @@index([userId])
+  @@map("channel_account_links")
+}
+
+/// Profilde üretilen 6 haneli bağlama kodu. Düz metin tutulmaz.
+model BotLinkCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @map("code_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, expiresAt])
+  @@map("bot_link_codes")
+}
+
+/// Yanlış bağlama kodu denemesi. Pencere dolunca kilit.
+model BotLinkAttempt {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId, createdAt])
+  @@map("bot_link_attempts")
+}
+
+/// Bağlama, koparma ve başarısız deneme. Kod değeri yazılmaz.
+model BotLinkEvent {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String?         @map("user_id")
+  action     String
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("bot_link_events")
+}
+
+/// Bağlı olmayan göndericinin talep taslağı.
+model BotGuestDraft {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  step       String
+  name       String?
+  intent     String?
+  email      String?
+  phone      String?
+  org        String?
+  note       String?
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@unique([channel, externalId])
+  @@map("bot_guest_drafts")
+}
+
+/// Bağlı olmayan kişiden gelen yeni müşteri talebi.
+model BotLead {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  name       String
+  intent     String
+  email      String?
+  phone      String?
+  org        String?
+  note       String
+  status     String          @default("YENI")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@index([channel, externalId, createdAt])
+  @@index([status, createdAt])
+  @@map("bot_leads")
+}
+
+/// Onay bekleyen bot işlemi (EVET denmeden çalışmaz).
+model BotPendingAction {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  userId     String          @map("user_id")
+  tool       String
+  args       Json
+  expiresAt  DateTime        @map("expires_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@unique([channel, externalId])
+  @@map("bot_pending_actions")
+}
+
+/// Bot araç çağrıları (yönetim ekranı ve hız sınırı).
+model BotToolCall {
+  id             String          @id @default(cuid())
+  channel        ChannelProvider
+  externalId     String          @map("external_id")
+  userId         String?         @map("user_id")
+  tool           String
+  ok             Boolean         @default(false)
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([userId, tool, createdAt])
+  @@map("bot_tool_calls")
+}
+
+/// Platform botunun kanal anahtarları ve karşılama metni.
+model BotSettings {
+  id                  String   @id @default("default")
+  whatsappEnabled     Boolean  @default(false) @map("whatsapp_enabled")
+  instagramEnabled    Boolean  @default(false) @map("instagram_enabled")
+  messengerEnabled    Boolean  @default(false) @map("messenger_enabled")
+  whatsappPhoneNumberId String? @map("whatsapp_phone_number_id")
+  igUserId            String?  @map("ig_user_id")
+  pageId              String?  @map("page_id")
+  welcomeTr           String   @default("Merhaba, ben Nordvow asistanıyım. Hesabınızı bağladıktan sonra kampanya, bakiye, kupon ve etkinliklerinizi sorabilirsiniz. Ayrıntı: /gizlilik") @map("welcome_tr")
+  welcomeEn           String   @default("Hi, I am the Nordvow assistant. Link your account to ask about campaigns, balance, coupons and events. Details: /gizlilik") @map("welcome_en")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("bot_settings")
+}
+
+/// Otomatik bağlamada çakışan Instagram kullanıcı adı. Bot bağlama yapmaz.
+model BotLinkFlag {
+  id         String          @id @default(cuid())
+  channel    ChannelProvider
+  externalId String          @map("external_id")
+  handle     String
+  reason     String
+  userIds    String[]        @map("user_ids")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  @@index([channel, externalId])
+  @@map("bot_link_flags")
+}
+
+/// Meta veri silme callback kaydı (onay kodu + durum sayfası).
+model DataDeletionRequest {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  metaUserId String?  @map("meta_user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  @@map("data_deletion_requests")
 }
 
 /// Kullanıcı destek talebi (hata bildirimi, soru, istek). Admin gelen kutusunda yönetilir.

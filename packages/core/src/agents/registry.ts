@@ -23,6 +23,7 @@ import { runAllTrackers } from "./trackers";
 import { runCampaignContentTracker } from "./campaign-content-tracker";
 import { expireOffers } from "../domain/offers";
 import { autoApproveStaleDeliverables } from "../domain/deliverable-auto-approve";
+import { expirePublishedCoupons } from "../coupons/service";
 import { closeEndedCampaigns } from "../campaigns/auto-close";
 import { pollActiveShipments } from "../shipping/service";
 import {
@@ -90,7 +91,7 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "channel-health", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: (await healthCheckConnections()).revoked, skipped: 0 }) },
   { name: "window-warnings", schedule: "rate(5 minutes)", intervalMs: 5 * MIN, run: async () => ({ created: await warnClosingWindows(), skipped: 0 }) },
   { name: "ads-budget-batch", schedule: "cron(0 * * * ? *)", intervalMs: HOUR, run: async () => ({ created: (await runBudgetBatch()).applied, skipped: 0 }) },
-  { name: "social-sync", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { const r = await syncStaleAccounts(50); return { created: r.ok, skipped: r.checked - r.ok }; } },
+  { name: "social-sync", schedule: "rate(6 hours)", intervalMs: 6 * HOUR, run: async () => { const r = await syncStaleAccounts(50); return { created: r.ok, skipped: r.skipped ?? r.checked - r.ok }; } },
   { name: "social-multi-agent", schedule: "cron(0 8 * * ? *)", intervalMs: 24 * HOUR, run: async () => { const r = await runMultiAgentSocialPipelineAll(200); return { created: r.withData, skipped: r.processed - r.withData }; } },
   {
     name: "daily-social-flow",
@@ -105,7 +106,7 @@ export const scheduledJobs: ScheduledJob[] = [
       await runInfluencerRecommendationAll().catch(() => undefined);
       return {
         created: synced.ok + multi.withData + fake.created,
-        skipped: Math.max(0, synced.checked - synced.ok) + Math.max(0, multi.processed - multi.withData),
+        skipped: Math.max(0, (synced.skipped ?? synced.checked - synced.ok)) + Math.max(0, multi.processed - multi.withData),
       };
     },
   },
@@ -115,7 +116,7 @@ export const scheduledJobs: ScheduledJob[] = [
   { name: "campaign-content-tracker", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => tally(await runCampaignContentTracker()) },
   { name: "campaign-auto-close", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await closeEndedCampaigns(), skipped: 0 }) },
   { name: "deliverable-auto-approve", schedule: "rate(15 minutes)", intervalMs: 15 * MIN, run: async () => ({ created: await autoApproveStaleDeliverables(), skipped: 0 }) },
-  { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: await expireOffers(), skipped: 0 }) },
+  { name: "offer-expiry", schedule: "rate(1 hour)", intervalMs: HOUR, run: async () => ({ created: (await expireOffers()) + (await expirePublishedCoupons()), skipped: 0 }) },
   { name: "influencer-recommendation", schedule: "cron(0 6 * * ? *)", intervalMs: 24 * HOUR, run: async () => tally(await runInfluencerRecommendationAll()) },
   { name: "cargo-tracking-sync", schedule: "rate(30 minutes)", intervalMs: 30 * MIN, run: async () => { const r = await pollActiveShipments(50); return { created: r.updated, skipped: r.checked - r.updated }; } },
   { name: "tiktok-token-refresh", schedule: "rate(30 minutes)", intervalMs: 30 * MIN, run: async () => { const r = await refreshExpiringTikTokTokensJob(); return { created: r.refreshed, skipped: r.failed }; } },

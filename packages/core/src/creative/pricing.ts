@@ -59,9 +59,9 @@ export function unitPriceTry(unitPriceUsd: number, p: Pick<CreativePricing, "usd
   return Math.round(unitPriceUsd * p.usdTry * p.markup * 1000) / 1000;
 }
 
-/** Bir işin bakiyeden düşecek tutarı (2 hane hassasiyet, en az minTry). */
+/** Bir işin bakiyeden düşecek tutarı. TRY tam liraya yukarı yuvarlanır, en az minTry. */
 export function jobChargeTry(creditsPerUnit: number, units: number, minTry: number): number {
-  return Math.max(minTry, ceilCents(creditsPerUnit * units));
+  return Math.max(minTry, Math.ceil(creditsPerUnit * units - 1e-9));
 }
 
 /** USD/TRY, EUR ve GBP kurlarını canlı açık kaynaktan çeker; başarısızsa mevcut değer kalır. */

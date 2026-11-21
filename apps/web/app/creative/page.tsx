@@ -14,6 +14,7 @@ import { CreativeComposer, type ChatHistoryItem, type ComposerModel } from "@/co
 import { requireActor } from "@/lib/auth-guard";
 import { asKind, fmtTl, needsReference, type CreativeKind } from "@/lib/creative-models";
 import { fmtDateTime } from "@/lib/time";
+import { UnverifiedBadge } from "@/components/ui/unverified";
 
 export const metadata: Metadata = { title: "Nordvow Creative AI" };
 export const dynamic = "force-dynamic";
@@ -194,7 +195,7 @@ export default async function CreativePage({ searchParams }: { searchParams: Pro
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 rounded-full border border-line bg-bg px-3 py-1">
-            <span className="text-[11px] text-fg-muted">{tt("Kredi:")}</span>
+            <span className="text-[11px] text-fg-muted">{tt("Kredi:")}<UnverifiedBadge title={tt("Kur ve birim fiyat otomatik kaynaktan gelir; doğrulanmış tarife değildir.")} /></span>
             <span className="text-[13px] font-semibold tabular-nums text-fg">{money(available)}</span>
           </div>
           {!isAdmin ? (

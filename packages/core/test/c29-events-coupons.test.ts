@@ -92,7 +92,7 @@ describe("K29 kupon ve hediye çeki", () => {
   it("kupon oluşturur, yayına alır, gönderir (benzersiz kod) ve kullanır", async () => {
     const c = await createCoupon({ tenantId: T.tenantId, kind: "KUPON", title: "Hoş geldin %20", valueType: "YUZDE", value: 20, validUntil: new Date(Date.now() + 30 * 864e5) });
     await setCouponStatus(T.tenantId, c.id, "YAYINDA");
-    const g = await grantCoupon(c.id, inf.id);
+    const g = await grantCoupon(c.id, inf.id, T.tenantId);
     expect(g.code).toMatch(/^KPN-/);
     const r = await redeemGrant(g.code);
     expect(r.ok).toBe(true);
@@ -102,7 +102,7 @@ describe("K29 kupon ve hediye çeki", () => {
 
   it("yayında olmayan kupon gönderilemez; yüzde sınırları doğrulanır", async () => {
     const c = await createCoupon({ tenantId: T.tenantId, kind: "KUPON", title: "Taslak", valueType: "YUZDE", value: 10 });
-    await expect(grantCoupon(c.id, inf.id)).rejects.toBeInstanceOf(DomainError);
+    await expect(grantCoupon(c.id, inf.id, T.tenantId)).rejects.toBeInstanceOf(DomainError);
     await expect(createCoupon({ tenantId: T.tenantId, kind: "KUPON", title: "Hata", valueType: "YUZDE", value: 150 })).rejects.toBeInstanceOf(DomainError);
   });
 
@@ -110,7 +110,7 @@ describe("K29 kupon ve hediye çeki", () => {
     const c = await createCoupon({ tenantId: T.tenantId, kind: "HEDIYE_CEKI", title: "Çek", valueType: "TUTAR", value: 50000, sharedCode: "LANSMAN50" });
     await setCouponStatus(T.tenantId, c.id, "YAYINDA");
     const inf2 = await makeInfluencer();
-    const grants = await grantCouponMany(c.id, [inf.id, inf2.id, inf.id]);
+    const grants = await grantCouponMany(c.id, [inf.id, inf2.id, inf.id], T.tenantId);
     expect(grants).toHaveLength(2); // iki farklı kişi; tekrar atlandı
     // Grant kodları benzersizdir; paylaşılan kod kupon şablonunda tutulur.
     expect(new Set(grants.map((g) => g.code)).size).toBe(2);

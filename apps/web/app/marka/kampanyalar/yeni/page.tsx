@@ -7,7 +7,7 @@ import { ButtonLink } from "@/components/ui/form";
 import { PageHeader } from "@/components/ui/layout";
 import { requireActor } from "@/lib/auth-guard";
 import { getTT } from "@/lib/i18n/tt-server";
-import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/actions/campaign-catalog";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 
 export const metadata: Metadata = { title: "Yeni kampanya" };
 export const dynamic = "force-dynamic";

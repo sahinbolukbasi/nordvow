@@ -5,6 +5,7 @@ import { audit } from "@infulancer/core/audit";
 import { toAuditActor } from "@infulancer/core/access/actor";
 import { prisma } from "@infulancer/core/db";
 import { DomainError } from "@infulancer/core/domain/errors";
+import { assertUniqueInstagramHandle, normalizeInstagramHandle } from "@infulancer/core/social/handles";
 import type { ActionState } from "@/lib/action-state";
 import { attempt, optStr, parseInput, revalidateAll, str } from "@/lib/action-utils";
 import { requireActor } from "@/lib/auth-guard";
@@ -14,11 +15,29 @@ export async function updateProfileAction(_p: ActionState, fd: FormData): Promis
   const actor = await requireActor();
   return attempt(async () => {
     const input = parseInput(
-      z.object({ name: z.string().trim().max(120), phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, { error: "Geçerli bir telefon girin." }).nullable() }),
-      { name: str(fd, "name"), phone: optStr(fd, "phone") },
-      { name: "Ad soyad", phone: "Telefon" },
+      z.object({
+        name: z.string().trim().min(2).max(120),
+        phone: z.string().trim().regex(/^\+?[0-9 ()-]{7,20}$/, { error: "Geçerli bir telefon girin." }).nullable(),
+        instagram: z.string().trim().max(80).nullable(),
+      }),
+      { name: str(fd, "name"), phone: optStr(fd, "phone"), instagram: optStr(fd, "instagram") },
+      { name: "Ad soyad", phone: "Telefon", instagram: "Instagram" },
     );
-    await prisma.user.update({ where: { id: actor.userId }, data: input });
+    const instagramHandle = input.instagram ? normalizeInstagramHandle(input.instagram) : null;
+    if (instagramHandle && !/^[a-z0-9._]{1,30}$/.test(instagramHandle)) throw new DomainError("DOGRULAMA", "Geçerli bir Instagram kullanıcı adı girin.");
+    if (instagramHandle) {
+      const taken = await prisma.user.findFirst({ where: { instagramHandle, NOT: { id: actor.userId } }, select: { id: true } });
+      if (taken) throw new DomainError("CAKISMA", "Bu Instagram kullanıcı adı başka bir profilde kayıtlı.");
+      if (actor.influencerId) await assertUniqueInstagramHandle(prisma, instagramHandle, actor.influencerId);
+    }
+    await prisma.user.update({ where: { id: actor.userId }, data: { name: input.name, phone: input.phone, instagramHandle } });
+    if (actor.influencerId && instagramHandle) {
+      await prisma.socialAccount.upsert({
+        where: { influencerId_platform: { influencerId: actor.influencerId, platform: "INSTAGRAM" } },
+        create: { influencerId: actor.influencerId, platform: "INSTAGRAM", handle: instagramHandle, followers: 0, engagementRate: 0, demographics: {} },
+        update: { handle: instagramHandle },
+      });
+    }
     await audit.append({ actor: toAuditActor(actor), action: "PROFILE_UPDATED", entityType: "User", entityId: actor.userId, data: { phone: input.phone ? "değişti" : null } });
     revalidateAll();
     return { ok: true, message: "Profil güncellendi." };

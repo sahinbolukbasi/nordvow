@@ -45,6 +45,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim Merkezi", icon: BellIcon, section: "Taraflar ve İletişim", order: 138 },
     { href: "/admin/iletisim", label: "Admin İletişim", icon: SettingsIcon, section: "Taraflar ve İletişim", order: 140 },
     { href: "/admin/whatsapp-ai", label: "WhatsApp AI Takip", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 145 },
+    { href: "/admin/bot", label: "Platform botu", icon: SparkleIcon, section: "Taraflar ve İletişim", order: 148 },
     { href: "/admin/destek", label: "Destek talepleri", icon: AlertIcon, section: "Taraflar ve İletişim", order: 150 },
 
     // 3. Pazarlama & Araçlar
@@ -89,6 +90,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/marka/etkinlikler", label: "Etkinlikler", icon: CalendarIcon, section: "Pazarlama ve Araçlar", order: 120 },
     { href: "/marka/qr-giris", label: "QR Giriş & Biletler", icon: QrCodeIcon, section: "Pazarlama ve Araçlar", order: 125 },
     { href: "/marka/kuponlar", label: "Kuponlar", icon: WalletIcon, section: "Pazarlama ve Araçlar", order: 130 },
+    { href: "/marka/linkler", label: "Linkler", icon: LinkIcon, section: "Pazarlama ve Araçlar", order: 140 },
 
     { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim", icon: BellIcon, section: "İletişim", order: 195 },
 
@@ -105,6 +107,7 @@ export const navByRole: Record<Role, NavItem[]> = {
     { href: "/creative", label: "Creative", icon: SparkleIcon, section: "Üretim ve Kazanç", order: 100 },
     { href: "/dashboard/iletisim/gelen-kutusu", label: "İletişim", icon: BellIcon, section: "Üretim ve Kazanç", order: 105 },
     { href: "/influencer/odemeler", label: "Ödemeler", icon: WalletIcon, section: "Üretim ve Kazanç", order: 110 },
+    { href: "/influencer/linkler", label: "Linkler", icon: LinkIcon, section: "Üretim ve Kazanç", order: 120 },
 
     { href: "/profil", label: "Profilim", icon: UserIcon, section: "Hesap ve Rehber", order: 200 },
     { href: "/docs", label: "Rehber", icon: BookOpenIcon, section: "Hesap ve Rehber", order: 210 },

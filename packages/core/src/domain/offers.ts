@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma, type ContentType, type Platform, type Prisma } from "../db";
 import { DomainError } from "./errors";
+import { MAX_FEE_KURUS } from "./money";
 import { assertContentType } from "./platform-rules";
 
 /**
@@ -86,6 +87,10 @@ export async function sendOffers(input: OfferInput, now = new Date()): Promise<{
     const total = offerTotal(priced);
     if (total <= 0) {
       skipped.push({ influencerId, reason: "Fiyat belirlenemedi (fiyat listesi boş)." });
+      continue;
+    }
+    if (!Number.isSafeInteger(total) || total > MAX_FEE_KURUS) {
+      skipped.push({ influencerId, reason: "Teklif tutarı üst sınırı aşıyor." });
       continue;
     }
     const o = await prisma.offer.create({

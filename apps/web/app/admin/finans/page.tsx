@@ -48,6 +48,7 @@ export default async function FinancePage() {
 
   const balances = await Promise.all(influencers.map((i) => computeBalances(i.id, now).then((b) => [i.id, b] as const)));
   const balanceBy = new Map(balances);
+  const negativeBalances = balances.filter(([, b]) => b.cekilebilir < 0).length;
   const totals = balances.reduce(
     (s, [, b]) => ({ hakedilen: s.hakedilen + b.hakedilen, cekilebilir: s.cekilebilir + Math.max(b.cekilebilir, 0), islemde: s.islemde + b.islemde }),
     { hakedilen: 0, cekilebilir: 0, islemde: 0 },
@@ -105,7 +106,10 @@ export default async function FinancePage() {
               sort: p.influencer.name,
             },
             amount: { display: formatKurus(p.amountKurus), sort: p.amountKurus },
-            available: { display: b ? formatKurus(b.cekilebilir) : "—", sort: b?.cekilebilir ?? null },
+            available: {
+              display: !b ? "—" : b.cekilebilir < 0 ? <span>₺0 <span className="text-[12px] text-critical">{tt("eksi bakiye 0 gösterildi")}</span></span> : formatKurus(b.cekilebilir),
+              sort: b ? Math.max(b.cekilebilir, 0) : null,
+            },
             tax: (
               <span className="flex flex-col gap-1">
                 {taxStatusLabels[p.influencer.taxStatus]}
@@ -279,6 +283,7 @@ export default async function FinancePage() {
         <MetricCard label={tt("İşlemde")} value={totals.islemde} format="currency-kurus" hint={tt("Açık çekim talepleri")} />
         <MetricCard label={tt("Bu ay ödenen")} value={paidThisMonth._sum.amountKurus ?? 0} format="currency-kurus" hint={tt("Gönderildi olarak işaretlenen")} />
       </div>
+      {negativeBalances ? <p role="status" className="text-[13px] text-critical">{negativeBalances}{" "}{tt("içerik üreticisinde çekilebilir bakiye eksiydi; toplam ve satırda 0 gösterildi.")}</p> : null}
       <Tabs
         label={tt("Finans bölümleri")}
         tabs={[

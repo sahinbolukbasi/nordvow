@@ -6,7 +6,7 @@ import { CampaignWizardPage } from "@/components/campaign/wizard/wizard-page";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/layout";
 import { requireActor } from "@/lib/auth-guard";
-import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/actions/campaign-catalog";
+import { CAMPAIGN_CATALOG_KEY, type CampaignCatalogEntry } from "@/lib/campaign-catalog";
 export const metadata: Metadata = { title: "Yeni kampanya" };
 export default async function NewCampaignPage({ searchParams }: { searchParams: Promise<{ marka?: string; mod?: string; kampanyaId?: string }> }) {
   const tt = await getTT();

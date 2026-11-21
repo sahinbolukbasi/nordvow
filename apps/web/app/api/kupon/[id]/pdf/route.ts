@@ -1,23 +1,26 @@
-import { prisma } from "@infulancer/core/db";
 import { couponValueLabel } from "@infulancer/core/coupons/service";
 import { buildWalletLinks } from "@infulancer/core/wallet/passes";
 import { dateLong } from "@/lib/event-format";
+import { couponPassError, loadCouponPass } from "@/lib/coupon-pass";
 import { renderPassPdf } from "@/lib/pdf/pass-pdf";
 import { jsonError } from "@/lib/uploads";
+import { prisma } from "@infulancer/core/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Herkese açık kupon/hediye çeki PDF'i (QR + kod). id bir gönderim veya şablon olabilir. */
+/** Kupon PDF. Gönderim bağlantısı herkese açıktır. Şablon kimliği paylaşılan kodu yalnız marka/yöneticiye verir. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!id || id.length > 64) return jsonError(404, "Kupon bulunamadı.");
-  const grant = await prisma.couponGrant.findUnique({ where: { id }, include: { coupon: true } });
-  const coupon = grant?.coupon ?? (await prisma.coupon.findUnique({ where: { id } }));
-  if (!coupon) return jsonError(404, "Kupon bulunamadı.");
+  const pass = await loadCouponPass(id);
+  if (!pass.coupon || !pass.decision.allow) {
+    const err = couponPassError(pass.decision);
+    return jsonError(err.status, err.message);
+  }
+  const { coupon, grant, sharedCode } = pass;
   const brand = await prisma.brand.findUnique({ where: { id: coupon.tenantId }, select: { name: true } });
-  const code = coupon.sharedCode ?? grant?.code ?? "ÖNİZLEME";
-  const qrContent = grant?.code ?? coupon.sharedCode ?? id;
+  const code = sharedCode ?? grant?.code ?? "ÖNİZLEME";
+  const qrContent = grant?.code ?? sharedCode ?? id;
   const links = await buildWalletLinks("coupon", id, qrContent);
   const expired = !!coupon.validUntil && coupon.validUntil < new Date();
   const kind = coupon.kind === "HEDIYE_CEKI" ? "Hediye çeki" : "Kupon";

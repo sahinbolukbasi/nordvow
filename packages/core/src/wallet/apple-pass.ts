@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { envStr } from "../env";
+import { logWallet } from "./passes";
 import { BRAND_NAME } from "../brand";
 import { appleWalletConfigured, type PassData } from "./passes";
 import { renderBannerPng, renderBrandIconPng } from "./png";
@@ -94,10 +95,13 @@ export function applePassJson(
     ...(data.kind === "ticket" ? { eventTicket: fields } : { coupon: fields }),
   };
 
-  const rel = isoDate(data.relevantDate);
-  if (rel) pass.relevantDate = rel;
-  const exp = isoDate(data.expirationDate);
-  if (exp) pass.expirationDate = exp;
+  if (data.kind === "ticket") {
+    const rel = isoDate(data.relevantDate);
+    if (rel) pass.relevantDate = rel;
+  } else {
+    const exp = isoDate(data.expirationDate);
+    if (exp) pass.expirationDate = exp;
+  }
   if (data.location && Number.isFinite(data.location.latitude) && Number.isFinite(data.location.longitude)) {
     pass.locations = [
       {
@@ -218,7 +222,7 @@ function getCertMaterial(
       let extracted = tryExtract(["-legacy"]);
       if (!extracted.ok) extracted = tryExtract([]);
       if (!extracted.ok) {
-        console.error("[apple-wallet] .p12 ayıklama hatası:", extracted.err);
+        logWallet("apple", "[apple-wallet] .p12 ayıklama hatası:", extracted.err);
         return null;
       }
     }
@@ -307,7 +311,7 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
       "-outform", "DER",
     ]);
     if (!sign.ok) {
-      console.error("[apple-wallet] PKCS#7 imzalama hatası:", sign.err);
+      logWallet("apple", "[apple-wallet] PKCS#7 imzalama hatası:", sign.err);
       return null;
     }
 
@@ -316,7 +320,7 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
     const entries = [...Object.keys(files), "signature"];
     const zipRes = spawnSync("zip", ["-q", "-X", zipPath, ...entries], { cwd: dir, encoding: "utf8" });
     if (zipRes.status !== 0) {
-      console.error("[apple-wallet] zip hatası:", zipRes.stderr);
+      logWallet("apple", "[apple-wallet] zip hatası:", zipRes.stderr);
       return null;
     }
     const out = readFileSync(zipPath);
@@ -327,7 +331,7 @@ export async function buildPkpass(data: PassData, serial: string): Promise<Buffe
     pkpassCache.set(cacheKey, { buf: out, expiresAt: Date.now() + 60_000 });
     return out;
   } catch (err) {
-    console.error("[apple-wallet] Beklenmeyen hata:", err);
+    logWallet("apple", "[apple-wallet] Beklenmeyen hata:", err);
     return null;
   } finally {
     rmSync(dir, { recursive: true, force: true });
