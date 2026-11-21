@@ -27,7 +27,7 @@ afterEach(() => {
 
 describe("TikTok crypto & secret redaction", () => {
   it("encrypts and decrypts tokens with AES-256-GCM using 32-byte key", () => {
-    const keyHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const keyHex = "00".repeat(32);
     const token = "act.tiktok_secret_token_example_12345";
     const enc = encryptToken(token, keyHex);
     expect(enc.startsWith("v1:")).toBe(true);
