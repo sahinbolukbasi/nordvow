@@ -3,6 +3,8 @@ import { prisma } from "../src/db";
 import { memoryStore } from "../src/channels/raw-store";
 import { ensureStarterCredits, topUp } from "../src/creative/credits";
 import { CreativeRejectedError, handleFalWebhook, submitCreative } from "../src/creative/fal";
+import { chargeIn, creativePricing, unitPriceTry } from "../src/creative/pricing";
+import { tenantCurrency } from "../src/creative/tenant";
 import { assertNoRealPersonClone, RealPersonBlockedError } from "../src/creative/md2712";
 import { ModelUnavailableError, resolveModel } from "../src/creative/registry";
 import { makeTenant, resetDb } from "./helpers";
@@ -20,8 +22,12 @@ describe("creative üretimi", () => {
     it("başarılı üretimde varlık C2PA manifest'iyle kaydedilir ve kredi webhook'ta tahsil edilir", async () => {
       const job = await submitCreative({ tenantId: T.tenantId, modelKey: "nano-banana-pro", prompt: "Pastel arka planda ruj ürün fotoğrafı", units: 2 });
       expect(job.status).toBe("IN_QUEUE");
+      const pricing = await creativePricing();
+      const model = await prisma.modelRegistry.findUniqueOrThrow({ where: { key: "nano-banana-pro" } });
+      const cpu = Number(model.unitPriceUsd) > 0 ? unitPriceTry(Number(model.unitPriceUsd), pricing) : Number(model.creditsPerUnit);
+      const hold = chargeIn(cpu, 2, pricing, await tenantCurrency(T.tenantId));
       let acc = await prisma.creditAccount.findUniqueOrThrow({ where: { tenantId: T.tenantId } });
-      expect(Number(acc.heldCredits)).toBe(46); // 0,15 $ × 50,18 × 3 = 22,581 TL/adet → 2 adet = 45,16 → 46 TL
+      expect(Number(acc.heldCredits)).toBe(hold);
       expect(Number(acc.balanceCredits)).toBe(1000);
 
       const r = await handleFalWebhook({ request_id: job.requestId!, status: "OK", payload: { images: [{ url: "https://fal.media/x.png" }] }, metrics: { inference_time: 2.5 } });
@@ -32,7 +38,7 @@ describe("creative üretimi", () => {
       expect(await memoryStore.has(`${asset.s3Key}.c2pa.json`)).toBe(true);
       acc = await prisma.creditAccount.findUniqueOrThrow({ where: { tenantId: T.tenantId } });
       expect(Number(acc.heldCredits)).toBe(0);
-      expect(Number(acc.balanceCredits)).toBe(954);
+      expect(Number(acc.balanceCredits)).toBe(1000 - hold);
     });
 
     it("webhook retry'ı ikinci varlık ve ikinci tahsilat üretmez", async () => {
